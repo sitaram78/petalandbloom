@@ -123,8 +123,19 @@ export default function AdminSettings() {
     setSavingProfile(false);
   };
 
-  const handleToggleConciergeMode = (mode: ConciergeChannelMode) => {
+  const handleToggleConciergeMode = async (mode: ConciergeChannelMode) => {
     setProfileForm((prev) => ({ ...prev, conciergeChannelMode: mode }));
+    const result = await updateSettings({ conciergeChannelMode: mode });
+    if (result.success) {
+      showNotification(
+        mode === 'IN_SYSTEM'
+          ? 'Switched live concierge to In-System Live Assistant Mode across storefront!'
+          : 'Switched live concierge to Direct WhatsApp Mode across storefront!',
+        'success'
+      );
+    } else {
+      showNotification('Failed to update concierge mode: ' + (result.error || 'Unknown error'), 'error');
+    }
   };
 
   async function addCategory() {

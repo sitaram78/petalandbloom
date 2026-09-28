@@ -16,7 +16,21 @@ export default function WhatsAppButton({
   className = '',
 }: WhatsAppButtonProps) {
   const { triggerAssistance, buildWhatsAppUrl, settings } = useStoreSettings();
-  const baseClass = variant === 'primary' ? 'btn-whatsapp' : 'btn-secondary';
+  let dynamicLabel = label;
+  if (settings.conciergeChannelMode === 'IN_SYSTEM') {
+    if (label === 'Order on WhatsApp') {
+      dynamicLabel = 'Order via Atelier Chat';
+    } else if (label.toLowerCase().includes('whatsapp')) {
+      dynamicLabel = label.replace(/whatsapp/gi, 'Atelier Chat');
+    }
+  }
+
+  const baseClass =
+    variant === 'outline'
+      ? 'btn-secondary'
+      : settings.conciergeChannelMode === 'IN_SYSTEM'
+      ? 'inline-flex items-center justify-center gap-2 px-8 py-4 bg-rose hover:bg-rose-deep text-white text-sm font-medium tracking-wide rounded-atelier-btn transition-all duration-300 shadow-soft active:scale-[0.98] whitespace-nowrap'
+      : 'btn-whatsapp';
 
   const handleClick = (e: React.MouseEvent) => {
     if (settings.conciergeChannelMode === 'IN_SYSTEM') {
@@ -24,11 +38,6 @@ export default function WhatsAppButton({
       triggerAssistance(message);
     }
   };
-
-  const dynamicLabel =
-    settings.conciergeChannelMode === 'IN_SYSTEM' && label === 'Order on WhatsApp'
-      ? 'Order via Atelier Chat'
-      : label;
 
   return (
     <a

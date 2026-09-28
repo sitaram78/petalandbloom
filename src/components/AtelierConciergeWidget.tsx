@@ -225,28 +225,46 @@ export default function AtelierConciergeWidget() {
 
   return (
     <>
-      {/* Floating Action Bubble */}
-      <div className="fixed bottom-6 right-6 z-40 print:hidden flex flex-col items-end">
+      {/* Responsive Floating Action Bubble */}
+      <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-50 print:hidden flex flex-col items-end">
         {!isChatOpen && (
           <button
             onClick={handleBubbleClick}
-            className="group flex items-center gap-2.5 px-4 py-3 bg-bark text-linen hover:bg-rose-deep rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105"
-            aria-label="Contact Studio Assistance"
+            className={`group flex items-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 border ${
+              settings.conciergeChannelMode === 'WHATSAPP'
+                ? 'bg-[#25D366] text-white hover:bg-[#20bd5a] border-emerald-300/40 shadow-emerald-950/20'
+                : 'bg-bark text-linen hover:bg-rose-deep border-canvas-line shadow-bark/30'
+            }`}
+            aria-label={settings.conciergeChannelMode === 'WHATSAPP' ? 'Chat on WhatsApp' : 'Studio Assistance'}
           >
-            <div className="relative">
-              <MessageCircle size={20} className="text-linen" />
+            <div className="relative flex items-center justify-center">
+              {settings.conciergeChannelMode === 'WHATSAPP' ? (
+                <Phone size={18} className="text-white fill-current sm:w-5 sm:h-5" />
+              ) : (
+                <MessageCircle size={18} className="text-linen sm:w-5 sm:h-5" />
+              )}
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-bark animate-pulse" />
             </div>
-            <span className="text-xs uppercase tracking-wider font-medium pr-1 hidden sm:inline">
-              {settings.conciergeChannelMode === 'WHATSAPP' ? 'Chat on WhatsApp' : 'Studio Assistance'}
-            </span>
+            <div className="flex flex-col text-left leading-tight pr-1">
+              {settings.conciergeChannelMode === 'WHATSAPP' ? (
+                <>
+                  <span className="text-[11px] sm:text-xs font-semibold tracking-wide uppercase sm:hidden">WhatsApp</span>
+                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline">Chat on WhatsApp</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] sm:text-xs font-semibold tracking-wide uppercase sm:hidden">Live Chat</span>
+                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline">Studio Assistance</span>
+                </>
+              )}
+            </div>
           </button>
         )}
       </div>
 
       {/* In-System Chat Drawer / Window */}
       {isChatOpen && settings.conciergeChannelMode === 'IN_SYSTEM' && (
-        <div className="fixed bottom-6 right-6 z-50 w-full max-w-sm sm:max-w-md h-[560px] max-h-[85vh] bg-white rounded-atelier-card shadow-2xl border border-canvas-line flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300">
+        <div className="fixed inset-x-3 bottom-20 sm:inset-x-auto sm:bottom-6 sm:right-6 w-auto sm:w-[400px] h-[520px] max-h-[75vh] sm:max-h-[85vh] bg-white rounded-atelier-card shadow-2xl border border-canvas-line flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300 z-50">
           {/* Header */}
           <div className="p-4 bg-bark text-linen flex items-center justify-between">
             <div className="flex items-center gap-2.5">
