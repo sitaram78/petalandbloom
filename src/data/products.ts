@@ -21,6 +21,7 @@ export interface Product {
   images: string[];
   bouquetSize?: string;
   whatsIncluded?: string[];
+  inventoryCount?: number;
 }
 
 export function getDiscountPercent(product: Pick<Product, 'price' | 'compareAtPrice'>): number {

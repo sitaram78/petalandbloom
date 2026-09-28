@@ -1,5 +1,14 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import type { Product } from '@/data/products';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 import { trackEvent } from '@/utils/analytics';
 
 interface WishlistContextValue {
@@ -8,12 +17,15 @@ interface WishlistContextValue {
   isWishlisted: (code: string) => boolean;
   removeItem: (code: string) => void;
   count: number;
+  syncing: boolean;
 }
 
 const WishlistContext = createContext<WishlistContextValue | undefined>(undefined);
 const STORAGE_KEY = 'tpb-wishlist';
+const SYNC_CHANNEL = 'tpb_wishlist_sync';
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [items, setItems] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -22,34 +34,173 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
       return [];
     }
   });
+  const [syncing, setSyncing] = useState(false);
+  const channelRef = useRef<BroadcastChannel | null>(null);
 
+  // Broadcast channel for multi-tab synchronization
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      const bc = new BroadcastChannel(SYNC_CHANNEL);
+      channelRef.current = bc;
+      bc.onmessage = (event) => {
+        if (event.data && Array.isArray(event.data.items)) {
+          setItems(event.data.items);
+        }
+      };
+      return () => {
+        bc.close();
+      };
+    } catch {
+      /* BroadcastChannel not supported in environment */
+    }
+  }, []);
+
+  // Save to localStorage and broadcast whenever items change
+  const broadcastItems = (newItems: string[]) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newItems));
+      channelRef.current?.postMessage({ items: newItems });
     } catch {
       /* ignore */
     }
-  }, [items]);
+  };
 
-  const toggleItem = useCallback((code: string) => {
-    setItems((prev) => {
-      if (prev.includes(code)) {
-        trackEvent('wishlist_remove', { code });
-        return prev.filter((c) => c !== code);
+  // Cloud Sync on Auth Login / User Change
+  useEffect(() => {
+    if (!user) return;
+
+    let isMounted = true;
+    const syncCloudWishlist = async () => {
+      setSyncing(true);
+      try {
+        // 1. Fetch Cloud Wishlist from Supabase
+        const { data: cloudData, error } = await supabase
+          .from('customer_wishlists')
+          .select('product_code')
+          .eq('customer_id', user.id);
+
+        if (error) {
+          console.warn('[Wishlist Cloud Sync] Error fetching wishlist:', error.message);
+          return;
+        }
+
+        const cloudItems: string[] = (cloudData || []).map((row: any) => row.product_code);
+
+        // 2. Read local guest items
+        const localStored = localStorage.getItem(STORAGE_KEY);
+        const localItems: string[] = localStored ? JSON.parse(localStored) : [];
+
+        // 3. Merge unique items
+        const mergedSet = new Set<string>([...cloudItems, ...localItems]);
+        const mergedList = Array.from(mergedSet);
+
+        // 4. If there were local items not yet in cloud, upload them
+        const missingInCloud = localItems.filter((code) => !cloudItems.includes(code));
+        if (missingInCloud.length > 0) {
+          const toInsert = missingInCloud.map((code) => ({
+            customer_id: user.id,
+            product_code: code,
+          }));
+
+          await supabase.from('customer_wishlists').upsert(toInsert, {
+            onConflict: 'customer_id,product_code',
+          });
+        }
+
+        if (isMounted) {
+          setItems(mergedList);
+          broadcastItems(mergedList);
+        }
+      } catch (err) {
+        console.warn('[Wishlist Cloud Sync] Unexpected error:', err);
+      } finally {
+        if (isMounted) setSyncing(false);
       }
-      trackEvent('wishlist_add', { code });
-      return [...prev, code];
-    });
-  }, []);
+    };
+
+    syncCloudWishlist();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
+
+  const toggleItem = useCallback(
+    async (code: string) => {
+      const isAlreadyIn = items.includes(code);
+      const nextItems = isAlreadyIn ? items.filter((c) => c !== code) : [...items, code];
+
+      // Optimistic local update
+      setItems(nextItems);
+      broadcastItems(nextItems);
+
+      if (isAlreadyIn) {
+        trackEvent('wishlist_remove', { code });
+      } else {
+        trackEvent('wishlist_add', { code });
+      }
+
+      // Sync to Cloud if authenticated
+      if (user) {
+        try {
+          if (isAlreadyIn) {
+            await supabase
+              .from('customer_wishlists')
+              .delete()
+              .eq('customer_id', user.id)
+              .eq('product_code', code);
+          } else {
+            await supabase.from('customer_wishlists').upsert(
+              {
+                customer_id: user.id,
+                product_code: code,
+              },
+              { onConflict: 'customer_id,product_code' }
+            );
+          }
+        } catch (err) {
+          console.warn('[Wishlist Cloud Toggle Error]:', err);
+        }
+      }
+    },
+    [items, user]
+  );
 
   const isWishlisted = useCallback((code: string) => items.includes(code), [items]);
 
-  const removeItem = useCallback((code: string) => {
-    setItems((prev) => prev.filter((c) => c !== code));
-  }, []);
+  const removeItem = useCallback(
+    async (code: string) => {
+      const nextItems = items.filter((c) => c !== code);
+      setItems(nextItems);
+      broadcastItems(nextItems);
+      trackEvent('wishlist_remove', { code });
+
+      if (user) {
+        try {
+          await supabase
+            .from('customer_wishlists')
+            .delete()
+            .eq('customer_id', user.id)
+            .eq('product_code', code);
+        } catch (err) {
+          console.warn('[Wishlist Cloud Remove Error]:', err);
+        }
+      }
+    },
+    [items, user]
+  );
 
   return (
-    <WishlistContext.Provider value={{ items, toggleItem, isWishlisted, removeItem, count: items.length }}>
+    <WishlistContext.Provider
+      value={{
+        items,
+        toggleItem,
+        isWishlisted,
+        removeItem,
+        count: items.length,
+        syncing,
+      }}
+    >
       {children}
     </WishlistContext.Provider>
   );

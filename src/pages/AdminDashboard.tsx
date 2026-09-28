@@ -21,6 +21,7 @@ import {
   Ticket,
   Upload,
   Download,
+  AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useProducts } from '@/context/ProductContext';
@@ -110,6 +111,10 @@ export default function AdminDashboard() {
     const search = searchQuery.toLowerCase();
     return name.includes(search) || code.includes(search);
   });
+
+  const lowStockProducts = products.filter(
+    (p) => p.inventoryCount !== undefined && p.inventoryCount <= 3 && !p.madeToOrder
+  );
 
   const handleDeleteProduct = async (code: string) => {
     if (!confirm(`Are you sure you want to delete product ${code}? This action cannot be undone.`)) {
@@ -411,10 +416,20 @@ export default function AdminDashboard() {
                   <span className="text-ink-light">Customisable Floral Pieces</span>
                   <span className="font-serif font-medium text-bark text-sm">{products.filter(p => p.customisable).length}</span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center pb-2 border-b border-canvas-line">
                   <span className="text-ink-light">Made to Order Creations</span>
                   <span className="font-serif font-medium text-bark text-sm">{products.filter(p => p.madeToOrder).length}</span>
                 </div>
+                {lowStockProducts.length > 0 && (
+                  <div className="flex justify-between items-center text-red-700 font-medium">
+                    <span className="flex items-center gap-1">
+                      <AlertTriangle size={12} className="text-red-600" /> Low Stock Warning (&le; 3 pcs)
+                    </span>
+                    <span className="font-serif font-bold text-sm bg-red-100 text-red-800 px-1.5 py-0.5 rounded">
+                      {lowStockProducts.length}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -519,6 +534,17 @@ export default function AdminDashboard() {
                         )}
                         {p.madeToOrder && (
                           <span className="px-2 py-0.5 rounded text-[10px] bg-canvas border border-canvas-line text-ink-light">Made to order</span>
+                        )}
+                        {p.inventoryCount !== undefined && !p.madeToOrder && (
+                          p.inventoryCount <= 3 ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-red-100 text-red-800 font-bold flex items-center gap-1">
+                              <AlertTriangle size={10} /> Low ({p.inventoryCount} left)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-canvas border border-canvas-line text-ink-light">
+                              {p.inventoryCount} in stock
+                            </span>
+                          )
                         )}
                       </div>
                     </td>

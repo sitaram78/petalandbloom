@@ -50,6 +50,7 @@ export function ProductProvider({ children }: { children: React.ReactNode }) {
         customisable: !!(p.is_customisable ?? p.customisable),
         images: Array.isArray(p.images) ? p.images : [],
         bouquetSize: p.bouquet_size || '',
+        inventoryCount: p.inventory_count !== undefined && p.inventory_count !== null ? Number(p.inventory_count) : undefined,
       }));
 
       setProducts(mappedProducts);
