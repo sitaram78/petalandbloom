@@ -174,10 +174,14 @@ export default function CartDrawer() {
   const giftWrapTotal = items.reduce((sum, i) => sum + (i.giftWrap ? 79 * i.quantity : 0), 0);
   const baseShippingCost = totalPrice >= 1200 ? 0 : totalPrice >= 799 ? 49 : 69;
   const shippingCost = baseShippingCost;
-  const maxLoyaltyRedeemable = (loyalty?.points_balance || 0) > 0
-    ? Math.min(loyalty?.points_balance || 0, Math.max(0, totalPrice - discountAmount))
-    : 0;
-  const loyaltyDiscount = redeemPoints ? maxLoyaltyRedeemable : 0;
+
+  // Decision 1: 1 Petal Point = ₹0.50 (2 pts = ₹1), redeemable ONLY on orders > ₹299
+  const isPointsEligible = totalPrice >= 299;
+  const pointsBalance = loyalty?.points_balance || 0;
+  const maxDiscountAmount = Math.max(0, totalPrice - discountAmount);
+  const maxPointsRedeemable = Math.min(pointsBalance, Math.floor(maxDiscountAmount * 2));
+  const pointsToRedeem = isPointsEligible && redeemPoints ? maxPointsRedeemable : 0;
+  const loyaltyDiscount = pointsToRedeem * 0.5;
   const grandTotal = Math.max(0, totalPrice - discountAmount - loyaltyDiscount + shippingCost + giftWrapTotal);
 
   const openCheckout = () => {
@@ -244,7 +248,7 @@ export default function CartDrawer() {
         state: state.trim(),
         pincode: cleanPin,
       },
-      redeemPoints: loyaltyDiscount > 0 ? loyaltyDiscount : undefined,
+      redeemPoints: pointsToRedeem > 0 ? pointsToRedeem : undefined,
       customerNote: customerNote.trim() || undefined,
     });
 
@@ -493,10 +497,10 @@ export default function CartDrawer() {
             </div>
 
             <h2 id="guest-discount-title" className="font-serif text-3xl text-bark leading-tight mb-2">
-              Save ₹50 on this order
+              Save ₹20 on orders above ₹299
             </h2>
             <p className="text-sm text-ink-light font-light leading-relaxed mb-6">
-              Create your account or sign in to instantly unlock a <strong className="text-bark font-medium">50 Petal Points welcome bonus (₹50 off)</strong> and apply it immediately to your checkout.
+              Create your account or sign in to instantly unlock a <strong className="text-bark font-medium">40 Petal Points welcome bonus (₹20 off)</strong> and apply it immediately to your checkout.
             </p>
 
             <div className="bg-canvas/50 border border-canvas-line rounded-atelier-card p-4 space-y-3 mb-6">
@@ -504,19 +508,19 @@ export default function CartDrawer() {
                 <div className="w-5 h-5 rounded-full bg-rose/20 text-rose flex items-center justify-center shrink-0 mt-0.5 font-bold">
                   ✓
                 </div>
-                <span><strong className="text-bark font-medium">Instant ₹50 Off:</strong> 50 welcome points credited immediately to redeem on this purchase.</span>
+                <span><strong className="text-bark font-medium">Instant ₹20 Off:</strong> 40 welcome points credited immediately to redeem on orders above ₹299.</span>
               </div>
               <div className="flex items-start gap-3 text-xs text-ink-light">
                 <div className="w-5 h-5 rounded-full bg-rose/20 text-rose flex items-center justify-center shrink-0 mt-0.5 font-bold">
                   ✓
                 </div>
-                <span><strong className="text-bark font-medium">Artisan Journey Tracking:</strong> Follow your blooms as they are shaped and wrapped in the studio.</span>
+                <span><strong className="text-bark font-medium">Artisan Journey Tracking:</strong> Follow your blooms as they are crafted and wrapped in the studio.</span>
               </div>
               <div className="flex items-start gap-3 text-xs text-ink-light">
                 <div className="w-5 h-5 rounded-full bg-rose/20 text-rose flex items-center justify-center shrink-0 mt-0.5 font-bold">
                   ✓
                 </div>
-                <span><strong className="text-bark font-medium">Atelier Rewards:</strong> Earn 1 point for every ₹10 spent on all future gifting.</span>
+                <span><strong className="text-bark font-medium">Atelier Rewards:</strong> Earn 1 point for every ₹20 spent on all future gifting.</span>
               </div>
             </div>
 
@@ -816,30 +820,38 @@ export default function CartDrawer() {
               </div>
 
               {/* Loyalty Points Redemption (if logged-in customer has points) */}
-              {user && (loyalty?.points_balance || 0) > 0 && (
-                <div className="p-3 bg-parchment-50 border border-canvas-line rounded-sm flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles size={16} className="text-rose shrink-0" />
-                    <div>
-                      <p className="text-xs font-medium text-bark">
-                        Redeem Atelier Points
-                      </p>
-                      <p className="text-[11px] text-ink-light">
-                        Available: {loyalty?.points_balance} pts (Save ₹{maxLoyaltyRedeemable})
-                      </p>
+              {user && pointsBalance > 0 && (
+                <div className="p-3 bg-parchment-50 border border-canvas-line rounded-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <Sparkles size={16} className="text-rose shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-bark">
+                          Redeem Atelier Points
+                        </p>
+                        <p className="text-[11px] text-ink-light">
+                          {isPointsEligible
+                            ? `Available: ${pointsBalance} pts (Save up to ₹${Math.floor(maxPointsRedeemable * 0.5)} · 2 pts = ₹1)`
+                            : `Available: ${pointsBalance} pts (Redeemable on orders above ₹299)`}
+                        </p>
+                      </div>
                     </div>
+                    {isPointsEligible ? (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={redeemPoints}
+                          onChange={(e) => setRedeemPoints(e.target.checked)}
+                          className="accent-rose w-4 h-4 rounded cursor-pointer"
+                        />
+                        <span className="text-xs font-semibold text-bark">
+                          {redeemPoints ? 'Applied' : 'Redeem'}
+                        </span>
+                      </label>
+                    ) : (
+                      <span className="text-[11px] text-rose font-medium">Min ₹299 order</span>
+                    )}
                   </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={redeemPoints}
-                      onChange={(e) => setRedeemPoints(e.target.checked)}
-                      className="accent-rose w-4 h-4 rounded cursor-pointer"
-                    />
-                    <span className="text-xs font-semibold text-bark">
-                      {redeemPoints ? 'Applied' : 'Redeem'}
-                    </span>
-                  </label>
                 </div>
               )}
 
@@ -850,9 +862,9 @@ export default function CartDrawer() {
               )}
 
               {/* Price Breakdown Preview */}
-              {redeemPoints && loyaltyDiscount > 0 && (
+              {pointsToRedeem > 0 && loyaltyDiscount > 0 && (
                 <div className="flex justify-between items-center text-xs text-emerald-800">
-                  <span>Loyalty Discount ({loyaltyDiscount} pts)</span>
+                  <span>Loyalty Discount ({pointsToRedeem} pts)</span>
                   <span>-{formatPrice(loyaltyDiscount)}</span>
                 </div>
               )}

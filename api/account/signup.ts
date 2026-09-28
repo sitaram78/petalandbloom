@@ -104,7 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 3. Ensure Loyalty Account exists with 50 Welcome Points
+    // 3. Ensure Loyalty Account exists with 40 Welcome Points (Decision 1: ₹20 value, applicable on orders > ₹299)
     const { data: existingLoyalty } = await supabaseAdmin
       .from('loyalty_accounts')
       .select('id, points_balance')
@@ -114,16 +114,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!existingLoyalty) {
       await supabaseAdmin.from('loyalty_accounts').insert({
         customer_id: userId,
-        points_balance: 50,
-        lifetime_points_earned: 50,
+        points_balance: 40,
+        lifetime_points_earned: 40,
         tier: 'FLORET',
       });
 
       await supabaseAdmin.from('loyalty_transactions').insert({
         customer_id: userId,
         type: 'WELCOME_BONUS',
-        points: 50,
-        description: 'Welcome to The Petal & Bloom: 50 points gift',
+        points: 40,
+        description: 'Welcome to The Petal & Bloom: 40 Petal Points gift (₹20 value, redeemable on orders > ₹299)',
       });
     }
 
@@ -140,7 +140,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       success: true,
-      message: 'Account created successfully. 50 Petal Points have been credited!',
+      message: 'Account created successfully. 40 Petal Points (₹20 value) have been credited to your atelier account!',
       user: {
         id: userId,
         email: cleanEmail,

@@ -256,7 +256,7 @@ export default function Account() {
         const { error } = await signUpWithEmail(authEmail, authPassword, authFullName, authPhone, authReferralCode.trim());
         if (error) throw error;
 
-        showNotification('Welcome! 50 Petal Points (₹50 discount) have been credited to your account.', 'success');
+        showNotification('Welcome! 40 Petal Points (₹20 discount, valid on orders > ₹299) have been credited to your account.', 'success');
 
         if (returnToCheckout) {
           setTimeout(() => {
@@ -535,7 +535,7 @@ export default function Account() {
                   <div className="mb-6 p-3.5 bg-rose/10 border border-rose/25 rounded-atelier-card flex items-start gap-2.5 text-xs text-bark font-light">
                     <Sparkles size={16} className="text-rose shrink-0 mt-0.5" />
                     <span>
-                      You're claiming <strong>₹50 off</strong> for your pending cart! Sign in or register below, and we'll bring you right back to your bag with your 50 points ready to redeem.
+                      You're claiming <strong>₹20 off</strong> for your pending cart! Sign in or register below, and we'll bring you right back to your bag with your 40 points ready to redeem on orders above ₹299.
                     </span>
                   </div>
                 )}
@@ -576,7 +576,7 @@ export default function Account() {
                   <div className="mb-6 p-3.5 bg-rose/5 border border-rose/20 rounded-sm flex items-start gap-3">
                     <Sparkles size={18} className="text-rose shrink-0 mt-0.5" />
                     <p className="text-xs text-rose-deep leading-relaxed">
-                      <strong>50 Welcome Points</strong> (₹50 value) and an exclusive referral code are immediately credited to your account upon signing up!
+                      <strong>40 Welcome Points</strong> (₹20 value) and an exclusive referral code are immediately credited to your account upon signing up (applicable on orders above ₹299)!
                     </p>
                   </div>
                 )}
@@ -1084,7 +1084,7 @@ export default function Account() {
                             <span>Subtotal: {formatPrice((order.subtotal_in_paise || order.total_in_paise) / 100)}</span>
                             {order.loyalty_points_redeemed && order.loyalty_points_redeemed > 0 ? (
                               <span className="text-rose font-medium">
-                                Petals: -{formatPrice((order.loyalty_discount_in_paise || order.loyalty_points_redeemed * 100) / 100)} ({order.loyalty_points_redeemed} pts)
+                                Petals: -{formatPrice((order.loyalty_discount_in_paise || order.loyalty_points_redeemed * 50) / 100)} ({order.loyalty_points_redeemed} pts)
                               </span>
                             ) : null}
                             {order.discount_in_paise && order.discount_in_paise > 0 ? (
@@ -1100,7 +1100,15 @@ export default function Account() {
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-4 self-end sm:self-auto">
+                          <div className="flex items-center gap-3 self-end sm:self-auto">
+                            {['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.order_status) && (
+                              <span
+                                className="text-[10px] uppercase tracking-wider font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded"
+                                title="Made-to-order floral pieces are handcrafted individually and cannot be cancelled once crafting has commenced."
+                              >
+                                Bespoke Crafting · Non-Cancellable
+                              </span>
+                            )}
                             <a
                               href={`https://wa.me/919931653303?text=${encodeURIComponent(
                                 `Hello The Petal & Bloom Atelier, I would like an update / have a question regarding my order #${order.order_number}.`
@@ -1129,7 +1137,7 @@ export default function Account() {
                   <div className="bg-linen rounded-sm border border-canvas-line p-6 sm:p-8 shadow-soft">
                     <h3 className="heading-serif text-2xl text-bark mb-2">Atelier Loyalty Program</h3>
                     <p className="text-xs sm:text-sm text-ink-light max-w-2xl mb-6">
-                      Every bouquet crafted at The Petal & Bloom earns rewards. 1 Petal Point = ₹1 discount directly applicable at checkout towards any future floral arrangement.
+                      Every bespoke bouquet crafted at The Petal & Bloom earns rewards. Earn 1 Petal Point for every ₹20 spent. Redeem points directly at checkout (1 Petal Point = ₹0.50, meaning 2 points = ₹1.00 off on orders above ₹299).
                     </p>
 
                     {/* Progress to Next Tier */}
@@ -1185,8 +1193,9 @@ export default function Account() {
                         </div>
                         <p className="text-lg font-serif text-bark mb-1">0 – 499 Pts</p>
                         <ul className="text-xs text-ink-light space-y-1.5 mt-3">
-                          <li>• 1 Point per ₹10 spent</li>
-                          <li>• Welcome Gift: 50 Points</li>
+                          <li>• 1 Point per ₹20 spent</li>
+                          <li>• Welcome Gift: 40 Points (₹20 value)</li>
+                          <li>• 2 Points = ₹1.00 off on orders &gt; ₹299</li>
                           <li>• Complimentary botanical care card</li>
                         </ul>
                       </div>
@@ -1299,7 +1308,7 @@ export default function Account() {
                       Share the Beauty of Handcrafted Flora
                     </h3>
                     <p className="text-xs sm:text-sm text-ink-light leading-relaxed mb-8">
-                      Give your friends 10% off their first botanical arrangement. When their order ships, you will automatically receive <strong>100 Atelier Points</strong> (₹100 value) in your account.
+                      Share your unique code with friends. When they complete their first order, you will receive <strong>50 Petal Points</strong> (₹25 value) in your account (credited once you have made at least one purchase with us).
                     </p>
 
                     {/* Referral Code Box */}

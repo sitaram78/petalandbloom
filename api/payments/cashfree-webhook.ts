@@ -200,9 +200,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Award Loyalty Points if Registered Customer (1 point per ₹10 spent) + Tier Auto-upgrade
+      // Award Loyalty Points if Registered Customer (Decision 1: 1 point per ₹20 spent) + Tier Auto-upgrade
       if (order.customer_id) {
-        const pointsEarned = Math.floor(order.total_in_paise / 1000); // 1 pt per ₹10
+        const pointsEarned = Math.floor(order.total_in_paise / 2000); // 1 pt per ₹20
         if (pointsEarned > 0) {
           await supabaseAdmin.from('loyalty_transactions').insert({
             customer_id: order.customer_id,
@@ -241,7 +241,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
 
-        // Check and Reward Referrer on First Order
+        // Check and Reward Referrer on First Order (Decision 2: 50 points = ₹25 value, ONLY if referrer has purchased from us)
         try {
           const { data: pendingRef } = await supabaseAdmin
             .from('referrals')
@@ -251,39 +251,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .maybeSingle();
 
           if (pendingRef && pendingRef.referrer_id) {
-            const referralRewardPoints = 100; // ₹100 worth of Petal Points
-            await supabaseAdmin.from('loyalty_transactions').insert({
-              customer_id: pendingRef.referrer_id,
-              order_id: order.id,
-              type: 'REFERRAL_BONUS',
-              points: referralRewardPoints,
-              description: `Referral Gift: Your invited friend completed their first order (${order.order_number})!`,
-            });
-
-            const { data: refLoyalty } = await supabaseAdmin
-              .from('loyalty_accounts')
-              .select('points_balance, lifetime_points_earned')
+            // Verify if the referrer themselves has completed at least one paid purchase
+            const { data: referrerPurchases, error: refPurchaseErr } = await supabaseAdmin
+              .from('orders')
+              .select('id')
               .eq('customer_id', pendingRef.referrer_id)
-              .maybeSingle();
+              .eq('payment_status', 'SUCCESS')
+              .limit(1);
 
-            if (refLoyalty) {
-              const updatedLifetime = (refLoyalty.lifetime_points_earned || 0) + referralRewardPoints;
-              const refTier = updatedLifetime >= 1500 ? 'HEIRLOOM' : (updatedLifetime >= 500 ? 'BLOSSOM' : 'FLORET');
+            const referrerHasPurchased = !refPurchaseErr && referrerPurchases && referrerPurchases.length > 0;
+
+            if (referrerHasPurchased) {
+              const referralRewardPoints = 50; // 50 Petal Points (= ₹25 value)
+              await supabaseAdmin.from('loyalty_transactions').insert({
+                customer_id: pendingRef.referrer_id,
+                order_id: order.id,
+                type: 'REFERRAL_BONUS',
+                points: referralRewardPoints,
+                description: `Referral Gift: Your invited friend completed their first order (${order.order_number})!`,
+              });
+
+              const { data: refLoyalty } = await supabaseAdmin
+                .from('loyalty_accounts')
+                .select('points_balance, lifetime_points_earned')
+                .eq('customer_id', pendingRef.referrer_id)
+                .maybeSingle();
+
+              if (refLoyalty) {
+                const updatedLifetime = (refLoyalty.lifetime_points_earned || 0) + referralRewardPoints;
+                const refTier = updatedLifetime >= 1500 ? 'HEIRLOOM' : (updatedLifetime >= 500 ? 'BLOSSOM' : 'FLORET');
+
+                await supabaseAdmin
+                  .from('loyalty_accounts')
+                  .update({
+                    points_balance: (refLoyalty.points_balance || 0) + referralRewardPoints,
+                    lifetime_points_earned: updatedLifetime,
+                    tier: refTier,
+                  })
+                  .eq('customer_id', pendingRef.referrer_id);
+              }
 
               await supabaseAdmin
-                .from('loyalty_accounts')
-                .update({
-                  points_balance: (refLoyalty.points_balance || 0) + referralRewardPoints,
-                  lifetime_points_earned: updatedLifetime,
-                  tier: refTier,
-                })
-                .eq('customer_id', pendingRef.referrer_id);
+                .from('referrals')
+                .update({ status: 'REWARDED' })
+                .eq('id', pendingRef.id);
+            } else {
+              // Referrer has not purchased yet; retain referral pending until referrer makes a purchase
+              console.log(`[Referral Notice] Referrer ${pendingRef.referrer_id} will be credited once they complete their own purchase.`);
             }
-
-            await supabaseAdmin
-              .from('referrals')
-              .update({ status: 'REWARDED' })
-              .eq('id', pendingRef.id);
           }
         } catch (refRewardErr) {
           console.warn('[Referral Reward Warning]:', refRewardErr);

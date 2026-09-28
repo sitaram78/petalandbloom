@@ -18,6 +18,7 @@ import {
   Phone,
   Mail,
   FileText,
+  MessageCircle,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import Reveal from '@/components/Reveal';
@@ -29,6 +30,9 @@ import {
   SUPPORTED_CARRIERS,
   generateTrackingUrl,
 } from '@/services/shippingService';
+import InvoiceModal from '@/components/admin/InvoiceModal';
+import PackingSlipModal from '@/components/admin/PackingSlipModal';
+import CourierBookingModal from '@/components/admin/CourierBookingModal';
 
 interface AdminOrderItem {
   id: string;
@@ -99,6 +103,9 @@ export default function AdminOrders() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [showPackingSlipModal, setShowPackingSlipModal] = useState(false);
+  const [showCourierModal, setShowCourierModal] = useState(false);
 
   // Status transition form state
   const [newStatus, setNewStatus] = useState('');
@@ -249,6 +256,90 @@ export default function AdminOrders() {
     }\n${addr.city}, ${addr.state} - ${addr.pincode}`;
     navigator.clipboard.writeText(text);
     showNotification('Shipping address copied to clipboard!', 'success');
+  };
+
+  const openWhatsAppForOrder = (order: AdminOrder) => {
+    const cleanPhone = (order.guest_phone || '').replace(/\D/g, '').slice(-10);
+    const trackingLink = `https://thepetalandbloom.vercel.app/track?order_id=${order.order_number}`;
+    const text = `🌸 *The Petal & Bloom Studio Update*\n\nHello ${order.guest_name},\nRegarding your bespoke floral order *#${order.order_number}* (Current Status: ${order.order_status.replace(/_/g, ' ')}).\nTrack Live: ${trackingLink}\n\nPlease let us know if you have any questions or customization notes! ✨`;
+    window.open(`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleConfirmCourierBooking = async (
+    bookingCarrier: CarrierType,
+    bookingAwb: string,
+    bookingNote: string
+  ) => {
+    if (!selectedOrder) return;
+    setIsUpdating(true);
+    try {
+      const finalTrackingUrl = generateTrackingUrl(bookingCarrier, bookingAwb);
+      const existingShip = selectedOrder.shipments?.[0];
+
+      if (existingShip) {
+        await supabase
+          .from('shipments')
+          .update({
+            carrier: bookingCarrier,
+            awb_number: bookingAwb,
+            tracking_url: finalTrackingUrl || null,
+            status: 'IN_TRANSIT',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingShip.id);
+      } else {
+        await supabase.from('shipments').insert({
+          order_id: selectedOrder.id,
+          carrier: bookingCarrier,
+          awb_number: bookingAwb,
+          tracking_url: finalTrackingUrl || null,
+          status: 'IN_TRANSIT',
+        });
+      }
+
+      await supabase
+        .from('orders')
+        .update({ order_status: 'SHIPPED' })
+        .eq('id', selectedOrder.id);
+
+      await supabase.from('order_status_history').insert({
+        order_id: selectedOrder.id,
+        previous_status: selectedOrder.order_status,
+        new_status: 'SHIPPED',
+        note: `Courier booked via ${bookingCarrier} (AWB: ${bookingAwb}). ${bookingNote}`,
+        created_by: 'admin',
+      });
+
+      // Trigger Dispatch Email & Concierge WhatsApp Link
+      try {
+        const notifyRes = await fetch('/api/orders/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: selectedOrder.id,
+            awbNumber: bookingAwb,
+            carrier: bookingCarrier,
+            trackingUrl: finalTrackingUrl,
+            estimatedDelivery: '3–5 business days',
+          }),
+        });
+        const notifyData = await notifyRes.json();
+        if (notifyData.success && notifyData.whatsappLink) {
+          window.open(notifyData.whatsappLink, '_blank');
+        }
+      } catch (e) {
+        console.warn('Dispatch notification trigger error:', e);
+      }
+
+      showNotification(`Order ${selectedOrder.order_number} booked and marked as Shipped!`, 'success');
+      setSelectedOrder(null);
+      await fetchOrders();
+    } catch (err: any) {
+      showNotification('Failed to save courier booking: ' + err.message, 'error');
+      throw err;
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   // Filtered orders
@@ -501,6 +592,52 @@ export default function AdminOrders() {
                 </button>
               </div>
 
+              {/* MTO Cancellation Protection Notice */}
+              {['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrder.order_status) && (
+                <div className="mb-4 p-3 bg-amber-50/80 border border-amber-200 rounded-sm flex items-center gap-2 text-xs text-amber-900">
+                  <AlertCircle size={15} className="text-amber-800 shrink-0" />
+                  <span>
+                    <strong>Made-To-Order Policy Active:</strong> Crafting has commenced in the atelier. This bespoke creation is protected from accidental or customer-initiated cancellation.
+                  </span>
+                </div>
+              )}
+
+              {/* Quick Actions Toolbar */}
+              <div className="mb-6 flex flex-wrap items-center gap-2.5 p-3 bg-canvas/30 rounded-sm border border-canvas-line">
+                <button
+                  type="button"
+                  onClick={() => setShowInvoiceModal(true)}
+                  className="px-3.5 py-1.5 bg-white border border-canvas-line hover:border-bark text-bark rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Printer size={13} className="text-rose" />
+                  Print Tax Invoice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPackingSlipModal(true)}
+                  className="px-3.5 py-1.5 bg-white border border-canvas-line hover:border-bark text-bark rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <FileText size={13} className="text-rose" />
+                  Print 4×6 Slip
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCourierModal(true)}
+                  className="px-3.5 py-1.5 bg-bark text-linen hover:bg-rose-deep rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Truck size={13} />
+                  Courier Dispatch Prep
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openWhatsAppForOrder(selectedOrder)}
+                  className="px-3.5 py-1.5 bg-[#25D366] text-white hover:opacity-90 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors ml-auto shadow-sm"
+                >
+                  <MessageCircle size={13} />
+                  WhatsApp Customer
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 {/* Customer & Shipping Address */}
                 <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-3">
@@ -708,6 +845,33 @@ export default function AdminOrders() {
               </form>
             </div>
           </div>
+        )}
+
+        {/* Tax Invoice Modal */}
+        {showInvoiceModal && selectedOrder && (
+          <InvoiceModal
+            order={selectedOrder as any}
+            onClose={() => setShowInvoiceModal(false)}
+          />
+        )}
+
+        {/* 4x6 Thermal Packing Slip Modal */}
+        {showPackingSlipModal && selectedOrder && (
+          <PackingSlipModal
+            order={selectedOrder as any}
+            carrierName={selectedOrder.shipments?.[0]?.carrier || carrier}
+            awbNumber={selectedOrder.shipments?.[0]?.awb_number || awbNumber}
+            onClose={() => setShowPackingSlipModal(false)}
+          />
+        )}
+
+        {/* Courier Booking & Dispatch Prep Modal */}
+        {showCourierModal && selectedOrder && (
+          <CourierBookingModal
+            order={selectedOrder as any}
+            onClose={() => setShowCourierModal(false)}
+            onConfirmBooking={handleConfirmCourierBooking}
+          />
         )}
       </main>
     </AdminLayout>

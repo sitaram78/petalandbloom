@@ -206,10 +206,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 4. Loyalty Points Redemption (if authenticated customer)
+    // Business Rule (Decision 1): 1 Petal Point = ₹0.50 (50 paise), redeemable ONLY on orders > ₹299 (subtotal >= 29900 paise)
     let loyaltyPointsRedeemed = 0;
     let loyaltyDiscountInPaise = 0;
 
-    if (customer.customerId && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
+    const meetsPointsMinThreshold = subtotalInPaise >= 29900;
+
+    if (meetsPointsMinThreshold && customer.customerId && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
       const { data: loyaltyAcc } = await supabaseAdmin
         .from('loyalty_accounts')
         .select('points_balance')
@@ -219,7 +222,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (loyaltyAcc && (loyaltyAcc.points_balance || 0) > 0) {
         loyaltyPointsRedeemed = Math.min(loyaltyAcc.points_balance, Math.floor(Number(req.body.redeemPoints)));
         const maxRedeemablePaise = Math.max(0, subtotalInPaise - discountInPaise);
-        loyaltyDiscountInPaise = Math.min(loyaltyPointsRedeemed * 100, maxRedeemablePaise);
+        // 1 Petal Point = 50 paise (₹0.50)
+        loyaltyDiscountInPaise = Math.min(loyaltyPointsRedeemed * 50, maxRedeemablePaise);
       }
     }
 

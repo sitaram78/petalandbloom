@@ -28,6 +28,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, message: 'Order is already cancelled.' });
     }
 
+    // Business Rule (Decision 7): Made-to-order creations cannot be cancelled once crafting or packaging has commenced
+    const nonCancellableStatuses = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
+    if (nonCancellableStatuses.includes(order.order_status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Crafting for this made-to-order piece is already in progress in our studio. Made-to-order creations cannot be cancelled once crafting has commenced.',
+      });
+    }
+
     // 2. Restore Inventory for each item
     const { data: items } = await supabaseAdmin
       .from('order_items')

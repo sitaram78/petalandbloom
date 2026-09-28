@@ -37,7 +37,11 @@ export default function AdminCoupons() {
     const { error: insertError } = await supabase.from('coupons').insert({
       code: form.code.trim().toUpperCase(),
       recipient_name: form.recipientName.trim(),
+      discount_type: 'PERCENT',
+      discount_value: form.discountPercent,
       discount_percent: form.discountPercent,
+      min_order_in_paise: 0,
+      active: true,
       expires_at: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
       usage_limit: form.usageLimit ? Number(form.usageLimit) : null,
     });
@@ -92,7 +96,7 @@ export default function AdminCoupons() {
               {coupons.map((coupon) => (
                 <div key={coupon.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <p className="font-medium text-ink">{coupon.code} <span className="text-rose">{coupon.discount_percent}% off</span></p>
+                    <p className="font-medium text-ink">{coupon.code} <span className="text-rose">{(coupon as any).discount_value || coupon.discount_percent || 0}% off</span></p>
                     <p className="text-xs text-ink-light mt-1">For {coupon.recipient_name} · Used {coupon.usage_count}{coupon.usage_limit ? ` of ${coupon.usage_limit}` : ''}</p>
                   </div>
                   <div className="flex items-center gap-3">
