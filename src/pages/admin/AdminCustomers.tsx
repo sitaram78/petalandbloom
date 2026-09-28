@@ -15,13 +15,21 @@ import {
   MinusCircle,
   X,
   MessageCircle,
-  Download
+  Download,
+  ChevronRight,
+  UserCheck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
 import { formatPrice } from '@/data/products';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import {
+  useAdminView,
+  AdminViewHeader,
+  AdminViewToolbar,
+  AdminEntityDrawer,
+} from '@/components/admin/view-system';
 
 interface CustomerProfile {
   id: string;
@@ -44,13 +52,27 @@ interface CustomerProfile {
 export default function AdminCustomers() {
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTier, setSelectedTier] = useState<string>('ALL');
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [customerAddresses, setCustomerAddresses] = useState<any[]>([]);
   const [customerLoyaltyHistory, setCustomerLoyaltyHistory] = useState<any[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Unified Admin View System hook
+  const {
+    viewMode,
+    setViewMode,
+    searchQuery,
+    setSearchQuery,
+    activeTab: selectedTier,
+    setActiveTab: setSelectedTier,
+  } = useAdminView({
+    defaultView: 'table',
+    defaultTab: 'ALL',
+    searchParamKey: 'q',
+    tabParamKey: 'tier',
+    viewParamKey: 'view',
+  });
 
   // Points adjustment modal state
   const [pointsDelta, setPointsDelta] = useState<number>(50);
@@ -276,111 +298,179 @@ export default function AdminCustomers() {
   const totalPointsInCirculation = customers.reduce((acc, c) => acc + (c.loyalty_account?.points_balance || 0), 0);
   const heirloomCount = customers.filter(c => c.loyalty_account?.tier === 'HEIRLOOM').length;
   const blossomCount = customers.filter(c => c.loyalty_account?.tier === 'BLOSSOM').length;
+  const floretCount = customers.filter(c => !c.loyalty_account?.tier || c.loyalty_account?.tier === 'FLORET').length;
 
   return (
     <AdminLayout activePage="customers">
-      <main className="p-6 lg:p-10">
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <Reveal>
-            <div className="space-y-1">
-              <h1 className="heading-serif text-4xl text-bark tracking-tight">Customer CRM & Loyalty</h1>
-              <p className="text-sm text-ink-light font-light">Patrons of the atelier, member tiers, and points ledgers.</p>
-            </div>
-          </Reveal>
+      <main className="p-6 lg:p-10 max-w-7xl mx-auto">
+        {/* Standardized Admin View Header */}
+        <AdminViewHeader
+          category="Client Relations"
+          title="Customer CRM & Loyalty"
+          subtitle="Patrons of the atelier, member tiers, and points ledgers."
+          stats={[
+            {
+              label: 'Total Patrons',
+              value: customers.length,
+              icon: <Users size={18} />,
+              subtext: 'Registered atelier accounts',
+            },
+            {
+              label: 'Points in Circulation',
+              value: totalPointsInCirculation.toLocaleString('en-IN'),
+              icon: <Gift size={18} />,
+              subtext: `Worth ${formatPrice(totalPointsInCirculation)} in discounts`,
+            },
+            {
+              label: 'Heirloom Members',
+              value: heirloomCount,
+              icon: <Award size={18} className="text-purple-600" />,
+              subtext: 'Top tier patrons (1500+ pts)',
+            },
+            {
+              label: 'Blossom Members',
+              value: blossomCount,
+              icon: <Award size={18} className="text-rose" />,
+              subtext: 'Mid tier patrons (500–1499 pts)',
+            },
+          ]}
+          secondaryActions={[
+            {
+              label: 'Export CSV',
+              icon: <Download size={14} />,
+              onClick: exportCustomersCSV,
+              disabled: filteredCustomers.length === 0,
+            },
+          ]}
+        />
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={exportCustomersCSV}
-              className="px-4 py-2.5 bg-canvas border border-canvas-line text-xs uppercase tracking-wider font-medium text-bark hover:bg-linen rounded-sm flex items-center gap-2 transition-all shadow-sm"
-            >
-              <Download size={15} /> Export CSV
-            </button>
+        {/* Standardized View Toolbar */}
+        <AdminViewToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search by name, phone, email, code..."
+          tabs={[
+            { id: 'ALL', label: 'All Patrons', count: customers.length },
+            { id: 'FLORET', label: 'Floret', count: floretCount },
+            { id: 'BLOSSOM', label: 'Blossom', count: blossomCount },
+            { id: 'HEIRLOOM', label: 'Heirloom', count: heirloomCount },
+          ]}
+          activeTab={selectedTier}
+          onTabChange={setSelectedTier}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          supportedModes={['table', 'grid']}
+          onRefresh={fetchCustomers}
+          isRefreshing={loading}
+        />
+
+        {/* Content View: Table vs Grid */}
+        {loading ? (
+          <div className="py-24 flex flex-col items-center justify-center gap-3 bg-linen rounded-sm border border-canvas-line">
+            <Loader2 size={32} className="animate-spin text-rose" />
+            <p className="text-sm font-serif text-bark">Accessing patron archives...</p>
           </div>
-        </header>
-
-        {/* Stats Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wider text-ink-light">Total Patrons</p>
-              <Users size={20} className="text-rose" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{customers.length}</p>
-            <p className="text-[11px] text-ink-light/70 mt-1">Registered atelier accounts</p>
+        ) : filteredCustomers.length === 0 ? (
+          <div className="py-20 text-center bg-linen rounded-sm border border-canvas-line">
+            <Users size={36} className="mx-auto text-ink-light/40 mb-3" />
+            <p className="font-serif text-lg text-bark">No matching patrons found.</p>
+            <p className="text-xs text-ink-light mt-1">Try refining your search terms or filters.</p>
           </div>
+        ) : viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredCustomers.map((c) => {
+              const tier = c.loyalty_account?.tier || 'FLORET';
+              const tierBadgeColor =
+                tier === 'HEIRLOOM'
+                  ? 'bg-purple-100 text-purple-700 border-purple-200'
+                  : tier === 'BLOSSOM'
+                  ? 'bg-rose/10 text-rose-deep border-rose/30'
+                  : 'bg-canvas text-ink-light border-canvas-line';
 
-          <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wider text-ink-light">Points in Circulation</p>
-              <Gift size={20} className="text-rose" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{totalPointsInCirculation.toLocaleString('en-IN')}</p>
-            <p className="text-[11px] text-rose mt-1">Worth {formatPrice(totalPointsInCirculation)} in discounts</p>
+              const initials = (c.full_name || 'AP')
+                .split(' ')
+                .map((n) => n[0])
+                .slice(0, 2)
+                .join('')
+                .toUpperCase();
+
+              return (
+                <div
+                  key={c.id}
+                  className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft hover:border-canvas-line-hover transition-all flex flex-col justify-between space-y-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-bark/10 text-bark font-serif font-bold text-sm flex items-center justify-center flex-shrink-0">
+                        {initials}
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium text-bark text-sm truncate">
+                            {c.full_name || 'Anonymous Patron'}
+                          </h4>
+                          {c.role === 'admin' && (
+                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] rounded font-semibold uppercase">
+                              Admin
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-ink-light">
+                          Joined {new Date(c.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold border ${tierBadgeColor} flex-shrink-0`}>
+                      {tier}
+                    </span>
+                  </div>
+
+                  <div className="bg-canvas/40 p-3 rounded-sm space-y-1.5 text-xs text-ink-light">
+                    {c.phone && (
+                      <p className="flex items-center gap-1.5 text-ink truncate">
+                        <Phone size={12} className="text-rose shrink-0" /> +91 {c.phone}
+                      </p>
+                    )}
+                    {c.email && (
+                      <p className="flex items-center gap-1.5 truncate">
+                        <Mail size={12} className="text-ink-light shrink-0" /> {c.email}
+                      </p>
+                    )}
+                    {c.referral_code && (
+                      <p className="text-[10px] font-mono text-bark">
+                        Ref: {c.referral_code}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-canvas-line text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-wider text-ink-light block">Points</span>
+                      <span className="font-serif font-bold text-bark text-sm">
+                        {c.loyalty_account?.points_balance || 0} pts
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-light block">Orders</span>
+                      <span className="font-medium text-bark">
+                        {c.orders_count || 0} ({formatPrice((c.total_spent_paise || 0) / 100)})
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => openCustomerDetails(c)}
+                    className="w-full py-2 bg-canvas hover:bg-bark hover:text-linen text-bark text-xs uppercase tracking-wider font-medium rounded-sm border border-canvas-line transition-all flex items-center justify-center gap-1.5"
+                  >
+                    Inspect Patron Record
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
-
-          <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wider text-ink-light">Heirloom Members</p>
-              <Award size={20} className="text-purple-600" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{heirloomCount}</p>
-            <p className="text-[11px] text-ink-light/70 mt-1">Top tier patrons (1500+ pts)</p>
-          </div>
-
-          <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-wider text-ink-light">Blossom Members</p>
-              <Award size={20} className="text-rose" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{blossomCount}</p>
-            <p className="text-[11px] text-ink-light/70 mt-1">Mid tier patrons (500–1499 pts)</p>
-          </div>
-        </div>
-
-        {/* Toolbar: Search and Filter */}
-        <div className="bg-linen p-4 rounded-atelier-panel border border-canvas-line mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="relative w-full sm:w-80">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, phone, email, code..."
-              className="w-full pl-10 pr-4 py-2 bg-canvas border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-            {['ALL', 'FLORET', 'BLOSSOM', 'HEIRLOOM'].map((tier) => (
-              <button
-                key={tier}
-                onClick={() => setSelectedTier(tier)}
-                className={`px-4 py-1.5 rounded-full text-xs font-medium uppercase tracking-wider transition-all ${
-                  selectedTier === tier
-                    ? 'bg-bark text-linen shadow-sm'
-                    : 'bg-canvas text-ink-light hover:text-bark border border-canvas-line'
-                }`}
-              >
-                {tier}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Customers Table */}
-        <div className="bg-linen rounded-atelier-panel border border-canvas-line overflow-hidden shadow-soft">
-          {loading ? (
-            <div className="py-24 flex flex-col items-center justify-center gap-3">
-              <Loader2 size={32} className="animate-spin text-rose" />
-              <p className="text-sm font-serif text-bark">Accessing patron archives...</p>
-            </div>
-          ) : filteredCustomers.length === 0 ? (
-            <div className="py-20 text-center">
-              <Users size={36} className="mx-auto text-ink-light/40 mb-3" />
-              <p className="font-serif text-lg text-bark">No matching patrons found.</p>
-              <p className="text-xs text-ink-light mt-1">Try refining your search terms or filters.</p>
-            </div>
-          ) : (
+        ) : (
+          <div className="bg-linen rounded-sm border border-canvas-line overflow-hidden shadow-soft">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-ink border-collapse">
                 <thead>
@@ -465,51 +555,54 @@ export default function AdminCustomers() {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Customer Detail & Points Adjustment Modal */}
-        {selectedCustomer && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-linen w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-atelier-panel shadow-2xl border border-canvas-line p-6 lg:p-8">
-              <div className="flex justify-between items-start border-b border-canvas-line pb-4 mb-6">
-                <div>
-                  <span className="text-[10px] uppercase tracking-widest text-rose font-semibold">Patron Profile</span>
-                  <h2 className="font-serif text-2xl sm:text-3xl text-bark">{selectedCustomer.full_name || 'Anonymous Patron'}</h2>
-                  <p className="text-xs text-ink-light mt-1">
-                    {selectedCustomer.email} • {selectedCustomer.phone} • Joined {new Date(selectedCustomer.created_at).toLocaleDateString('en-IN')}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSelectedCustomer(null)}
-                  className="p-2 text-ink-light hover:text-bark rounded-full hover:bg-canvas transition-colors"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
+        {/* Customer Detail & Points Adjustment Drawer */}
+        <AdminEntityDrawer
+          isOpen={!!selectedCustomer}
+          onClose={() => setSelectedCustomer(null)}
+          title={selectedCustomer?.full_name || 'Anonymous Patron'}
+          subtitle={
+            selectedCustomer
+              ? `${selectedCustomer.email || 'No email registered'} • Joined ${new Date(
+                  selectedCustomer.created_at
+                ).toLocaleDateString('en-IN')}`
+              : ''
+          }
+          badge={
+            selectedCustomer && (
+              <span className="px-2 py-0.5 rounded text-[10px] uppercase font-semibold border bg-canvas text-bark border-canvas-line">
+                Tier: {selectedCustomer.loyalty_account?.tier || 'FLORET'}
+              </span>
+            )
+          }
+          widthClass="max-w-2xl sm:max-w-3xl"
+        >
+          {selectedCustomer && (
+            <>
               {loadingDetails ? (
                 <div className="py-20 text-center">
                   <Loader2 size={32} className="animate-spin text-rose mx-auto mb-2" />
                   <p className="text-xs font-serif text-bark">Fetching customer ledgers...</p>
                 </div>
               ) : (
-                <div className="space-y-8">
-                  {/* Top Stats Cards in Modal */}
+                <div className="space-y-6">
+                  {/* Top Stats Cards in Drawer */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-canvas/50 p-4 rounded border border-canvas-line">
+                    <div className="bg-canvas/40 p-4 rounded-sm border border-canvas-line">
                       <p className="text-[10px] uppercase tracking-wider text-ink-light font-semibold">Petal Points Balance</p>
                       <p className="font-serif text-2xl text-bark mt-1">{selectedCustomer.loyalty_account?.points_balance || 0} pts</p>
                       <p className="text-[10px] text-rose">Tier: {selectedCustomer.loyalty_account?.tier || 'FLORET'}</p>
                     </div>
 
-                    <div className="bg-canvas/50 p-4 rounded border border-canvas-line">
+                    <div className="bg-canvas/40 p-4 rounded-sm border border-canvas-line">
                       <p className="text-[10px] uppercase tracking-wider text-ink-light font-semibold">Total Orders Placed</p>
                       <p className="font-serif text-2xl text-bark mt-1">{customerOrders.length}</p>
                       <p className="text-[10px] text-ink-light">Lifetime: {formatPrice((selectedCustomer.total_spent_paise || 0) / 100)}</p>
                     </div>
 
-                    <div className="bg-canvas/50 p-4 rounded border border-canvas-line flex flex-col justify-between">
+                    <div className="bg-canvas/40 p-4 rounded-sm border border-canvas-line flex flex-col justify-between">
                       <div>
                         <p className="text-[10px] uppercase tracking-wider text-ink-light font-semibold">Direct Concierge</p>
                         <p className="text-xs text-ink-light mt-1">{selectedCustomer.phone || 'No phone'}</p>
@@ -521,14 +614,14 @@ export default function AdminCustomers() {
                           rel="noreferrer"
                           className="mt-2 text-xs font-medium text-emerald-800 hover:text-emerald-900 flex items-center gap-1.5"
                         >
-                          <MessageCircle size={14} /> Open WhatsApp Chat
+                          <MessageCircle size={14} /> Open WhatsApp
                         </a>
                       )}
                     </div>
                   </div>
 
                   {/* Points Adjustment Form */}
-                  <div className="bg-canvas/30 p-5 rounded-atelier-panel border border-canvas-line">
+                  <div className="bg-canvas/30 p-5 rounded-sm border border-canvas-line">
                     <h3 className="font-serif text-lg text-bark mb-2 flex items-center gap-2">
                       <Gift size={18} className="text-rose" /> Adjust Loyalty Points (Admin Override)
                     </h3>
@@ -542,7 +635,7 @@ export default function AdminCustomers() {
                         <select
                           value={pointsType}
                           onChange={(e: any) => setPointsType(e.target.value)}
-                          className="w-full p-2 bg-white border border-canvas-line rounded-sm text-xs"
+                          className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
                         >
                           <option value="ADD">+ Credit Points</option>
                           <option value="DEDUCT">- Deduct Points</option>
@@ -557,7 +650,7 @@ export default function AdminCustomers() {
                           max="5000"
                           value={pointsDelta}
                           onChange={(e) => setPointsDelta(Number(e.target.value))}
-                          className="w-full p-2 bg-white border border-canvas-line rounded-sm text-xs"
+                          className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
                         />
                       </div>
 
@@ -568,7 +661,7 @@ export default function AdminCustomers() {
                           value={adjustmentReason}
                           onChange={(e) => setAdjustmentReason(e.target.value)}
                           placeholder="e.g. Goodwill credit"
-                          className="w-full p-2 bg-white border border-canvas-line rounded-sm text-xs"
+                          className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
                         />
                       </div>
 
@@ -592,7 +685,7 @@ export default function AdminCustomers() {
                     {customerOrders.length === 0 ? (
                       <p className="text-xs text-ink-light italic">No orders recorded for this customer yet.</p>
                     ) : (
-                      <div className="border border-canvas-line rounded overflow-hidden">
+                      <div className="border border-canvas-line rounded-sm overflow-hidden">
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="bg-canvas text-ink-light uppercase text-[10px] border-b border-canvas-line">
@@ -609,7 +702,7 @@ export default function AdminCustomers() {
                                 <td className="p-3 font-mono font-medium text-bark">{ord.order_number}</td>
                                 <td className="p-3 text-ink-light">{new Date(ord.created_at).toLocaleDateString('en-IN')}</td>
                                 <td className="p-3">
-                                  <span className="px-2 py-0.5 bg-canvas border border-canvas-line rounded text-[10px] font-semibold text-bark uppercase">
+                                  <span className="px-2 py-0.5 bg-canvas border border-canvas-line rounded-sm text-[10px] font-semibold text-bark uppercase">
                                     {ord.order_status}
                                   </span>
                                 </td>
@@ -640,7 +733,7 @@ export default function AdminCustomers() {
                     {customerLoyaltyHistory.length === 0 ? (
                       <p className="text-xs text-ink-light italic">No loyalty transactions recorded.</p>
                     ) : (
-                      <div className="max-h-48 overflow-y-auto border border-canvas-line rounded">
+                      <div className="max-h-48 overflow-y-auto border border-canvas-line rounded-sm">
                         <table className="w-full text-left text-xs border-collapse">
                           <tbody className="divide-y divide-canvas-line">
                             {customerLoyaltyHistory.map((tx) => (
@@ -671,12 +764,12 @@ export default function AdminCustomers() {
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {customerAddresses.map((addr) => (
-                        <div key={addr.id} className="p-3 bg-canvas/40 border border-canvas-line rounded text-xs text-ink space-y-1">
+                        <div key={addr.id} className="p-3 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink space-y-1">
                           <p className="font-medium text-bark">{addr.recipient_name} ({addr.phone})</p>
                           <p className="text-ink-light">{addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ''}</p>
                           <p className="text-ink-light">{addr.city}, {addr.state} - {addr.pincode}</p>
                           {addr.is_default && (
-                            <span className="inline-block px-1.5 py-0.5 bg-rose/10 text-rose-deep text-[9px] uppercase font-bold rounded">
+                            <span className="inline-block px-1.5 py-0.5 bg-rose/10 text-rose-deep text-[9px] uppercase font-bold rounded-sm">
                               Default Address
                             </span>
                           )}
@@ -686,9 +779,9 @@ export default function AdminCustomers() {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        )}
+            </>
+          )}
+        </AdminEntityDrawer>
       </main>
     </AdminLayout>
   );

@@ -36,6 +36,14 @@ import PackingSlipModal from '@/components/admin/PackingSlipModal';
 import CourierBookingModal from '@/components/admin/CourierBookingModal';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import { downloadCSV } from '@/utils/csvExporter';
+import {
+  useAdminView,
+  AdminViewHeader,
+  AdminViewToolbar,
+  AdminEntityDrawer,
+  AdminKanbanBoard,
+  type KanbanColumn,
+} from '@/components/admin/view-system';
 
 interface AdminOrderItem {
   id: string;
@@ -102,13 +110,26 @@ const ORDER_STATUSES = [
 export default function AdminOrders() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showPackingSlipModal, setShowPackingSlipModal] = useState(false);
   const [showCourierModal, setShowCourierModal] = useState(false);
+
+  // Unified Admin View System hook
+  const {
+    viewMode,
+    setViewMode,
+    searchQuery,
+    setSearchQuery,
+    activeTab: activeFilter,
+    setActiveTab: setActiveFilter,
+    selectedEntity: selectedOrder,
+    inspectEntity: setSelectedOrder,
+  } = useAdminView<AdminOrder>({
+    defaultMode: 'table',
+    storageKey: 'orders',
+    defaultTab: 'ALL',
+  });
 
   // Status transition form state
   const [newStatus, setNewStatus] = useState('');
@@ -147,19 +168,24 @@ export default function AdminOrders() {
 
   const openOrderDetails = (order: AdminOrder) => {
     setSelectedOrder(order);
-    setNewStatus(order.order_status);
-    setStatusNote('');
-    const existingShipment = order.shipments?.[0];
-    if (existingShipment) {
-      setCarrier(existingShipment.carrier || 'DELHIVERY');
-      setAwbNumber(existingShipment.awb_number || '');
-      setCustomTrackingUrl(existingShipment.tracking_url || '');
-    } else {
-      setCarrier('DELHIVERY');
-      setAwbNumber('');
-      setCustomTrackingUrl('');
-    }
   };
+
+  useEffect(() => {
+    if (selectedOrder) {
+      setNewStatus(selectedOrder.order_status);
+      setStatusNote('');
+      const existingShipment = selectedOrder.shipments?.[0];
+      if (existingShipment) {
+        setCarrier(existingShipment.carrier || 'DELHIVERY');
+        setAwbNumber(existingShipment.awb_number || '');
+        setCustomTrackingUrl(existingShipment.tracking_url || '');
+      } else {
+        setCarrier('DELHIVERY');
+        setAwbNumber('');
+        setCustomTrackingUrl('');
+      }
+    }
+  }, [selectedOrder]);
 
   const handleUpdateOrderStatus = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -502,91 +528,153 @@ export default function AdminOrders() {
     showNotification(`Exported ${filteredOrders.length} orders to Financial Summary CSV!`, 'success');
   };
 
+  const kanbanColumns: KanbanColumn<AdminOrder>[] = [
+    {
+      id: 'PAYMENT_CONFIRMED',
+      title: 'Confirmed',
+      badgeColor: 'bg-blue-500',
+      items: filteredOrders.filter(
+        (o) => o.order_status === 'PAYMENT_CONFIRMED' || o.order_status === 'PENDING_PAYMENT'
+      ),
+      emptyMessage: 'No orders awaiting crafting',
+    },
+    {
+      id: 'PROCESSING',
+      title: 'In Crafting',
+      badgeColor: 'bg-amber-500',
+      items: filteredOrders.filter((o) => o.order_status === 'PROCESSING'),
+      emptyMessage: 'No orders in crafting',
+    },
+    {
+      id: 'PACKED',
+      title: 'Packed & Ready',
+      badgeColor: 'bg-purple-500',
+      items: filteredOrders.filter((o) => o.order_status === 'PACKED'),
+      emptyMessage: 'No orders awaiting pickup',
+    },
+    {
+      id: 'SHIPPED',
+      title: 'In Transit',
+      badgeColor: 'bg-emerald-600',
+      items: filteredOrders.filter((o) => o.order_status === 'SHIPPED'),
+      emptyMessage: 'No orders currently in transit',
+    },
+    {
+      id: 'DELIVERED',
+      title: 'Delivered',
+      badgeColor: 'bg-teal-600',
+      items: filteredOrders.filter((o) => o.order_status === 'DELIVERED'),
+      emptyMessage: 'No delivered orders in this view',
+    },
+  ];
+
+  const renderKanbanCard = (order: AdminOrder) => (
+    <div
+      onClick={() => setSelectedOrder(order)}
+      className="bg-linen p-3.5 rounded-sm border border-canvas-line shadow-xs hover:border-bark hover:shadow-soft transition-all cursor-pointer space-y-2.5"
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-xs font-bold text-bark">{order.order_number}</span>
+        <span className="font-serif text-sm font-bold text-bark">
+          {formatPrice(order.total_in_paise / 100)}
+        </span>
+      </div>
+      <div>
+        <p className="text-xs font-medium text-ink truncate">{order.guest_name}</p>
+        <p className="text-[11px] text-ink-light flex items-center gap-1">
+          <Phone size={10} /> +91 {order.guest_phone}
+        </p>
+      </div>
+      <div className="text-[11px] text-ink-light truncate">
+        {order.order_items.map((i) => `${i.product_name} (${i.quantity})`).join(', ')}
+      </div>
+      <div className="pt-2 border-t border-canvas-line flex items-center justify-between text-[10px] text-ink-light">
+        <span>
+          {new Date(order.created_at).toLocaleDateString('en-IN', {
+            month: 'short',
+            day: 'numeric',
+          })}
+        </span>
+        <span className="text-rose font-medium uppercase tracking-wider flex items-center gap-0.5">
+          Manage <ChevronRight size={11} />
+        </span>
+      </div>
+    </div>
+  );
+
   return (
     <AdminLayout activePage="orders">
       <main className="p-6 lg:p-10 max-w-7xl mx-auto">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-rose font-medium mb-1">
-              Atelier Logistics
-            </p>
-            <h1 className="heading-serif text-4xl text-ink">Order Fulfillment</h1>
-            <p className="text-xs text-ink-light font-light mt-1">
-              Manage client orders, studio crafting progress, and courier dispatches.
-            </p>
-          </div>
+        {/* Standardized Admin View Header with Live KPI Stats & Export Actions */}
+        <AdminViewHeader
+          category="Atelier Logistics"
+          title="Order Fulfillment"
+          subtitle="Manage client orders, studio crafting progress, and courier dispatches."
+          stats={[
+            {
+              label: 'Total Orders',
+              value: orders.length,
+              icon: <Package size={18} />,
+              subtext: `${orders.filter((o) => o.payment_status === 'SUCCESS').length} captured payments`,
+            },
+            {
+              label: 'In Crafting',
+              value: orders.filter((o) => o.order_status === 'PROCESSING' || o.order_status === 'PACKED').length,
+              icon: <Clock size={18} />,
+              subtext: 'Bespoke crafting queue',
+            },
+            {
+              label: 'In Transit',
+              value: orders.filter((o) => o.order_status === 'SHIPPED' || o.order_status === 'OUT_FOR_DELIVERY').length,
+              icon: <Truck size={18} />,
+              subtext: 'Courier surface shipments',
+            },
+            {
+              label: 'Delivered',
+              value: orders.filter((o) => o.order_status === 'DELIVERED').length,
+              icon: <CheckCircle2 size={18} />,
+              subtext: 'Completed orders',
+            },
+          ]}
+          secondaryActions={[
+            {
+              label: 'Dispatch Manifest',
+              icon: <Download size={14} className="text-rose" />,
+              onClick: exportDispatchManifest,
+              disabled: filteredOrders.length === 0,
+              title: 'Export logistics manifest for courier dispatch',
+            },
+            {
+              label: 'Financial Summary',
+              icon: <Download size={14} className="text-emerald-700" />,
+              onClick: exportFinancialSummary,
+              disabled: filteredOrders.length === 0,
+              title: 'Export financial accounting summary',
+            },
+          ]}
+        />
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={exportDispatchManifest}
-              disabled={filteredOrders.length === 0}
-              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/50 rounded-sm flex items-center gap-1.5 transition-all disabled:opacity-40"
-              title="Export logistics manifest for courier dispatch"
-            >
-              <Download size={14} className="text-rose" />
-              Dispatch Manifest
-            </button>
-
-            <button
-              onClick={exportFinancialSummary}
-              disabled={filteredOrders.length === 0}
-              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/50 rounded-sm flex items-center gap-1.5 transition-all disabled:opacity-40"
-              title="Export financial accounting summary"
-            >
-              <Download size={14} className="text-emerald-700" />
-              Financial Summary
-            </button>
-
-            <button
-              onClick={fetchOrders}
-              disabled={loading}
-              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-2 transition-all"
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-              Refresh
-            </button>
-          </div>
-        </header>
-
-        {/* Filter Tabs & Search Bar */}
-        <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft mb-8 space-y-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* Search */}
-            <div className="relative w-full sm:w-80">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-light" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search order #, customer, phone..."
-                className="w-full pl-9 pr-4 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-              />
-            </div>
-
-            {/* Total Results Count */}
-            <span className="text-xs text-ink-light">
-              Showing <strong>{filteredOrders.length}</strong> of {orders.length} orders
-            </span>
-          </div>
-
-          {/* Status Filter Chips */}
-          <div className="flex overflow-x-auto gap-2 pt-2 border-t border-canvas-line scrollbar-none">
-            {ORDER_STATUSES.map((status) => (
-              <button
-                key={status.id}
-                onClick={() => setActiveFilter(status.id)}
-                className={`px-3 py-1.5 rounded-sm text-xs font-medium whitespace-nowrap transition-all ${
-                  activeFilter === status.id
-                    ? 'bg-bark text-linen shadow-xs'
-                    : 'bg-canvas/50 text-ink-light hover:text-bark hover:bg-canvas'
-                }`}
-              >
-                {status.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Standardized View Toolbar: Search, Segment Tabs & View Mode Switcher */}
+        <AdminViewToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search order #, customer, phone, city..."
+          tabs={ORDER_STATUSES.map((s) => ({
+            id: s.id,
+            label: s.label,
+            count:
+              s.id === 'ALL'
+                ? orders.length
+                : orders.filter((o) => o.order_status === s.id).length,
+          }))}
+          activeTab={activeFilter}
+          onTabChange={setActiveFilter}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          supportedModes={['table', 'kanban']}
+          onRefresh={fetchOrders}
+          isRefreshing={loading}
+        />
 
         {/* Orders List */}
         {loading ? (
@@ -602,6 +690,11 @@ export default function AdminOrders() {
               No orders matched the selected filter or search criteria.
             </p>
           </div>
+        ) : viewMode === 'kanban' ? (
+          <AdminKanbanBoard
+            columns={kanbanColumns}
+            renderCard={renderKanbanCard}
+          />
         ) : (
           <div className="space-y-4">
             {filteredOrders.map((order) => {
@@ -706,39 +799,30 @@ export default function AdminOrders() {
         )}
 
         {/* ========================================================================= */}
-        {/* ORDER DETAILS & DISPATCH MODAL                                           */}
+        {/* ORDER DETAILS & DISPATCH DRAWER                                          */}
         {/* ========================================================================= */}
-        {selectedOrder && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bark/50 backdrop-blur-xs overflow-y-auto">
-            <div className="bg-linen w-full max-w-3xl rounded-sm border border-canvas-line shadow-2xl p-6 sm:p-8 my-8 max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between pb-4 border-b border-canvas-line mb-6">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h3 className="heading-serif text-2xl text-bark">
-                      Order {selectedOrder.order_number}
-                    </h3>
-                    {getStatusBadge(selectedOrder.order_status)}
-                  </div>
-                  <p className="text-xs text-ink-light mt-0.5">
-                    Placed on{' '}
-                    {new Date(selectedOrder.created_at).toLocaleString('en-IN', {
-                      dateStyle: 'full',
-                      timeStyle: 'short',
-                    })}
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setSelectedOrder(null)}
-                  className="text-ink-light hover:text-bark text-base font-bold p-1"
-                >
-                  ✕
-                </button>
-              </div>
-
+        <AdminEntityDrawer
+          isOpen={!!selectedOrder}
+          onClose={() => setSelectedOrder(null)}
+          title={selectedOrder ? `Order ${selectedOrder.order_number}` : ''}
+          subtitle={
+            selectedOrder
+              ? `Placed on ${new Date(selectedOrder.created_at).toLocaleString('en-IN', {
+                  dateStyle: 'full',
+                  timeStyle: 'short',
+                })}`
+              : ''
+          }
+          badge={selectedOrder ? getStatusBadge(selectedOrder.order_status) : undefined}
+          widthClass="max-w-2xl sm:max-w-3xl"
+        >
+          {selectedOrder && (
+            <div className="space-y-6">
               {/* MTO Cancellation Protection Notice */}
-              {['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(selectedOrder.order_status) && (
-                <div className="mb-4 p-3 bg-amber-50/80 border border-amber-200 rounded-sm flex items-center gap-2 text-xs text-amber-900">
+              {['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(
+                selectedOrder.order_status
+              ) && (
+                <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-sm flex items-center gap-2 text-xs text-amber-900">
                   <AlertCircle size={15} className="text-amber-800 shrink-0" />
                   <span>
                     <strong>Made-To-Order Policy Active:</strong> Crafting has commenced in the atelier. This bespoke creation is protected from accidental or customer-initiated cancellation.
@@ -747,7 +831,7 @@ export default function AdminOrders() {
               )}
 
               {/* Quick Actions Toolbar */}
-              <div className="mb-6 flex flex-wrap items-center gap-2.5 p-3 bg-canvas/30 rounded-sm border border-canvas-line">
+              <div className="flex flex-wrap items-center gap-2.5 p-3 bg-canvas/30 rounded-sm border border-canvas-line">
                 <button
                   type="button"
                   onClick={() => setShowInvoiceModal(true)}
@@ -782,7 +866,7 @@ export default function AdminOrders() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Customer & Shipping Address */}
                 <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-3">
                   <div className="flex items-center justify-between">
@@ -868,7 +952,7 @@ export default function AdminOrders() {
               </div>
 
               {/* Items List */}
-              <div className="mb-8">
+              <div>
                 <h4 className="text-xs uppercase tracking-wider font-bold text-bark mb-3">
                   Ordered Botanical Arrangements
                 </h4>
@@ -895,7 +979,7 @@ export default function AdminOrders() {
               </div>
 
               {/* Status Update Form */}
-              <form onSubmit={handleUpdateOrderStatus} className="bg-linen p-5 rounded-sm border border-canvas-line space-y-4">
+              <form onSubmit={handleUpdateOrderStatus} className="bg-canvas/30 p-5 rounded-sm border border-canvas-line space-y-4">
                 <h4 className="heading-serif text-lg text-bark">Update Order & Dispatch</h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -906,7 +990,7 @@ export default function AdminOrders() {
                     <select
                       value={newStatus}
                       onChange={(e) => setNewStatus(e.target.value)}
-                      className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     >
                       <option value="PAYMENT_CONFIRMED">Confirmed (Paid)</option>
                       <option value="PROCESSING">PROCESSING (In Crafting)</option>
@@ -924,7 +1008,7 @@ export default function AdminOrders() {
                     <select
                       value={carrier}
                       onChange={(e) => setCarrier(e.target.value as CarrierType)}
-                      className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     >
                       {SUPPORTED_CARRIERS.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -945,7 +1029,7 @@ export default function AdminOrders() {
                       value={awbNumber}
                       onChange={(e) => setAwbNumber(e.target.value)}
                       placeholder="e.g. 142385920194"
-                      className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     />
                   </div>
 
@@ -958,7 +1042,7 @@ export default function AdminOrders() {
                       value={statusNote}
                       onChange={(e) => setStatusNote(e.target.value)}
                       placeholder="e.g. Bouquet packed in atelier archival box"
-                      className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     />
                   </div>
                 </div>
@@ -988,8 +1072,8 @@ export default function AdminOrders() {
                 </div>
               </form>
             </div>
-          </div>
-        )}
+          )}
+        </AdminEntityDrawer>
 
         {/* Tax Invoice Modal */}
         {showInvoiceModal && selectedOrder && (

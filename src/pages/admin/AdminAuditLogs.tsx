@@ -21,6 +21,12 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
+import {
+  useAdminView,
+  AdminViewHeader,
+  AdminViewToolbar,
+  AdminEntityDrawer,
+} from '@/components/admin/view-system';
 
 interface AuditLog {
   id: string;
@@ -111,6 +117,7 @@ const JsonViewer = ({ data, isOld }: { data: Record<string, any> | null; isOld: 
 export default function AdminAuditLogs() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [stats, setStats] = useState<AuditStats>({
     total_events: 0,
     events_today: 0,
@@ -118,12 +125,26 @@ export default function AdminAuditLogs() {
     most_common_action: 'N/A'
   });
 
+  // Unified Admin View System hook
+  const {
+    viewMode,
+    setViewMode,
+    searchQuery,
+    setSearchQuery,
+    activeTab: entityFilterTab,
+    setActiveTab: setEntityFilterTab,
+  } = useAdminView({
+    defaultView: 'table',
+    defaultTab: 'ALL',
+    searchParamKey: 'q',
+    tabParamKey: 'entity',
+    viewParamKey: 'view',
+  });
+
   // Filters
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [actionType, setActionType] = useState('');
-  const [entityType, setEntityType] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
   
   // Pagination
   const [page, setPage] = useState(1);
@@ -144,7 +165,7 @@ export default function AdminAuditLogs() {
       if (fromDate) params.append('from', fromDate);
       if (toDate) params.append('to', toDate);
       if (actionType) params.append('action', actionType);
-      if (entityType) params.append('entity', entityType);
+      if (entityFilterTab && entityFilterTab !== 'ALL') params.append('entity', entityFilterTab);
       if (searchQuery) params.append('search', searchQuery);
 
       const res = await fetch(`/api/audit/list?${params.toString()}`);
@@ -200,27 +221,17 @@ export default function AdminAuditLogs() {
   useEffect(() => {
     // Reset to page 1 when filters change
     setPage(1);
-  }, [fromDate, toDate, actionType, entityType, searchQuery]);
+  }, [fromDate, toDate, actionType, entityFilterTab, searchQuery]);
 
   useEffect(() => {
     fetchLogs();
-  }, [page, fromDate, toDate, actionType, entityType, searchQuery]);
-
-  const toggleRow = (id: string) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
-  };
+  }, [page, fromDate, toDate, actionType, entityFilterTab, searchQuery]);
 
   const clearFilters = () => {
     setFromDate('');
     setToDate('');
     setActionType('');
-    setEntityType('');
+    setEntityFilterTab('ALL');
     setSearchQuery('');
     setPage(1);
   };
@@ -228,69 +239,74 @@ export default function AdminAuditLogs() {
   return (
     <AdminLayout activePage="audit-logs">
       <main className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8 font-karla">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-rose font-medium mb-1">
-              Security &amp; Compliance
-            </p>
-            <h1 className="heading-serif text-4xl text-ink">System Audit Logs</h1>
-            <p className="text-xs text-bark mt-1">
-              Immutable trail of all administrative and system actions across the boutique platform.
-            </p>
-          </div>
+        {/* Standardized Admin View Header */}
+        <AdminViewHeader
+          category="Security & Compliance"
+          title="System Audit Logs"
+          subtitle="Immutable trail of all administrative and system actions across the boutique platform."
+          stats={[
+            {
+              label: 'Total Events',
+              value: stats.total_events.toLocaleString(),
+              icon: <Database size={18} />,
+              subtext: 'Recorded immutable actions',
+            },
+            {
+              label: 'Events Today',
+              value: stats.events_today.toLocaleString(),
+              icon: <Clock size={18} className="text-emerald-700" />,
+              subtext: 'Today across all modules',
+            },
+            {
+              label: 'Unique Actors',
+              value: stats.unique_actors.toLocaleString(),
+              icon: <User size={18} className="text-indigo-700" />,
+              subtext: 'Staff & system agents',
+            },
+            {
+              label: 'Common Action',
+              value: stats.most_common_action.replace(/_/g, ' '),
+              icon: <Activity size={18} className="text-amber-700" />,
+              subtext: 'Highest frequency event',
+            },
+          ]}
+          secondaryActions={[
+            {
+              label: 'Refresh Logs',
+              icon: <Activity size={14} />,
+              onClick: fetchLogs,
+              disabled: loading,
+            },
+          ]}
+        />
 
-          <button
-            onClick={fetchLogs}
-            disabled={loading}
-            className="px-4 py-2 bg-linen border border-canvas-line text-xs font-semibold text-ink rounded-sm hover:bg-canvas-line/30 transition-colors self-start md:self-auto flex items-center gap-2"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
-            {loading ? 'Refreshing...' : 'Refresh Logs'}
-          </button>
-        </header>
+        {/* Standardized View Toolbar */}
+        <AdminViewToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search ID, reason, actor email..."
+          tabs={[
+            { id: 'ALL', label: 'All Entities' },
+            { id: 'orders', label: 'Orders' },
+            { id: 'payments', label: 'Payments' },
+            { id: 'loyalty_accounts', label: 'Loyalty' },
+            { id: 'coupons', label: 'Coupons' },
+            { id: 'profiles', label: 'Profiles' },
+            { id: 'products', label: 'Products' },
+            { id: 'reviews', label: 'Reviews' },
+          ]}
+          activeTab={entityFilterTab}
+          onTabChange={setEntityFilterTab}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          supportedModes={['table']}
+          onRefresh={fetchLogs}
+          isRefreshing={loading}
+        />
 
-        {/* KPI Stats Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-parchment p-4 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center gap-2 text-ink mb-1">
-              <Database size={14} className="text-rose" />
-              <p className="text-[10px] uppercase font-bold tracking-wider">Total Events</p>
-            </div>
-            <p className="text-2xl font-serif font-bold text-ink">{stats.total_events.toLocaleString()}</p>
-          </div>
-          <div className="bg-parchment p-4 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center gap-2 text-ink mb-1">
-              <Clock size={14} className="text-emerald-600" />
-              <p className="text-[10px] uppercase font-bold tracking-wider">Events Today</p>
-            </div>
-            <p className="text-2xl font-serif font-bold text-ink">{stats.events_today.toLocaleString()}</p>
-          </div>
-          <div className="bg-parchment p-4 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center gap-2 text-ink mb-1">
-              <User size={14} className="text-indigo-600" />
-              <p className="text-[10px] uppercase font-bold tracking-wider">Unique Actors</p>
-            </div>
-            <p className="text-2xl font-serif font-bold text-ink">{stats.unique_actors.toLocaleString()}</p>
-          </div>
-          <div className="bg-parchment p-4 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center gap-2 text-ink mb-1">
-              <Activity size={14} className="text-amber-600" />
-              <p className="text-[10px] uppercase font-bold tracking-wider">Common Action</p>
-            </div>
-            <p className="text-sm font-semibold text-ink truncate mt-2" title={stats.most_common_action}>
-              {stats.most_common_action.replace(/_/g, ' ')}
-            </p>
-          </div>
-        </div>
-
-        {/* Filters Bar */}
-        <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft space-y-4">
-          <div className="flex items-center gap-2 mb-2 text-ink font-semibold text-sm">
-            <Filter size={16} />
-            <h2>Filter Audit Trail</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+        {/* Granular Date & Action Filter Bar */}
+        <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase font-bold text-bark tracking-wider">From Date</label>
               <div className="relative">
@@ -299,10 +315,11 @@ export default function AdminAuditLogs() {
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-ink"
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                 />
               </div>
             </div>
+
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase font-bold text-bark tracking-wider">To Date</label>
               <div className="relative">
@@ -311,19 +328,20 @@ export default function AdminAuditLogs() {
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-ink"
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                 />
               </div>
             </div>
+
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase font-bold text-bark tracking-wider">Action Type</label>
               <div className="relative">
                 <select
                   value={actionType}
                   onChange={(e) => setActionType(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-ink appearance-none"
+                  className="w-full px-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark appearance-none"
                 >
-                  <option value="">All Actions</option>
+                  <option value="">All Action Types</option>
                   {ACTION_TYPES.map((type) => (
                     <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>
                   ))}
@@ -331,43 +349,15 @@ export default function AdminAuditLogs() {
                 <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-bark/60 pointer-events-none" />
               </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase font-bold text-bark tracking-wider">Entity Type</label>
-              <div className="relative">
-                <select
-                  value={entityType}
-                  onChange={(e) => setEntityType(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-ink appearance-none"
-                >
-                  <option value="">All Entities</option>
-                  {ENTITY_TYPES.map((type) => (
-                    <option key={type} value={type}>{type.replace(/_/g, ' ').toUpperCase()}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-bark/60 pointer-events-none" />
-              </div>
+
+            <div>
+              <button
+                onClick={clearFilters}
+                className="w-full py-1.5 bg-canvas hover:bg-canvas-line/50 border border-canvas-line text-xs font-semibold text-bark rounded-sm flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <X size={13} /> Clear Date & Action Filters
+              </button>
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase font-bold text-bark tracking-wider">Search</label>
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-bark/60" />
-                <input
-                  type="text"
-                  placeholder="ID, Reason, Email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-ink"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={clearFilters}
-              className="text-xs font-semibold text-rose hover:text-rose/80 flex items-center gap-1 transition-colors"
-            >
-              <X size={14} /> Clear Filters
-            </button>
           </div>
         </div>
 
@@ -377,12 +367,12 @@ export default function AdminAuditLogs() {
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
                 <tr className="bg-parchment border-b border-canvas-line">
-                  <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider w-10"></th>
                   <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider w-40">Timestamp</th>
                   <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider w-48">Actor</th>
                   <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider">Action</th>
                   <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider w-48">Entity</th>
                   <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider">Reason</th>
+                  <th className="px-4 py-3 text-[10px] uppercase font-bold text-bark tracking-wider text-right">Inspect</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-canvas-line">
@@ -405,100 +395,72 @@ export default function AdminAuditLogs() {
                   </tr>
                 ) : (
                   logs.map((log) => {
-                    const isExpanded = expandedRows.has(log.id);
                     const link = getEntityLink(log.entity);
                     return (
-                      <React.Fragment key={log.id}>
-                        <tr className="hover:bg-parchment/50 transition-colors">
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => toggleRow(log.id)}
-                              className="p-1 rounded-sm text-bark hover:bg-canvas-line/50 transition-colors focus:outline-none"
-                              aria-label={isExpanded ? "Collapse details" : "Expand details"}
-                            >
-                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-ink whitespace-nowrap">
-                            {new Date(log.created_at).toLocaleString('en-IN', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            })}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-5 h-5 rounded-full bg-canvas-line flex items-center justify-center shrink-0">
-                                <User size={10} className="text-bark" />
-                              </div>
-                              <span className="text-xs text-ink font-medium truncate max-w-[150px]" title={log.actor_email || 'System'}>
-                                {log.actor_email || 'System'}
-                              </span>
+                      <tr
+                        key={log.id}
+                        onClick={() => setSelectedLog(log)}
+                        className="hover:bg-parchment/50 transition-colors cursor-pointer"
+                      >
+                        <td className="px-4 py-3 text-xs text-ink whitespace-nowrap">
+                          {new Date(log.created_at).toLocaleString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 rounded-full bg-canvas-line flex items-center justify-center shrink-0">
+                              <User size={10} className="text-bark" />
                             </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${getActionColor(log.action)}`}>
-                              {log.action.replace(/_/g, ' ')}
+                            <span className="text-xs text-ink font-medium truncate max-w-[150px]" title={log.actor_email || 'System'}>
+                              {log.actor_email || 'System'}
                             </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-col">
-                              <span className="text-[10px] uppercase font-bold text-bark tracking-wider">
-                                {log.entity.replace(/_/g, ' ')}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${getActionColor(log.action)}`}>
+                            {log.action.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] uppercase font-bold text-bark tracking-wider">
+                              {log.entity.replace(/_/g, ' ')}
+                            </span>
+                            {link ? (
+                              <span className="text-xs text-rose font-mono truncate max-w-[150px]" title={log.entity_id}>
+                                {log.entity_id.substring(0, 16)}...
                               </span>
-                              {link ? (
-                                <a href={link} className="text-xs text-rose hover:underline font-mono truncate max-w-[150px]" title={log.entity_id}>
-                                  {log.entity_id.substring(0, 16)}...
-                                </a>
-                              ) : (
-                                <span className="text-xs text-ink font-mono truncate max-w-[150px]" title={log.entity_id}>
-                                  {log.entity_id.substring(0, 16)}...
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-xs text-bark line-clamp-2" title={log.reason || 'No reason provided'}>
-                              {log.reason || <span className="italic opacity-50">No reason provided</span>}
-                            </span>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="bg-parchment/30 border-b border-canvas-line">
-                            <td colSpan={6} className="px-10 py-6">
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <div>
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <FileJson size={14} className="text-red-600" />
-                                    <h4 className="text-xs font-bold text-ink uppercase tracking-wider">Previous State</h4>
-                                  </div>
-                                  <JsonViewer data={log.old_values} isOld={true} />
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <FileJson size={14} className="text-emerald-600" />
-                                    <h4 className="text-xs font-bold text-ink uppercase tracking-wider">New State</h4>
-                                  </div>
-                                  <JsonViewer data={log.new_values} isOld={false} />
-                                </div>
-                              </div>
-                              <div className="mt-4 flex items-center gap-4 text-[10px] text-bark">
-                                <div>
-                                  <strong>Event ID:</strong> <span className="font-mono">{log.id}</span>
-                                </div>
-                                {log.ip_address && (
-                                  <div>
-                                    <strong>IP Address:</strong> <span className="font-mono">{log.ip_address}</span>
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
+                            ) : (
+                              <span className="text-xs text-ink font-mono truncate max-w-[150px]" title={log.entity_id}>
+                                {log.entity_id.substring(0, 16)}...
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-bark line-clamp-2" title={log.reason || 'No reason provided'}>
+                            {log.reason || <span className="italic opacity-50">No reason provided</span>}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLog(log);
+                            }}
+                            className="px-2.5 py-1 bg-canvas hover:bg-canvas-line text-bark text-xs font-medium rounded-sm transition-colors inline-flex items-center gap-1"
+                          >
+                            Inspect Diff
+                            <ChevronRight size={12} />
+                          </button>
+                        </td>
+                      </tr>
                     );
                   })
                 )}
@@ -531,6 +493,94 @@ export default function AdminAuditLogs() {
             </div>
           )}
         </div>
+
+        {/* Audit Log JSON Diff Inspector Drawer */}
+        <AdminEntityDrawer
+          isOpen={!!selectedLog}
+          onClose={() => setSelectedLog(null)}
+          title={selectedLog ? selectedLog.action.replace(/_/g, ' ') : ''}
+          subtitle={
+            selectedLog
+              ? `Triggered by ${selectedLog.actor_email || 'System'} • ${new Date(selectedLog.created_at).toLocaleString('en-IN')}`
+              : ''
+          }
+          badge={
+            selectedLog && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${getActionColor(selectedLog.action)}`}>
+                {selectedLog.action.replace(/_/g, ' ')}
+              </span>
+            )
+          }
+          widthClass="max-w-2xl sm:max-w-3xl"
+        >
+          {selectedLog && (
+            <div className="space-y-6">
+              {/* Event Metadata */}
+              <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-ink-light">Entity Type</span>
+                  <span className="font-semibold text-bark uppercase">{selectedLog.entity}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-light">Entity Identifier</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-bark font-bold">{selectedLog.entity_id}</span>
+                    {getEntityLink(selectedLog.entity) && (
+                      <a
+                        href={getEntityLink(selectedLog.entity)!}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-rose hover:underline flex items-center gap-1 font-sans"
+                      >
+                        Open Resource
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-light">Actor Account</span>
+                  <span className="font-medium text-bark">{selectedLog.actor_email || 'System Automated Task'}</span>
+                </div>
+                {selectedLog.ip_address && (
+                  <div className="flex justify-between">
+                    <span className="text-ink-light">IP Address</span>
+                    <span className="font-mono text-bark">{selectedLog.ip_address}</span>
+                  </div>
+                )}
+                {selectedLog.reason && (
+                  <div className="pt-2 border-t border-canvas-line">
+                    <span className="text-ink-light block mb-0.5">Audit Reason:</span>
+                    <p className="font-medium text-bark">{selectedLog.reason}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Side by Side JSON State Diff */}
+              <div className="space-y-4">
+                <h4 className="text-xs uppercase tracking-wider font-bold text-bark">
+                  State Mutation Diff
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-red-700">
+                      <FileJson size={14} />
+                      <span>Previous State (Before)</span>
+                    </div>
+                    <JsonViewer data={selectedLog.old_values} isOld={true} />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                      <FileJson size={14} />
+                      <span>New State (After)</span>
+                    </div>
+                    <JsonViewer data={selectedLog.new_values} isOld={false} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </AdminEntityDrawer>
       </main>
     </AdminLayout>
   );

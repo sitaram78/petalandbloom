@@ -12,10 +12,20 @@ import {
   ShieldCheck,
   MessageSquare,
   Sparkles,
+  ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { useNotification } from '@/context/NotificationContext';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import {
+  useAdminView,
+  AdminViewHeader,
+  AdminViewToolbar,
+  AdminEntityDrawer,
+  AdminKanbanBoard,
+  type KanbanColumn,
+} from '@/components/admin/view-system';
 
 interface AdminReview {
   id: string;
@@ -36,9 +46,24 @@ export default function AdminReviews() {
   const { showNotification } = useNotification();
   const [reviews, setReviews] = useState<AdminReview[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'approved' | 'pending'>('all');
+  const [selectedReview, setSelectedReview] = useState<AdminReview | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Unified Admin View System hook
+  const {
+    viewMode,
+    setViewMode,
+    searchQuery,
+    setSearchQuery,
+    activeTab: filterStatus,
+    setActiveTab: setFilterStatus,
+  } = useAdminView({
+    defaultView: 'table',
+    defaultTab: 'all',
+    searchParamKey: 'q',
+    tabParamKey: 'status',
+    viewParamKey: 'view',
+  });
 
   const fetchReviews = async () => {
     setLoading(true);
@@ -118,109 +143,128 @@ export default function AdminReviews() {
   const avgRating =
     totalCount > 0 ? (reviews.reduce((acc, r) => acc + (r.rating || 5), 0) / totalCount).toFixed(1) : '5.0';
 
+  const kanbanColumns: KanbanColumn<AdminReview>[] = [
+    {
+      id: 'pending',
+      title: 'Pending Moderation',
+      badgeColor: 'bg-amber-500',
+      items: filteredReviews.filter((r) => !r.is_approved),
+      emptyMessage: 'No reviews awaiting moderation',
+    },
+    {
+      id: 'approved',
+      title: 'Live & Published',
+      badgeColor: 'bg-emerald-600',
+      items: filteredReviews.filter((r) => r.is_approved),
+      emptyMessage: 'No published reviews in this view',
+    },
+  ];
+
+  const renderKanbanCard = (r: AdminReview) => (
+    <div
+      onClick={() => setSelectedReview(r)}
+      className="bg-linen p-4 rounded-sm border border-canvas-line shadow-xs hover:border-bark hover:shadow-soft transition-all cursor-pointer space-y-3"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-0.5 text-rose">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <Star
+              key={s}
+              size={12}
+              className={s <= r.rating ? 'fill-rose text-rose' : 'text-canvas-line'}
+            />
+          ))}
+        </div>
+        <span className="font-mono text-[10px] font-bold text-bark uppercase bg-canvas/60 px-1.5 py-0.5 rounded border border-canvas-line">
+          {r.product_code}
+        </span>
+      </div>
+
+      {r.review_title && (
+        <h4 className="font-serif font-semibold text-bark text-xs line-clamp-1">
+          {r.review_title}
+        </h4>
+      )}
+
+      <p className="text-xs text-ink-light line-clamp-3 italic">
+        &ldquo;{r.review_text}&rdquo;
+      </p>
+
+      {r.customer_photo && (
+        <div className="relative w-full h-24 rounded-sm overflow-hidden border border-canvas-line">
+          <img
+            src={r.customer_photo}
+            alt="Review upload"
+            className="w-full h-full object-cover"
+          />
+        </div>
+      )}
+
+      <div className="pt-2 border-t border-canvas-line flex items-center justify-between text-[10px] text-ink-light">
+        <span className="font-medium text-bark truncate">{r.customer_name}</span>
+        <span className="text-rose font-medium uppercase tracking-wider flex items-center gap-0.5">
+          Moderate <ChevronRight size={11} />
+        </span>
+      </div>
+    </div>
+  );
+
   return (
     <AdminLayout activePage="reviews">
       <main className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-rose font-medium mb-1">
-              Social Proof &amp; UGC Moderation
-            </p>
-            <h1 className="heading-serif text-4xl text-bark">Customer Reviews &amp; Stories</h1>
-            <p className="text-xs text-ink-light mt-1">
-              Moderate and inspect reviews submitted by verified patrons who purchased bespoke blooms.
-            </p>
-          </div>
+        {/* Standardized Admin View Header */}
+        <AdminViewHeader
+          category="Social Proof & UGC Moderation"
+          title="Customer Reviews & Stories"
+          subtitle="Moderate and inspect reviews submitted by verified patrons who purchased bespoke blooms."
+          stats={[
+            {
+              label: 'Total Reviews',
+              value: totalCount,
+              icon: <MessageSquare size={18} />,
+              subtext: 'Client feedback submissions',
+            },
+            {
+              label: 'Published & Live',
+              value: approvedCount,
+              icon: <CheckCircle2 size={18} className="text-emerald-700" />,
+              subtext: 'Visible on piece pages',
+            },
+            {
+              label: 'Pending Moderation',
+              value: pendingCount,
+              icon: <Sparkles size={18} className="text-amber-600" />,
+              subtext: 'Awaiting atelier review',
+            },
+            {
+              label: 'Average Score',
+              value: `${avgRating} ★`,
+              icon: <Star size={18} className="text-rose fill-rose" />,
+              subtext: 'Patron satisfaction rating',
+            },
+          ]}
+        />
 
-          <button
-            onClick={fetchReviews}
-            disabled={loading}
-            className="px-4 py-2 bg-white border border-canvas-line text-xs font-semibold text-bark rounded-sm hover:bg-canvas/30 transition-colors self-start md:self-auto"
-          >
-            {loading ? 'Refreshing...' : 'Refresh Reviews'}
-          </button>
-        </header>
+        {/* Standardized View Toolbar */}
+        <AdminViewToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search by patron, piece code, or text..."
+          tabs={[
+            { id: 'all', label: 'All Reviews', count: totalCount },
+            { id: 'pending', label: 'Pending Moderation', count: pendingCount },
+            { id: 'approved', label: 'Live & Published', count: approvedCount },
+          ]}
+          activeTab={filterStatus}
+          onTabChange={(tab) => setFilterStatus(tab as 'all' | 'approved' | 'pending')}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          supportedModes={['table', 'kanban']}
+          onRefresh={fetchReviews}
+          isRefreshing={loading}
+        />
 
-        {/* KPI Stats Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft">
-            <p className="text-[10px] uppercase font-bold text-ink-light tracking-wider mb-1">
-              Total Reviews
-            </p>
-            <p className="text-2xl font-serif font-bold text-bark">{totalCount}</p>
-          </div>
-          <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft">
-            <p className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider mb-1">
-              Published &amp; Live
-            </p>
-            <p className="text-2xl font-serif font-bold text-emerald-900">{approvedCount}</p>
-          </div>
-          <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft">
-            <p className="text-[10px] uppercase font-bold text-amber-800 tracking-wider mb-1">
-              Pending Moderation
-            </p>
-            <p className="text-2xl font-serif font-bold text-amber-900">{pendingCount}</p>
-          </div>
-          <div className="bg-linen p-4 rounded-sm border border-canvas-line shadow-soft">
-            <p className="text-[10px] uppercase font-bold text-rose-deep tracking-wider mb-1">
-              Average Score
-            </p>
-            <div className="flex items-center gap-1.5">
-              <span className="text-2xl font-serif font-bold text-bark">{avgRating}</span>
-              <Star size={16} className="fill-rose text-rose" />
-            </div>
-          </div>
-        </div>
-
-        {/* Filter & Search Toolbar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-linen p-4 rounded-sm border border-canvas-line shadow-soft">
-          <div className="relative w-full sm:w-80">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-light" />
-            <input
-              type="text"
-              placeholder="Search by patron, piece code, or text..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Filter size={14} className="text-ink-light" />
-            <div className="inline-flex rounded-sm border border-canvas-line bg-canvas/30 p-0.5">
-              <button
-                type="button"
-                onClick={() => setFilterStatus('all')}
-                className={`px-3 py-1 rounded-sm text-xs font-medium transition-all ${
-                  filterStatus === 'all' ? 'bg-bark text-linen shadow-sm' : 'text-ink-light hover:text-ink'
-                }`}
-              >
-                All ({totalCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterStatus('approved')}
-                className={`px-3 py-1 rounded-sm text-xs font-medium transition-all ${
-                  filterStatus === 'approved' ? 'bg-bark text-linen shadow-sm' : 'text-ink-light hover:text-ink'
-                }`}
-              >
-                Live ({approvedCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterStatus('pending')}
-                className={`px-3 py-1 rounded-sm text-xs font-medium transition-all ${
-                  filterStatus === 'pending' ? 'bg-bark text-linen shadow-sm' : 'text-ink-light hover:text-ink'
-                }`}
-              >
-                Pending ({pendingCount})
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Reviews Moderation Table / Cards */}
+        {/* Reviews Content: Kanban vs Table List */}
         {loading ? (
           <div className="py-16 text-center bg-linen rounded-sm border border-canvas-line shadow-soft">
             <Loader2 size={28} className="animate-spin text-rose mx-auto mb-2" />
@@ -234,6 +278,11 @@ export default function AdminReviews() {
               No reviews match the active search query or filter selection.
             </p>
           </div>
+        ) : viewMode === 'kanban' ? (
+          <AdminKanbanBoard
+            columns={kanbanColumns}
+            renderCard={renderKanbanCard}
+          />
         ) : (
           <div className="space-y-4">
             {filteredReviews.map((r) => {
@@ -290,7 +339,8 @@ export default function AdminReviews() {
                           <img
                             src={r.customer_photo}
                             alt="Customer upload"
-                            className="w-24 h-24 object-cover rounded-sm border border-canvas-line shadow-xs"
+                            onClick={() => setSelectedReview(r)}
+                            className="w-24 h-24 object-cover rounded-sm border border-canvas-line shadow-xs cursor-pointer hover:opacity-90 transition-opacity"
                           />
                         </div>
                       )}
@@ -298,6 +348,15 @@ export default function AdminReviews() {
 
                     {/* Actions Toolbar */}
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-start">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReview(r)}
+                        className="px-3 py-1.5 bg-canvas hover:bg-canvas-line text-bark text-xs font-medium rounded-sm flex items-center gap-1.5 transition-colors"
+                      >
+                        Inspect
+                        <ChevronRight size={13} />
+                      </button>
+
                       {r.is_approved ? (
                         <button
                           type="button"
@@ -316,7 +375,7 @@ export default function AdminReviews() {
                           className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-linen text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-colors shadow-xs"
                         >
                           <CheckCircle2 size={13} />
-                          Approve &amp; Publish
+                          Approve
                         </button>
                       )}
 
@@ -352,6 +411,176 @@ export default function AdminReviews() {
             })}
           </div>
         )}
+
+        {/* Review Moderation Inspector Drawer */}
+        <AdminEntityDrawer
+          isOpen={!!selectedReview}
+          onClose={() => setSelectedReview(null)}
+          title={selectedReview ? `Review from ${selectedReview.customer_name}` : ''}
+          subtitle={
+            selectedReview
+              ? `Submitted on ${new Date(selectedReview.created_at).toLocaleString('en-IN', {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                })}`
+              : ''
+          }
+          badge={
+            selectedReview && (
+              selectedReview.is_approved ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-900">
+                  Published & Live
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-900">
+                  Pending Review
+                </span>
+              )
+            )
+          }
+          widthClass="max-w-2xl"
+          footerActions={
+            selectedReview && (
+              <div className="flex items-center gap-3 w-full justify-between">
+                <button
+                  type="button"
+                  disabled={actionLoadingId === selectedReview.id}
+                  onClick={async () => {
+                    await handleModerate(selectedReview.id, 'delete');
+                    setSelectedReview(null);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 border border-red-200 rounded-sm transition-colors flex items-center gap-1.5"
+                >
+                  <Trash2 size={14} /> Delete Review
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {selectedReview.is_approved ? (
+                    <button
+                      type="button"
+                      disabled={actionLoadingId === selectedReview.id}
+                      onClick={async () => {
+                        await handleModerate(selectedReview.id, 'unapprove');
+                        setSelectedReview(null);
+                      }}
+                      className="px-4 py-2 bg-canvas border border-canvas-line text-bark hover:bg-linen text-xs uppercase tracking-wider font-semibold rounded-sm transition-colors flex items-center gap-1.5"
+                    >
+                      <EyeOff size={14} /> Unpublish
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={actionLoadingId === selectedReview.id}
+                      onClick={async () => {
+                        await handleModerate(selectedReview.id, 'approve');
+                        setSelectedReview(null);
+                      }}
+                      className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-linen text-xs uppercase tracking-wider font-semibold rounded-sm transition-colors flex items-center gap-1.5 shadow-sm"
+                    >
+                      <CheckCircle2 size={14} /> Approve & Publish
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          }
+        >
+          {selectedReview && (
+            <div className="space-y-6">
+              {/* Product & Score Snapshot */}
+              <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-ink-light font-bold block mb-1">
+                    Piece Reference
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold text-bark bg-white px-2 py-0.5 rounded border border-canvas-line">
+                      {selectedReview.product_code}
+                    </span>
+                    <a
+                      href={`/product/${selectedReview.product_code.toLowerCase()}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-rose hover:underline flex items-center gap-1"
+                    >
+                      View Piece <ExternalLink size={12} />
+                    </a>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[10px] uppercase tracking-wider text-ink-light font-bold block mb-1">
+                    Rating Given
+                  </span>
+                  <div className="flex items-center gap-1 text-rose justify-end">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        size={15}
+                        className={s <= selectedReview.rating ? 'fill-rose text-rose' : 'text-canvas-line'}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Review Content */}
+              <div className="space-y-3">
+                {selectedReview.review_title && (
+                  <h3 className="heading-serif text-xl text-bark">
+                    {selectedReview.review_title}
+                  </h3>
+                )}
+                <div className="p-4 bg-linen rounded-sm border border-canvas-line text-ink text-sm leading-relaxed whitespace-pre-line italic">
+                  &ldquo;{selectedReview.review_text}&rdquo;
+                </div>
+              </div>
+
+              {/* Customer Photo High-Res Preview */}
+              {selectedReview.customer_photo && (
+                <div className="space-y-2">
+                  <h4 className="text-xs uppercase tracking-wider font-bold text-bark">
+                    Patron Uploaded Imagery
+                  </h4>
+                  <div className="rounded-sm overflow-hidden border border-canvas-line bg-canvas/30">
+                    <img
+                      src={selectedReview.customer_photo}
+                      alt="Customer upload"
+                      className="w-full max-h-96 object-contain mx-auto"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Patron Profile Details */}
+              <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-2 text-xs">
+                <h4 className="text-xs uppercase tracking-wider font-bold text-bark mb-2">
+                  Patron Credentials
+                </h4>
+                <div className="flex justify-between text-ink-light">
+                  <span>Name</span>
+                  <strong className="text-bark">{selectedReview.customer_name}</strong>
+                </div>
+                {selectedReview.customer_email && (
+                  <div className="flex justify-between text-ink-light">
+                    <span>Email</span>
+                    <span className="text-bark">{selectedReview.customer_email}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-ink-light">
+                  <span>Verification Status</span>
+                  {selectedReview.is_verified_purchase ? (
+                    <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                      <CheckCircle2 size={12} /> Verified Atelier Purchaser
+                    </span>
+                  ) : (
+                    <span className="text-ink-light">Unverified Guest</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </AdminEntityDrawer>
       </main>
     </AdminLayout>
   );

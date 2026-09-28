@@ -17,6 +17,7 @@ import {
   Edit2,
   Tag,
   Gift,
+  ChevronRight,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { supabase } from '@/lib/supabaseClient';
@@ -24,6 +25,12 @@ import { useNotification } from '@/context/NotificationContext';
 import { downloadCSV } from '@/utils/csvExporter';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import { formatPrice } from '@/data/products';
+import {
+  useAdminView,
+  AdminViewHeader,
+  AdminViewToolbar,
+  AdminEntityDrawer,
+} from '@/components/admin/view-system';
 
 interface InfluencerAffiliate {
   id: string;
@@ -47,10 +54,26 @@ export default function AdminInfluencers() {
   const { showNotification } = useNotification();
   const [affiliates, setAffiliates] = useState<InfluencerAffiliate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAffiliate, setSelectedAffiliate] = useState<InfluencerAffiliate | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Unified Admin View System hook
+  const {
+    viewMode,
+    setViewMode,
+    searchQuery,
+    setSearchQuery,
+    activeTab,
+    setActiveTab,
+  } = useAdminView({
+    defaultView: 'table',
+    defaultTab: 'ALL',
+    searchParamKey: 'q',
+    tabParamKey: 'tab',
+    viewParamKey: 'view',
+  });
 
   // Form state
   const [form, setForm] = useState({
@@ -222,12 +245,21 @@ export default function AdminInfluencers() {
 
   const filteredAffiliates = affiliates.filter((a) => {
     const q = searchQuery.toLowerCase().trim();
-    return (
+    const matchesSearch =
       !q ||
       a.name.toLowerCase().includes(q) ||
       a.coupon_code.toLowerCase().includes(q) ||
-      a.instagram_handle.toLowerCase().includes(q)
-    );
+      a.instagram_handle.toLowerCase().includes(q);
+
+    if (!matchesSearch) return false;
+
+    if (activeTab === 'ACTIVE') {
+      return a.active;
+    }
+    if (activeTab === 'COMMISSION_DUE') {
+      return (a.commission_earned_inr - a.commission_paid_inr) > 0;
+    }
+    return true;
   });
 
   const totalPartners = affiliates.length;
@@ -238,112 +270,167 @@ export default function AdminInfluencers() {
   return (
     <AdminLayout activePage="influencers" as any>
       <main className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-rose font-medium mb-1">
-              Affiliate Growth &amp; Creator Partnerships
-            </p>
-            <h1 className="heading-serif text-4xl text-bark">Ambassadors &amp; Influencers</h1>
-            <p className="text-xs text-ink-light mt-1">
-              Track creator promo codes, gross sales attribution, and affiliate commissions.
-            </p>
+        {/* Standardized Admin View Header */}
+        <AdminViewHeader
+          category="Affiliate Growth & Creator Partnerships"
+          title="Ambassadors & Influencers"
+          subtitle="Track creator promo codes, gross sales attribution, and affiliate commissions."
+          stats={[
+            {
+              label: 'Active Partners',
+              value: totalPartners,
+              icon: <Users size={18} />,
+              subtext: 'Creators with promo codes',
+            },
+            {
+              label: 'Code Redemptions',
+              value: totalRedemptions,
+              icon: <Tag size={18} className="text-rose" />,
+              subtext: 'Orders driven by partners',
+            },
+            {
+              label: 'Attributed Sales (GMV)',
+              value: formatPrice(totalGrossRevenue),
+              icon: <TrendingUp size={18} className="text-emerald-700" />,
+              subtext: 'Gross merchandise volume',
+            },
+            {
+              label: 'Commission Due',
+              value: formatPrice(totalCommissionDue),
+              icon: <CreditCard size={18} className="text-rose-deep" />,
+              subtext: 'Accrued creator earnings',
+            },
+          ]}
+          primaryAction={{
+            label: 'Add Ambassador',
+            icon: <Plus size={14} className="text-rose" />,
+            onClick: handleOpenAdd,
+          }}
+          secondaryActions={[
+            {
+              label: 'Export Performance CSV',
+              icon: <Download size={14} className="text-emerald-700" />,
+              onClick: exportAffiliateReport,
+              disabled: affiliates.length === 0,
+            },
+          ]}
+        />
+
+        {/* Standardized View Toolbar */}
+        <AdminViewToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search creator name, code, handle..."
+          tabs={[
+            { id: 'ALL', label: 'All Partners', count: affiliates.length },
+            { id: 'ACTIVE', label: 'Active', count: affiliates.filter((a) => a.active).length },
+            {
+              id: 'COMMISSION_DUE',
+              label: 'Payables Due',
+              count: affiliates.filter((a) => a.commission_earned_inr - a.commission_paid_inr > 0).length,
+            },
+          ]}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          supportedModes={['table', 'grid']}
+          onRefresh={loadAffiliatesData}
+          isRefreshing={loading}
+        />
+
+        {/* Content View: Table vs Grid */}
+        {loading ? (
+          <div className="py-20 flex flex-col items-center justify-center gap-3 bg-linen rounded-sm border border-canvas-line">
+            <Loader2 size={28} className="animate-spin text-rose" />
+            <p className="text-xs text-ink-light">Calculating partner attribution metrics...</p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={exportAffiliateReport}
-              disabled={affiliates.length === 0}
-              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all disabled:opacity-40"
-            >
-              <Download size={14} className="text-emerald-700" />
-              Export Performance CSV
-            </button>
-
+        ) : filteredAffiliates.length === 0 ? (
+          <div className="py-20 text-center space-y-3 bg-linen rounded-sm border border-canvas-line">
+            <Sparkles size={36} className="mx-auto text-rose/50" />
+            <h3 className="heading-serif text-xl text-bark">No Creator Partners Found</h3>
+            <p className="text-xs text-ink-light max-w-sm mx-auto">
+              Create bespoke promo codes for influencers and track sales generated in real-time.
+            </p>
             <button
               onClick={handleOpenAdd}
-              className="px-4 py-2 bg-ink text-white hover:bg-bark text-xs font-medium uppercase tracking-wider rounded-sm flex items-center gap-1.5 transition-all shadow-soft"
+              className="px-4 py-2 bg-ink text-white hover:bg-bark text-xs font-medium rounded-sm inline-flex items-center gap-2"
             >
-              <Plus size={14} className="text-rose" />
-              Add Ambassador
+              <Plus size={14} /> Add First Ambassador
             </button>
           </div>
-        </header>
-
-        {/* 1. KPI Stats Summary Bar */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between text-bark">
-              <span className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Active Partners</span>
-              <Users size={18} className="text-rose" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{totalPartners}</p>
-            <p className="text-[11px] text-ink-light mt-1">Creators with active discount codes</p>
-          </div>
-
-          <div className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between text-bark">
-              <span className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Code Redemptions</span>
-              <Tag size={18} className="text-rose" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{totalRedemptions}</p>
-            <p className="text-[11px] text-ink-light mt-1">Total orders using creator coupons</p>
-          </div>
-
-          <div className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between text-bark">
-              <span className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Attributed Sales (GMV)</span>
-              <TrendingUp size={18} className="text-emerald-700" />
-            </div>
-            <p className="font-serif text-3xl text-bark mt-3">{formatPrice(totalGrossRevenue)}</p>
-            <p className="text-[11px] text-ink-light mt-1">Gross merchandise volume via creators</p>
-          </div>
-
-          <div className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft">
-            <div className="flex items-center justify-between text-bark">
-              <span className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Commission Due</span>
-              <CreditCard size={18} className="text-rose-deep" />
-            </div>
-            <p className="font-serif text-3xl text-rose-deep mt-3">{formatPrice(totalCommissionDue)}</p>
-            <p className="text-[11px] text-ink-light mt-1">Accrued creator earnings</p>
-          </div>
-        </section>
-
-        {/* 2. Search and Table */}
-        <section className="bg-linen rounded-sm border border-canvas-line shadow-soft overflow-hidden">
-          <div className="p-4 border-b border-canvas-line bg-canvas/30 flex items-center justify-between gap-4">
-            <div className="relative w-full sm:w-80">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search creator name, code, handle..."
-                className="w-full pl-10 pr-4 py-2 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-              />
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="py-20 flex flex-col items-center justify-center gap-3">
-              <Loader2 size={28} className="animate-spin text-rose" />
-              <p className="text-xs text-ink-light">Calculating partner attribution metrics...</p>
-            </div>
-          ) : filteredAffiliates.length === 0 ? (
-            <div className="py-20 text-center space-y-3">
-              <Sparkles size={36} className="mx-auto text-rose/50" />
-              <h3 className="heading-serif text-xl text-bark">No Creator Partners Found</h3>
-              <p className="text-xs text-ink-light max-w-sm mx-auto">
-                Create bespoke promo codes for influencers and track sales generated in real-time.
-              </p>
-              <button
-                onClick={handleOpenAdd}
-                className="px-4 py-2 bg-ink text-white hover:bg-bark text-xs font-medium rounded-sm inline-flex items-center gap-2"
+        ) : viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredAffiliates.map((aff) => (
+              <div
+                key={aff.id}
+                className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft hover:border-canvas-line-hover transition-all flex flex-col justify-between space-y-4"
               >
-                <Plus size={14} /> Add First Ambassador
-              </button>
-            </div>
-          ) : (
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-rose/10 text-rose font-serif font-bold text-sm flex items-center justify-center">
+                        {aff.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-bark text-sm">{aff.name}</h4>
+                        <p className="text-[11px] text-rose font-medium flex items-center gap-1">
+                          <Instagram size={11} /> {aff.instagram_handle}
+                        </p>
+                      </div>
+                    </div>
+                    {aff.active ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700">
+                        Paused
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="bg-canvas/40 p-3 rounded-sm space-y-1.5 text-xs text-ink-light">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold">Promo Code</span>
+                      <span className="font-mono font-bold text-bark bg-white px-2 py-0.5 rounded border border-canvas-line">
+                        {aff.coupon_code}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Customer Discount</span>
+                      <span className="font-medium text-bark">{aff.discount_percent}% OFF</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-canvas-line text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-wider text-ink-light block">Redemptions</span>
+                      <span className="font-serif font-bold text-bark text-sm">
+                        {aff.redemption_count} orders
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase tracking-wider text-ink-light block">Commission Due</span>
+                      <span className="font-serif font-bold text-rose-deep text-sm">
+                        {formatPrice(aff.commission_earned_inr - aff.commission_paid_inr)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedAffiliate(aff)}
+                  className="w-full py-2 bg-canvas hover:bg-bark hover:text-linen text-bark text-xs uppercase tracking-wider font-medium rounded-sm border border-canvas-line transition-all flex items-center justify-center gap-1"
+                >
+                  Inspect Ambassador
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <section className="bg-linen rounded-sm border border-canvas-line shadow-soft overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-canvas/60 text-bark font-mono uppercase tracking-wider border-b border-canvas-line">
@@ -355,6 +442,7 @@ export default function AdminInfluencers() {
                     <th className="p-4 text-right">Attributed Sales</th>
                     <th className="p-4 text-right">Commission Due</th>
                     <th className="p-4 text-center">Status</th>
+                    <th className="p-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-canvas-line bg-parchment/20">
@@ -411,13 +499,118 @@ export default function AdminInfluencers() {
                           </span>
                         )}
                       </td>
+
+                      <td className="p-4 text-right">
+                        <button
+                          onClick={() => setSelectedAffiliate(aff)}
+                          className="px-3 py-1.5 bg-canvas hover:bg-canvas-line text-bark text-xs font-medium rounded-sm transition-colors"
+                        >
+                          Inspect
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {/* Influencer Affiliate Inspector Drawer */}
+        <AdminEntityDrawer
+          isOpen={!!selectedAffiliate}
+          onClose={() => setSelectedAffiliate(null)}
+          title={selectedAffiliate ? selectedAffiliate.name : ''}
+          subtitle={
+            selectedAffiliate
+              ? `Affiliate partner since ${new Date(selectedAffiliate.created_at).toLocaleDateString('en-IN')}`
+              : ''
+          }
+          badge={
+            selectedAffiliate && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  selectedAffiliate.active
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                {selectedAffiliate.active ? 'Active Partner' : 'Paused'}
+              </span>
+            )
+          }
+          widthClass="max-w-xl"
+        >
+          {selectedAffiliate && (
+            <div className="space-y-6">
+              {/* Creator Overview */}
+              <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-light">Instagram Handle</span>
+                  <span className="font-semibold text-rose flex items-center gap-1">
+                    <Instagram size={12} /> {selectedAffiliate.instagram_handle}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-light">Exclusive Promo Code</span>
+                  <span className="font-mono font-bold text-bark bg-white px-2 py-0.5 rounded border border-canvas-line">
+                    {selectedAffiliate.coupon_code}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-light">Discount Rate</span>
+                  <span className="text-bark font-semibold">{selectedAffiliate.discount_percent}% OFF</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-light">Commission Agreement</span>
+                  <span className="text-bark font-semibold">{selectedAffiliate.commission_percent}% of Net Sales</span>
+                </div>
+              </div>
+
+              {/* Financial Metrics */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-canvas/40 p-4 rounded-sm border border-canvas-line">
+                  <span className="text-[10px] uppercase tracking-wider text-ink-light block">Orders Driven</span>
+                  <p className="font-serif text-2xl font-bold text-bark mt-1">
+                    {selectedAffiliate.redemption_count}
+                  </p>
+                  <p className="text-[11px] text-ink-light">Coupon redemptions</p>
+                </div>
+
+                <div className="bg-canvas/40 p-4 rounded-sm border border-canvas-line">
+                  <span className="text-[10px] uppercase tracking-wider text-ink-light block">Attributed GMV</span>
+                  <p className="font-serif text-2xl font-bold text-emerald-800 mt-1">
+                    {formatPrice(selectedAffiliate.gross_revenue_inr)}
+                  </p>
+                  <p className="text-[11px] text-ink-light">Gross sales volume</p>
+                </div>
+              </div>
+
+              {/* Outstanding Commission */}
+              <div className="p-4 bg-rose/5 border border-rose/20 rounded-sm flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-ink-light font-semibold">Commission Due</p>
+                  <p className="font-serif text-2xl font-bold text-rose-deep mt-0.5">
+                    {formatPrice(selectedAffiliate.commission_earned_inr - selectedAffiliate.commission_paid_inr)}
+                  </p>
+                </div>
+                {selectedAffiliate.payout_upi_or_bank && (
+                  <div className="text-right text-xs">
+                    <span className="text-ink-light block">Payout Route</span>
+                    <span className="font-mono text-bark font-medium">{selectedAffiliate.payout_upi_or_bank}</span>
+                  </div>
+                )}
+              </div>
+
+              {selectedAffiliate.notes && (
+                <div className="text-xs text-ink-light space-y-1">
+                  <span className="font-semibold text-bark">Partner Notes:</span>
+                  <p className="italic bg-canvas/30 p-3 rounded-sm border border-canvas-line">{selectedAffiliate.notes}</p>
+                </div>
+              )}
+            </div>
           )}
-        </section>
+        </AdminEntityDrawer>
 
         {/* Add Ambassador Modal */}
         {isModalOpen && (
