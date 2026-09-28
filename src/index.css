@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: 'Karla', sans-serif;
+    background-color: #EFE8D8;
+    color: #2A241C;
+    font-weight: 400;
+    line-height: 1.7;
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background-color: #58643F;
+    color: #EFE8D8;
+  }
+
+  /* Visible focus states for keyboard navigation */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #A8465A;
+    outline-offset: 3px;
+    box-shadow: 0 0 0 3px #EFE8D8;
+  }
+
+  /* Respect reduced motion preferences */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    .reveal {
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  }
+}
+
+@layer components {
+  .container-lux {
+    @apply max-w-7xl mx-auto px-6 sm:px-10 lg:px-16;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-4 bg-bark text-linen text-sm font-medium tracking-wide rounded-atelier-btn transition-all duration-500 hover:bg-bark-dark hover:shadow-[0_20px_50px_-12px_rgba(42,36,28,0.3)] active:scale-[0.98] whitespace-nowrap;
+  }
+
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-4 bg-transparent text-bark text-sm font-medium tracking-wide rounded-atelier-btn border border-rose transition-all duration-500 hover:bg-bark hover:text-linen active:scale-[0.98] whitespace-nowrap;
+  }
+
+  .btn-whatsapp {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-4 bg-[#25D366] text-white text-sm font-medium tracking-wide rounded-atelier-btn transition-all duration-500 hover:bg-[#1da851] hover:shadow-[0_20px_50px_-12px_rgba(37,211,102,0.3)] active:scale-[0.98] whitespace-nowrap;
+  }
+
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 bg-gold-500 text-bark text-sm font-medium tracking-wide rounded-atelier-btn transition-all duration-500 hover:bg-gold-600 hover:shadow-md active:scale-[0.98];
+  }
+
+  .section-label {
+    @apply text-[10px] uppercase tracking-[0.3em] text-rose font-semibold opacity-80;
+  }
+
+  .heading-serif {
+    @apply font-serif text-bark font-medium leading-[1.1];
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-canvas border border-canvas-line rounded-sm text-bark placeholder-ink-light/40 focus:outline-none focus:border-rose focus:bg-linen transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply transition-all duration-700 ease-out hover:-translate-y-2;
+  }
+
+  .link-underline {
+    @apply relative after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-current after:transition-all after:duration-300 hover:after:w-full;
+  }
+
+  .glass-panel {
+    @apply bg-linen/60 backdrop-blur-md border border-canvas-line shadow-sm;
+  }
+
+  .shadow-soft {
+    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.05);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .animate-delay-100 { animation-delay: 0.1s; opacity: 0; }
+  .animate-delay-200 { animation-delay: 0.2s; opacity: 0; }
+  .animate-delay-300 { animation-delay: 0.3s; opacity: 0; }
+  .animate-delay-400 { animation-delay: 0.4s; opacity: 0; }
+  .animate-delay-500 { animation-delay: 0.5s; opacity: 0; }
+  .animate-delay-700 { animation-delay: 0.7s; opacity: 0; }
+}
+
+/* Reveal-on-scroll observer */
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
