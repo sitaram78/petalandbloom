@@ -62,33 +62,37 @@ export default function AdminMessages() {
   const fetchConversations = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/assistance/conversations');
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && json.conversations) {
-          setConversations(json.conversations);
-          if (json.conversations.length > 0 && !selectedConv) {
-            setSelectedConv(json.conversations[0]);
+      try {
+        const res = await fetch('/api/assistance/conversations');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.conversations)) {
+            setConversations(json.conversations);
+            if (json.conversations.length > 0 && !selectedConv) {
+              setSelectedConv(json.conversations[0]);
+            }
+            return;
           }
-          return;
         }
+      } catch (err) {
+        console.warn('API fetch conversations error:', err);
       }
-    } catch {}
 
-    try {
-      const { data, error } = await supabase
-        .from('assistance_conversations')
-        .select('*')
-        .order('last_message_at', { ascending: false });
+      try {
+        const { data, error } = await supabase
+          .from('assistance_conversations')
+          .select('*')
+          .order('last_message_at', { ascending: false });
 
-      if (!error && data) {
-        setConversations(data);
-        if (data.length > 0 && !selectedConv) {
-          setSelectedConv(data[0]);
+        if (!error && data) {
+          setConversations(data);
+          if (data.length > 0 && !selectedConv) {
+            setSelectedConv(data[0]);
+          }
         }
+      } catch (err: any) {
+        console.warn('Fetch conversations error:', err);
       }
-    } catch (err: any) {
-      console.warn('Fetch conversations error:', err);
     } finally {
       setLoading(false);
     }
@@ -105,28 +109,32 @@ export default function AdminMessages() {
 
     async function loadMessages() {
       try {
-        const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(selectedConv?.id || '')}`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.messages) {
-            setMessages(json.messages);
-            return;
+        try {
+          const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(selectedConv?.id || '')}`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.messages)) {
+              setMessages(json.messages);
+              return;
+            }
           }
+        } catch (err) {
+          console.warn('API load messages error:', err);
         }
-      } catch {}
 
-      try {
-        const { data, error } = await supabase
-          .from('assistance_messages')
-          .select('*')
-          .eq('conversation_id', selectedConv?.id)
-          .order('created_at', { ascending: true });
+        try {
+          const { data, error } = await supabase
+            .from('assistance_messages')
+            .select('*')
+            .eq('conversation_id', selectedConv?.id)
+            .order('created_at', { ascending: true });
 
-        if (!error && data) {
-          setMessages(data);
+          if (!error && data) {
+            setMessages(data);
+          }
+        } catch (err: any) {
+          console.warn('Load messages error:', err);
         }
-      } catch (err: any) {
-        console.warn('Load messages error:', err);
       } finally {
         setLoadingMessages(false);
       }
