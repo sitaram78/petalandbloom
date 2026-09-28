@@ -90,19 +90,21 @@ export default function AtelierConciergeWidget() {
       return;
     }
 
+    let isMounted = true;
+
     async function loadMessages() {
       try {
-        const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(conversationId)}`);
+        const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(conversationId || '')}`);
         if (res.ok) {
           const json = await res.json();
-          if (json.success && json.messages && json.messages.length > 0) {
+          if (json.success && json.messages && json.messages.length > 0 && isMounted) {
             setMessages(json.messages);
             setHasStartedConversation(true);
             return;
           }
         }
       } catch (err) {
-        console.warn('Failed to fetch messages via API:', err);
+        // Fallback
       }
 
       try {
@@ -112,18 +114,25 @@ export default function AtelierConciergeWidget() {
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: true });
 
-        if (!error && data && data.length > 0) {
+        if (!error && data && data.length > 0 && isMounted) {
           setMessages(data);
           setHasStartedConversation(true);
         }
       } catch (err) {
-        console.warn('Failed to fetch messages from Supabase:', err);
+        // Fallback
       }
     }
 
     loadMessages();
 
-    // Subscribe to new messages via BroadcastChannel (local & cross-tab)
+    // Active real-time polling every 2s while chat drawer is open
+    const pollTimer = setInterval(() => {
+      if (isChatOpen) {
+        loadMessages();
+      }
+    }, 2000);
+
+    // Subscribe to new messages via BroadcastChannel (local & cross-tab in same browser)
     let bc: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
@@ -131,10 +140,12 @@ export default function AtelierConciergeWidget() {
         bc.onmessage = (event) => {
           if (event.data?.type === 'NEW_MESSAGE' && event.data.message?.conversation_id === conversationId) {
             const newMsg = event.data.message as ChatMessage;
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
+            if (isMounted) {
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === newMsg.id)) return prev;
+                return [...prev, newMsg];
+              });
+            }
           }
         };
       } catch (err) {
@@ -143,9 +154,11 @@ export default function AtelierConciergeWidget() {
     }
 
     return () => {
+      isMounted = false;
+      clearInterval(pollTimer);
       if (bc) bc.close();
     };
-  }, [conversationId]);
+  }, [conversationId, isChatOpen]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();

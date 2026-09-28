@@ -86,6 +86,19 @@ export default async function handler(req: any, res: any) {
       } else if (newMsg.sender_type === 'ADMIN') {
         conv.status = 'REPLIED';
       }
+    } else {
+      convList.unshift({
+        id: targetConvId,
+        customer_id: null,
+        customer_name: newMsg.sender_name || 'Customer',
+        customer_phone: null,
+        customer_email: null,
+        subject: payload.message_text.slice(0, 50),
+        status: newMsg.sender_type === 'CUSTOMER' ? 'PENDING_ADMIN' : 'REPLIED',
+        last_message_preview: payload.message_text,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      });
     }
 
     try {

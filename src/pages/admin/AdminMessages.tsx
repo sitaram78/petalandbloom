@@ -59,8 +59,8 @@ export default function AdminMessages() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const fetchConversations = async () => {
-    setLoading(true);
+  const fetchConversations = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       try {
         const res = await fetch('/api/assistance/conversations');
@@ -68,8 +68,13 @@ export default function AdminMessages() {
           const json = await res.json();
           if (json.success && Array.isArray(json.conversations)) {
             setConversations(json.conversations);
-            if (json.conversations.length > 0 && !selectedConv) {
-              setSelectedConv(json.conversations[0]);
+            if (json.conversations.length > 0) {
+              setSelectedConv((current) => {
+                if (!current) return json.conversations[0];
+                // Keep selected conversation in sync with latest preview/status
+                const found = json.conversations.find((c: any) => c.id === current.id);
+                return found || current;
+              });
             }
             return;
           }
@@ -86,34 +91,42 @@ export default function AdminMessages() {
 
         if (!error && data) {
           setConversations(data);
-          if (data.length > 0 && !selectedConv) {
-            setSelectedConv(data[0]);
+          if (data.length > 0) {
+            setSelectedConv((current) => current || data[0]);
           }
         }
       } catch (err: any) {
         console.warn('Fetch conversations error:', err);
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchConversations();
+    fetchConversations(false);
+
+    // Active real-time polling every 2 seconds
+    const interval = setInterval(() => {
+      fetchConversations(true);
+    }, 2000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  // Fetch messages when selected conversation changes
+  // Fetch messages when selected conversation changes with active polling
   useEffect(() => {
-    if (!selectedConv) return;
-    setLoadingMessages(true);
+    if (!selectedConv?.id) return;
+    let isMounted = true;
 
-    async function loadMessages() {
+    async function loadMessages(silent = false) {
+      if (!silent) setLoadingMessages(true);
       try {
         try {
           const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(selectedConv?.id || '')}`);
           if (res.ok) {
             const json = await res.json();
-            if (json.success && Array.isArray(json.messages)) {
+            if (json.success && Array.isArray(json.messages) && isMounted) {
               setMessages(json.messages);
               return;
             }
@@ -129,26 +142,31 @@ export default function AdminMessages() {
             .eq('conversation_id', selectedConv?.id)
             .order('created_at', { ascending: true });
 
-          if (!error && data) {
+          if (!error && data && isMounted) {
             setMessages(data);
           }
         } catch (err: any) {
-          console.warn('Load messages error:', err);
+          console.warn('Supabase load messages error:', err);
         }
       } finally {
-        setLoadingMessages(false);
+        if (!silent && isMounted) setLoadingMessages(false);
       }
     }
 
-    loadMessages();
+    loadMessages(false);
 
-    // Subscribe to new incoming messages via BroadcastChannel
+    // Active real-time polling every 2 seconds for active thread
+    const messagePollInterval = setInterval(() => {
+      loadMessages(true);
+    }, 2000);
+
+    // Subscribe to new incoming messages via BroadcastChannel (0ms delivery in same browser)
     let bc: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         bc = new BroadcastChannel('tpb_assistance_channel');
         bc.onmessage = (event) => {
-          if (event.data?.type === 'NEW_MESSAGE') {
+          if (event.data?.type === 'NEW_MESSAGE' && isMounted) {
             if (event.data.message?.conversation_id === selectedConv?.id) {
               const newMsg = event.data.message as MessageItem;
               setMessages((prev) => {
@@ -156,13 +174,15 @@ export default function AdminMessages() {
                 return [...prev, newMsg];
               });
             }
-            fetchConversations();
+            fetchConversations(true);
           }
         };
       } catch {}
     }
 
     return () => {
+      isMounted = false;
+      clearInterval(messagePollInterval);
       if (bc) bc.close();
     };
   }, [selectedConv?.id]);
