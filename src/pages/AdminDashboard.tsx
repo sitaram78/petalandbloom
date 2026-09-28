@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Trash2,
@@ -10,19 +10,94 @@ import {
   Package,
   ArrowRight,
   GripVertical,
-  Truck
+  Truck,
+  TrendingUp,
+  CreditCard,
+  ShoppingBag,
+  Users,
+  ExternalLink,
+  Clock,
+  Sparkles,
+  Ticket
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useProducts } from '@/context/ProductContext';
 import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
+import { formatPrice } from '@/data/products';
+
+interface OrderSummary {
+  id: string;
+  order_number: string;
+  guest_name: string;
+  guest_phone: string;
+  order_status: string;
+  payment_status: string;
+  total_in_paise: number;
+  created_at: string;
+}
 
 export default function AdminDashboard() {
-  const { products, loading, refreshProducts } = useProducts();
+  const { products, loading: productsLoading, refreshProducts } = useProducts();
   const [searchQuery, setSearchQuery] = useState('');
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-  const filteredProducts = products.filter(p => {
+  // Business Analytics State
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [totalRevenueRupees, setTotalRevenueRupees] = useState(0);
+  const [totalOrdersCount, setTotalOrdersCount] = useState(0);
+  const [confirmedOrdersCount, setConfirmedOrdersCount] = useState(0);
+  const [processingOrdersCount, setProcessingOrdersCount] = useState(0);
+  const [deliveredOrdersCount, setDeliveredOrdersCount] = useState(0);
+  const [recentOrders, setRecentOrders] = useState<OrderSummary[]>([]);
+  const [totalCustomersCount, setTotalCustomersCount] = useState(0);
+
+  useEffect(() => {
+    async function loadAnalytics() {
+      setAnalyticsLoading(true);
+      try {
+        // 1. Fetch Orders Analytics
+        const { data: orders, error: ordersErr } = await supabase
+          .from('orders')
+          .select('id, order_number, guest_name, guest_phone, order_status, payment_status, total_in_paise, created_at')
+          .order('created_at', { ascending: false });
+
+        if (!ordersErr && orders) {
+          setTotalOrdersCount(orders.length);
+          setRecentOrders(orders.slice(0, 5));
+
+          const confirmed = orders.filter(
+            (o) => o.payment_status === 'SUCCESS' || o.order_status !== 'PENDING_PAYMENT'
+          );
+          setConfirmedOrdersCount(confirmed.length);
+
+          const processing = orders.filter((o) => o.order_status === 'PROCESSING' || o.order_status === 'PACKED');
+          setProcessingOrdersCount(processing.length);
+
+          const delivered = orders.filter((o) => o.order_status === 'DELIVERED');
+          setDeliveredOrdersCount(delivered.length);
+
+          const rev = confirmed.reduce((acc, curr) => acc + (curr.total_in_paise || 0), 0);
+          setTotalRevenueRupees(rev / 100);
+        }
+
+        // 2. Fetch Customers Count
+        const { count: customersCount } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true });
+
+        setTotalCustomersCount(customersCount || 0);
+      } catch (e) {
+        console.error('Failed to load business analytics:', e);
+      } finally {
+        setAnalyticsLoading(false);
+      }
+    }
+
+    loadAnalytics();
+  }, []);
+
+  const filteredProducts = products.filter((p) => {
     const name = p.name?.toLowerCase() || '';
     const code = p.code?.toLowerCase() || '';
     const search = searchQuery.toLowerCase();
@@ -36,10 +111,7 @@ export default function AdminDashboard() {
 
     setIsDeleting(code);
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('code', code);
+      const { error } = await supabase.from('products').delete().eq('code', code);
 
       if (error) throw error;
       await refreshProducts();
@@ -50,7 +122,9 @@ export default function AdminDashboard() {
     }
   };
 
-  if (loading) {
+  const aovRupees = confirmedOrdersCount > 0 ? Math.round(totalRevenueRupees / confirmedOrdersCount) : 0;
+
+  if (productsLoading && analyticsLoading) {
     return (
       <AdminLayout activePage="dashboard">
         <div className="min-h-screen bg-parchment-50 flex items-center justify-center">
@@ -62,181 +136,328 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout activePage="dashboard">
-      <main className="p-6 lg:p-10">
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-12">
+      <main className="p-6 lg:p-10 space-y-10">
+        {/* Header */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <Reveal>
             <div className="space-y-1">
-              <h1 className="heading-serif text-5xl text-ink tracking-tight">Studio Inventory</h1>
-              <p className="text-sm text-ink-light font-light italic">Curating the botanical essence of the atelier.</p>
+              <span className="text-[10px] uppercase tracking-[0.3em] text-rose font-semibold">Executive Control</span>
+              <h1 className="heading-serif text-4xl sm:text-5xl text-bark tracking-tight">Atelier Overview</h1>
+              <p className="text-sm text-ink-light font-light italic">Business metrics, orders pipeline, and studio collection.</p>
             </div>
           </Reveal>
 
           <Reveal delay={100}>
-            <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-stretch sm:items-center gap-3 w-full md:w-auto">
+            <div className="flex flex-wrap items-center gap-3">
               <Link
                 to="/admin/orders"
-                className="btn-secondary w-full sm:w-auto px-6 py-3 flex items-center justify-center gap-2 text-sm shadow-soft text-bark hover:text-rose"
+                className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
               >
-                <Truck size={18} /> Orders & Logistics
+                <Truck size={16} /> Manage Orders
               </Link>
               <Link
-                to="/admin/assets"
-                className="btn-secondary w-full sm:w-auto px-6 py-3 flex items-center justify-center gap-2 text-sm shadow-soft"
+                to="/admin/customers"
+                className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
               >
-                <Palette size={18} /> Studio Visuals
-              </Link>
-              <Link
-                to="/admin/navigation"
-                className="btn-secondary w-full sm:w-auto px-6 py-3 flex items-center justify-center gap-2 text-sm shadow-soft"
-              >
-                <GripVertical size={18} /> Navigation
+                <Users size={16} /> Patrons CRM
               </Link>
               <Link
                 to="/admin/editor"
-                className="btn-primary w-full sm:w-auto px-6 py-3 flex items-center justify-center gap-2 text-sm shadow-soft"
+                className="btn-primary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium shadow-soft"
               >
-                <Plus size={18} /> Create New Piece
+                <Plus size={16} /> Create Piece
               </Link>
             </div>
           </Reveal>
         </header>
 
-        {/* Studio Insights */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mb-12">
-          <Reveal>
-            <div className="glass-panel p-8 rounded-sm border border-silk shadow-soft flex items-center gap-6 transition-all duration-500 hover:-translate-y-1 group">
-              <div className="p-4 bg-rose/10 rounded-full text-rose transition-colors group-hover:bg-rose group-hover:text-white">
-                <Package size={28} />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-ink-light font-bold mb-1">Total Pieces</p>
-                <p className="heading-serif text-4xl text-ink">{products.length}</p>
-              </div>
-            </div>
-          </Reveal>
-          <Reveal delay={100}>
-            <div className="glass-panel p-8 rounded-sm border border-silk shadow-soft flex items-center gap-6 transition-all duration-500 hover:-translate-y-1 group">
-              <div className="p-4 bg-sage/10 rounded-full text-sage-dark transition-colors group-hover:bg-sage group-hover:text-white">
-                <Palette size={28} />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-ink-light font-bold mb-1">Customisable</p>
-                <p className="heading-serif text-4xl text-ink">
-                  {products.filter(p => p.customisable).length}
+        {/* 1. Executive Revenue & Order Metrics */}
+        <section>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Reveal>
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Gross Revenue</p>
+                  <div className="p-2.5 rounded-full bg-rose/10 text-rose">
+                    <TrendingUp size={20} />
+                  </div>
+                </div>
+                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{formatPrice(totalRevenueRupees)}</p>
+                <p className="text-[11px] text-emerald-800 mt-2 font-medium flex items-center gap-1">
+                  ✓ Confirmed captured payments
                 </p>
               </div>
-            </div>
-          </Reveal>
-          <Reveal delay={200}>
-            <div className="glass-panel p-8 rounded-sm border border-silk shadow-soft flex items-center gap-6 transition-all duration-500 hover:-translate-y-1 group">
-              <div className="p-4 bg-gold/10 rounded-full text-gold-600 transition-colors group-hover:bg-gold-500 group-hover:text-white">
-                <Star size={28} />
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-ink-light font-bold mb-1">Studio Choices</p>
-                <p className="heading-serif text-4xl text-ink">
-                  {products.filter(p => p.bestseller).length}
+            </Reveal>
+
+            <Reveal delay={100}>
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Active Orders</p>
+                  <div className="p-2.5 rounded-full bg-amber-100 text-amber-800">
+                    <ShoppingBag size={20} />
+                  </div>
+                </div>
+                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{processingOrdersCount}</p>
+                <p className="text-[11px] text-ink-light mt-2">
+                  In Handcrafting & Packaging
                 </p>
               </div>
-            </div>
-          </Reveal>
-        </div>
+            </Reveal>
 
-        {/* Product List */}
-        <Reveal delay={300}>
-          <div className="glass-panel rounded-sm border border-silk shadow-soft overflow-hidden">
-            <div className="p-6 border-b border-silk bg-silk/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="relative w-full sm:w-80">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-light" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name or code..."
-                  className="input-field pl-10 w-full text-sm"
-                />
+            <Reveal delay={200}>
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Average Order Value</p>
+                  <div className="p-2.5 rounded-full bg-moss/10 text-moss">
+                    <CreditCard size={20} />
+                  </div>
+                </div>
+                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{formatPrice(aovRupees)}</p>
+                <p className="text-[11px] text-ink-light mt-2">
+                  Across {confirmedOrdersCount} confirmed orders
+                </p>
               </div>
-              <div className="text-xs text-ink-light font-medium italic">
-                Showing {filteredProducts.length} of {products.length} pieces
+            </Reveal>
+
+            <Reveal delay={300}>
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Registered Patrons</p>
+                  <div className="p-2.5 rounded-full bg-purple-100 text-purple-700">
+                    <Users size={20} />
+                  </div>
+                </div>
+                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{totalCustomersCount}</p>
+                <Link to="/admin/customers" className="text-[11px] text-rose hover:underline mt-2 inline-flex items-center gap-1 font-medium">
+                  View Patrons CRM <ArrowRight size={12} />
+                </Link>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* 2. Recent Orders Feed & Studio Highlights */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Recent Orders List */}
+          <div className="lg:col-span-8 bg-linen rounded-atelier-panel border border-canvas-line shadow-soft p-6">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-canvas-line">
+              <div>
+                <h2 className="font-serif text-2xl text-bark">Recent Studio Orders</h2>
+                <p className="text-xs text-ink-light mt-0.5">Real-time orders received through online checkout</p>
+              </div>
+              <Link to="/admin/orders" className="text-xs uppercase tracking-wider font-semibold text-rose hover:underline flex items-center gap-1">
+                View All ({totalOrdersCount}) <ArrowRight size={14} />
+              </Link>
+            </div>
+
+            {recentOrders.length === 0 ? (
+              <div className="py-12 text-center text-ink-light text-xs italic">
+                No orders received yet. Test orders will appear here automatically.
+              </div>
+            ) : (
+              <div className="divide-y divide-canvas-line">
+                {recentOrders.map((ord) => (
+                  <div key={ord.id} className="py-3.5 flex items-center justify-between gap-4 hover:bg-canvas/30 transition-colors px-2 rounded">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-semibold text-bark">{ord.order_number}</span>
+                        <span className={`px-2 py-0.5 text-[9px] uppercase font-bold rounded ${
+                          ord.order_status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-800' :
+                          ord.order_status === 'SHIPPED' ? 'bg-blue-100 text-blue-800' :
+                          ord.order_status === 'PROCESSING' || ord.order_status === 'PACKED' ? 'bg-amber-100 text-amber-800' :
+                          'bg-canvas border border-canvas-line text-ink-light'
+                        }`}>
+                          {ord.order_status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-ink-light">
+                        {ord.guest_name} • {new Date(ord.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="font-serif font-medium text-sm text-bark">{formatPrice(ord.total_in_paise / 100)}</p>
+                      <Link to="/admin/orders" className="text-[11px] text-rose hover:underline inline-flex items-center gap-1">
+                        Inspect <ExternalLink size={10} />
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Quick Shortcuts & Studio Highlights */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-linen rounded-atelier-panel border border-canvas-line shadow-soft p-6 space-y-4">
+              <h3 className="font-serif text-lg text-bark">Studio Quick Access</h3>
+
+              <div className="space-y-2.5">
+                <Link
+                  to="/admin/orders"
+                  className="flex items-center justify-between p-3 rounded-sm bg-canvas/40 hover:bg-canvas border border-canvas-line text-xs font-medium text-bark transition-colors"
+                >
+                  <span className="flex items-center gap-2"><Truck size={16} className="text-rose" /> Orders & AWB Dispatch</span>
+                  <ArrowRight size={14} className="text-ink-light" />
+                </Link>
+
+                <Link
+                  to="/admin/customers"
+                  className="flex items-center justify-between p-3 rounded-sm bg-canvas/40 hover:bg-canvas border border-canvas-line text-xs font-medium text-bark transition-colors"
+                >
+                  <span className="flex items-center gap-2"><Users size={16} className="text-rose" /> Patrons & Petal Points</span>
+                  <ArrowRight size={14} className="text-ink-light" />
+                </Link>
+
+                <Link
+                  to="/admin/coupons"
+                  className="flex items-center justify-between p-3 rounded-sm bg-canvas/40 hover:bg-canvas border border-canvas-line text-xs font-medium text-bark transition-colors"
+                >
+                  <span className="flex items-center gap-2"><Ticket size={16} className="text-rose" /> Promo & Coupon Codes</span>
+                  <ArrowRight size={14} className="text-ink-light" />
+                </Link>
+
+                <Link
+                  to="/admin/assets"
+                  className="flex items-center justify-between p-3 rounded-sm bg-canvas/40 hover:bg-canvas border border-canvas-line text-xs font-medium text-bark transition-colors"
+                >
+                  <span className="flex items-center gap-2"><Palette size={16} className="text-rose" /> Visuals & Photography</span>
+                  <ArrowRight size={14} className="text-ink-light" />
+                </Link>
+
+                <Link
+                  to="/admin/navigation"
+                  className="flex items-center justify-between p-3 rounded-sm bg-canvas/40 hover:bg-canvas border border-canvas-line text-xs font-medium text-bark transition-colors"
+                >
+                  <span className="flex items-center gap-2"><GripVertical size={16} className="text-rose" /> Navigation Menu</span>
+                  <ArrowRight size={14} className="text-ink-light" />
+                </Link>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-silk/20 text-ink-light uppercase tracking-wider text-[10px] font-bold">
-                  <tr className="border-b border-silk">
-                    <th className="px-6 py-5">Piece</th>
-                    <th className="px-6 py-5">Category</th>
-                    <th className="px-6 py-5">Price</th>
-                    <th className="px-6 py-5 text-center">Status</th>
-                    <th className="px-6 py-5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-silk">
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map((p) => (
-                      <tr key={p.code} className="hover:bg-silk/20 transition-colors group">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-4">
-                            <img src={p.images[0]} alt={p.name} className="w-12 h-12 rounded-sm object-cover bg-silk shadow-sm" />
-                            <div className="truncate max-w-[200px]">
-                              <p className="font-medium text-ink truncate group-hover:text-rose transition-colors">{p.name}</p>
-                              <p className="text-[10px] text-ink-light uppercase tracking-wider">{p.code}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-ink-light capitalize font-light">{p.category}</td>
-                        <td className="px-6 py-4 font-medium text-ink">₹{p.price}</td>
-                        <td className="px-6 py-4">
-                          <div className="flex justify-center gap-2">
-                            {p.bestseller && (
-                              <span className="px-2 py-0.5 rounded-full bg-rose/10 text-rose text-[9px] font-bold uppercase border border-rose/20">Choice</span>
-                            )}
-                            {p.customisable && (
-                              <span className="px-2 py-0.5 rounded-full bg-sage/10 text-sage-dark text-[9px] font-bold uppercase border border-sage/20">Custom</span>
-                            )}
-                            {!p.bestseller && !p.customisable && (
-                              <span className="px-2 py-0.5 rounded-full bg-silk/20 text-ink-light text-[9px] font-bold uppercase border border-silk/30">Standard</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Link
-                              to={`/admin/editor?code=${p.code}`}
-                              className="p-2 text-ink-light hover:text-ink transition-colors"
-                              title="Edit Piece"
-                            >
-                              <ArrowRight size={18} />
-                            </Link>
-                            <button
-                              onClick={() => handleDeleteProduct(p.code)}
-                              disabled={isDeleting === p.code}
-                              className="p-2 text-ink-light hover:text-rose transition-colors disabled:opacity-50"
-                              title="Delete Piece"
-                            >
-                              {isDeleting === p.code ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-20 text-center">
-                        <div className="flex flex-col items-center justify-center text-ink-light">
-                          <Package size={40} strokeWidth={1} className="mb-4 opacity-30" />
-                          <p className="font-serif text-xl mb-2">No pieces found</p>
-                          <p className="text-sm">Adjust your search or create a new piece.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            {/* Inventory Distribution */}
+            <div className="bg-linen rounded-atelier-panel border border-canvas-line shadow-soft p-6">
+              <h3 className="font-serif text-lg text-bark mb-4">Catalog Essence</h3>
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between items-center pb-2 border-b border-canvas-line">
+                  <span className="text-ink-light">Total Cataloged Pieces</span>
+                  <span className="font-serif font-medium text-bark text-sm">{products.length}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-canvas-line">
+                  <span className="text-ink-light">Studio Choices (Bestsellers)</span>
+                  <span className="font-serif font-medium text-rose text-sm">{products.filter(p => p.bestseller).length}</span>
+                </div>
+                <div className="flex justify-between items-center pb-2 border-b border-canvas-line">
+                  <span className="text-ink-light">Customisable Floral Pieces</span>
+                  <span className="font-serif font-medium text-bark text-sm">{products.filter(p => p.customisable).length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-ink-light">Made to Order Creations</span>
+                  <span className="font-serif font-medium text-bark text-sm">{products.filter(p => p.madeToOrder).length}</span>
+                </div>
+              </div>
             </div>
           </div>
-        </Reveal>
+        </section>
+
+        {/* 3. Studio Catalog Management */}
+        <section className="bg-linen rounded-atelier-panel border border-canvas-line shadow-soft overflow-hidden">
+          <div className="p-6 border-b border-canvas-line bg-canvas/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="font-serif text-2xl text-bark">Studio Pieces</h2>
+              <p className="text-xs text-ink-light mt-0.5">Manage pricing, photographs, and floral descriptions.</p>
+            </div>
+            <div className="relative w-full sm:w-80">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search piece by name or code..."
+                className="w-full pl-10 pr-4 py-2 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+              />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-canvas/50 text-ink-light uppercase text-[10px] tracking-wider border-b border-canvas-line">
+                  <th className="p-4">Piece</th>
+                  <th className="p-4">Category</th>
+                  <th className="p-4">Price</th>
+                  <th className="p-4">Highlights</th>
+                  <th className="p-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-canvas-line">
+                {filteredProducts.map((p) => (
+                  <tr key={p.code} className="hover:bg-canvas/30 transition-colors">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-sm overflow-hidden bg-canvas flex-shrink-0">
+                          <img
+                            src={p.images?.[0] || 'https://images.pexels.com/photos/20269075/pexels-photo-20269075.jpeg'}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div>
+                          <p className="font-serif font-medium text-bark text-sm">{p.name}</p>
+                          <p className="font-mono text-[10px] text-ink-light">{p.code}</p>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="p-4 text-ink capitalize">
+                      {p.category}
+                    </td>
+
+                    <td className="p-4">
+                      <span className="font-serif font-medium text-bark text-sm">{formatPrice(p.price)}</span>
+                      {p.compareAtPrice && (
+                        <span className="line-through text-ink-light text-[11px] ml-1.5">{formatPrice(p.compareAtPrice)}</span>
+                      )}
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1.5">
+                        {p.bestseller && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-rose/10 text-rose-deep font-semibold">Studio Choice</span>
+                        )}
+                        {p.customisable && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-moss/10 text-moss font-semibold">Custom</span>
+                        )}
+                        {p.madeToOrder && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-canvas border border-canvas-line text-ink-light">Made to order</span>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="p-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link
+                          to={`/admin/editor?code=${p.code}`}
+                          className="px-3 py-1.5 bg-canvas border border-canvas-line hover:border-bark text-bark rounded-sm transition-colors text-xs font-medium"
+                        >
+                          Edit
+                        </Link>
+                        <button
+                          onClick={() => handleDeleteProduct(p.code)}
+                          disabled={isDeleting === p.code}
+                          className="p-1.5 text-rose/60 hover:text-rose hover:bg-rose/10 rounded-sm transition-colors disabled:opacity-50"
+                          title="Delete piece"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </main>
     </AdminLayout>
   );

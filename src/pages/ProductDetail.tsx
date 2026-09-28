@@ -237,6 +237,19 @@ export default function ProductDetail() {
                   </button>
                 </div>
 
+                {/* Studio Batch Availability */}
+                <div className="mb-6 p-3 bg-canvas/40 border border-canvas-line rounded-sm flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-bark font-medium">
+                      {product.madeToOrder ? 'Handcrafted to order' : 'Limited studio batch'}
+                    </span>
+                  </div>
+                  <span className="text-ink-light">
+                    {product.preparationDays ? `Artisan timeline: ${product.preparationDays}` : 'Ships in 3–5 days'}
+                  </span>
+                </div>
+
                 <div className="space-y-6 mb-10">
                   <p className="text-lg text-ink-light leading-relaxed font-light">
                     {product.description}
@@ -503,6 +516,20 @@ export default function ProductDetail() {
           </div>
         </section>
       )}
+
+      {/* Sticky Mobile Add to Bag Bar */}
+      <div className="fixed bottom-14 left-0 right-0 z-40 sm:hidden bg-linen/95 backdrop-blur-md border-t border-canvas-line p-3 px-4 shadow-xl flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-serif text-bark truncate">{product.name}</p>
+          <p className="text-sm font-serif font-bold text-rose-deep">{formatPrice(product.price)}</p>
+        </div>
+        <button
+          onClick={handleAddToCart}
+          className="px-6 py-2.5 bg-rose text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-semibold rounded-full shadow-md flex items-center gap-1.5 shrink-0"
+        >
+          <ShoppingBag size={14} /> Add to Bag
+        </button>
+      </div>
     </div>
   );
 }

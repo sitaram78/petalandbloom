@@ -103,6 +103,7 @@ export default function Account() {
   const [authPassword, setAuthPassword] = useState('');
   const [authFullName, setAuthFullName] = useState('');
   const [authPhone, setAuthPhone] = useState('');
+  const [authReferralCode, setAuthReferralCode] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState('');
 
@@ -252,7 +253,7 @@ export default function Account() {
         if (!authPhone.trim() || authPhone.trim().length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
         if (authPassword.length < 6) throw new Error('Password must be at least 6 characters.');
 
-        const { error } = await signUpWithEmail(authEmail, authPassword, authFullName, authPhone);
+        const { error } = await signUpWithEmail(authEmail, authPassword, authFullName, authPhone, authReferralCode.trim());
         if (error) throw error;
 
         showNotification('Welcome! 50 Petal Points (₹50 discount) have been credited to your account.', 'success');
@@ -614,6 +615,23 @@ export default function Account() {
                             onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
                             placeholder="9876543210"
                             className="w-full pl-10 pr-4 py-2.5 bg-canvas/40 border border-canvas-line rounded-sm text-sm text-ink focus:outline-none focus:border-bark focus:bg-linen"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 flex items-center justify-between">
+                          <span>Referral Code</span>
+                          <span className="text-[10px] text-ink-light normal-case">Optional</span>
+                        </label>
+                        <div className="relative">
+                          <Gift size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-rose" />
+                          <input
+                            type="text"
+                            value={authReferralCode}
+                            onChange={(e) => setAuthReferralCode(e.target.value.toUpperCase())}
+                            placeholder="e.g. BLOOM-1234-567"
+                            className="w-full pl-10 pr-4 py-2.5 bg-canvas/40 border border-canvas-line rounded-sm text-sm text-ink focus:outline-none focus:border-bark focus:bg-linen font-mono uppercase"
                           />
                         </div>
                       </div>

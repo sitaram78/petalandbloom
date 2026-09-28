@@ -28,7 +28,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUpWithEmail: (email: string, password: string, fullName: string, phone: string) => Promise<{ error: Error | null }>;
+  signUpWithEmail: (email: string, password: string, fullName: string, phone: string, referredByCode?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (updates: { full_name?: string; phone?: string }) => Promise<{ error: Error | null }>;
@@ -117,12 +117,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signUpWithEmail = async (email: string, password: string, fullName: string, phone: string) => {
+  const signUpWithEmail = async (email: string, password: string, fullName: string, phone: string, referredByCode?: string) => {
     try {
       const res = await fetch('/api/account/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, fullName, phone }),
+        body: JSON.stringify({ email, password, fullName, phone, referredByCode }),
       });
 
       const data = await res.json();

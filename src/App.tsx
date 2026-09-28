@@ -36,6 +36,7 @@ import AdminNavigation from '@/pages/admin/AdminNavigation';
 import AdminSettings from '@/pages/admin/AdminSettings';
 import AdminCoupons from '@/pages/admin/AdminCoupons';
 import AdminOrders from '@/pages/admin/AdminOrders';
+import AdminCustomers from '@/pages/admin/AdminCustomers';
 import NotFound from '@/pages/NotFound';
 
 function AppContent() {
@@ -75,6 +76,7 @@ function AppContent() {
           <Route element={<AdminRoute />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
+            <Route path="/admin/customers" element={<AdminCustomers />} />
             <Route path="/admin/navigation" element={<AdminNavigation />} />
             <Route path="/admin/editor" element={<AdminEditor />} />
             <Route path="/admin/assets" element={<AdminAssets />} />

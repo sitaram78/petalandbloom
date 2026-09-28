@@ -59,16 +59,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const userId = userData.user.id;
+    const generatedReferralCode = `BLOOM-${cleanPhone.slice(-4)}-${Math.floor(100 + Math.random() * 900)}`;
 
-    // 2. Ensure customer profile is recorded with role='customer'
+    let validReferredBy: string | null = null;
+    let referrerId: string | null = null;
+
+    const { referredByCode } = req.body || {};
+    if (referredByCode && typeof referredByCode === 'string' && referredByCode.trim()) {
+      const cleanRef = referredByCode.trim().toUpperCase();
+      const { data: referrer } = await supabaseAdmin
+        .from('profiles')
+        .select('id, referral_code')
+        .eq('referral_code', cleanRef)
+        .maybeSingle();
+
+      if (referrer) {
+        validReferredBy = referrer.referral_code;
+        referrerId = referrer.id;
+      }
+    }
+
+    // 2. Ensure customer profile is recorded with role='customer' & referral attribution
     await supabaseAdmin.from('profiles').upsert({
       id: userId,
       email: cleanEmail,
       full_name: fullName.trim(),
       phone: cleanPhone,
       role: 'customer',
+      referral_code: generatedReferralCode,
+      referred_by: validReferredBy,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'id' });
+
+    // Record referral link if valid referrer found
+    if (referrerId) {
+      try {
+        await supabaseAdmin.from('referrals').insert({
+          referrer_id: referrerId,
+          referee_id: userId,
+          status: 'PENDING',
+        });
+      } catch (refErr) {
+        console.warn('[Referral Insert Warning]:', refErr);
+      }
+    }
 
     // 3. Ensure Loyalty Account exists with 50 Welcome Points
     const { data: existingLoyalty } = await supabaseAdmin

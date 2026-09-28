@@ -1,0 +1,16 @@
+{
+  "name": "The Petal & Bloom — Floral Atelier",
+  "short_name": "Petal & Bloom",
+  "description": "Handmade crochet flowers, bouquets, and thoughtful gifts made in India. Flowers that never fade.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF6EF",
+  "theme_color": "#4A4238",
+  "icons": [
+    {
+      "src": "/placeholder-bloom.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

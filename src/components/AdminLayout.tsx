@@ -15,12 +15,13 @@ import {
   Palette,
   Ticket,
   Truck,
+  Users,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
-  activePage: 'dashboard' | 'orders' | 'editor' | 'settings' | 'navigation' | 'assets' | 'coupons';
+  activePage: 'dashboard' | 'orders' | 'editor' | 'settings' | 'navigation' | 'assets' | 'coupons' | 'customers';
 }
 
 export default function AdminLayout({ children, activePage }: AdminLayoutProps) {
@@ -108,13 +109,26 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
             onClick={() => setIsMobileMenuOpen(false)}
             className={`flex items-center gap-3 px-4 py-3 rounded-sm transition-all duration-300 ${
               activePage === 'orders'
-                ? 'bg-white/20 text-white font-medium shadow-inner'
-                : 'hover:bg-white/10 text-white/60 hover:text-white'
+                 ? 'bg-white/20 text-white font-medium shadow-inner'
+                 : 'hover:bg-white/10 text-white/60 hover:text-white'
             } ${isCollapsed ? 'justify-center px-2' : ''}`}
             title="Orders & Shipments"
           >
             <Truck size={18} />
             {!isCollapsed && <span className="text-sm">Orders & Shipments</span>}
+          </Link>
+          <Link
+            to="/admin/customers"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`flex items-center gap-3 px-4 py-3 rounded-sm transition-all duration-300 ${
+              activePage === 'customers'
+                ? 'bg-white/20 text-white font-medium shadow-inner'
+                : 'hover:bg-white/10 text-white/60 hover:text-white'
+            } ${isCollapsed ? 'justify-center px-2' : ''}`}
+            title="Customers & CRM"
+          >
+            <Users size={18} />
+            {!isCollapsed && <span className="text-sm">Customers & Loyalty</span>}
           </Link>
           <Link
             to="/admin/editor"

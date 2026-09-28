@@ -207,6 +207,28 @@ export default function AdminOrders() {
             status: newStatus === 'DELIVERED' ? 'DELIVERED' : 'IN_TRANSIT',
           });
         }
+
+        // Trigger Automated Email Dispatch Notification & generate WhatsApp Concierge link
+        try {
+          const notifyRes = await fetch('/api/orders/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: selectedOrder.id,
+              awbNumber: awbNumber.trim(),
+              carrier,
+              trackingUrl: finalTrackingUrl,
+              estimatedDelivery: '3–5 business days',
+            }),
+          });
+          const notifyData = await notifyRes.json();
+          if (notifyData.success && notifyData.whatsappLink && newStatus === 'SHIPPED') {
+            // Open WhatsApp concierge tab for instant message
+            window.open(notifyData.whatsappLink, '_blank');
+          }
+        } catch (notifErr) {
+          console.warn('[Dispatch Notification Trigger Error]:', notifErr);
+        }
       }
 
       showNotification(`Order ${selectedOrder.order_number} updated to ${newStatus}!`, 'success');

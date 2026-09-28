@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
 import { verifyCashfreeSignature } from '../lib/cashfreeServer';
+import { sendOrderConfirmationEmail } from '../lib/emailService';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -61,7 +62,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 3. Find the matching Order in Database
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, order_number, total_in_paise, customer_id, guest_phone, applied_coupon_code, order_status, loyalty_points_redeemed')
+      .select(`
+        id,
+        order_number,
+        subtotal_in_paise,
+        discount_in_paise,
+        loyalty_discount_in_paise,
+        shipping_fee_in_paise,
+        total_in_paise,
+        customer_id,
+        guest_name,
+        guest_phone,
+        guest_email,
+        shipping_address_snapshot,
+        applied_coupon_code,
+        order_status,
+        loyalty_points_redeemed
+      `)
       .eq('order_number', orderId)
       .maybeSingle();
 
@@ -130,10 +147,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Decrement Inventory for Ordered Items
+      // Decrement Inventory for Ordered Items & Prepare Email Payload
       const { data: items } = await supabaseAdmin
         .from('order_items')
-        .select('product_id, quantity')
+        .select('product_id, product_name, product_code, quantity, unit_price_in_paise, selected_color, gift_wrap, personal_message')
         .eq('order_id', order.id);
 
       if (items && items.length > 0) {
@@ -156,7 +173,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Award Loyalty Points if Registered Customer (1 point per ₹10 spent)
+      // Send Order Confirmation Email (non-blocking)
+      if (order.guest_email) {
+        try {
+          const siteUrl = process.env.VITE_SITE_URL || 'https://thepetalandbloom.vercel.app';
+          await sendOrderConfirmationEmail({
+            to: order.guest_email,
+            name: order.guest_name || 'Valued Customer',
+            orderNumber: order.order_number,
+            items: items || [],
+            subtotalInPaise: order.subtotal_in_paise,
+            discountInPaise: order.discount_in_paise,
+            loyaltyDiscountInPaise: order.loyalty_discount_in_paise,
+            shippingFeeInPaise: order.shipping_fee_in_paise,
+            totalInPaise: order.total_in_paise,
+            shippingAddress: order.shipping_address_snapshot || {
+              addressLine1: 'Address on file',
+              city: '',
+              state: '',
+              pincode: '',
+            },
+            trackUrl: `${siteUrl}/track?order_id=${order.order_number}`,
+          });
+        } catch (emailErr) {
+          console.warn('[Webhook Order Confirmation Email Error]:', emailErr);
+        }
+      }
+
+      // Award Loyalty Points if Registered Customer (1 point per ₹10 spent) + Tier Auto-upgrade
       if (order.customer_id) {
         const pointsEarned = Math.floor(order.total_in_paise / 1000); // 1 pt per ₹10
         if (pointsEarned > 0) {
@@ -175,21 +219,74 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             .maybeSingle();
 
           if (loyaltyAcc) {
+            const newLifetime = (loyaltyAcc.lifetime_points_earned || 0) + pointsEarned;
+            const newTier = newLifetime >= 1500 ? 'HEIRLOOM' : (newLifetime >= 500 ? 'BLOSSOM' : 'FLORET');
+
             await supabaseAdmin
               .from('loyalty_accounts')
               .update({
                 points_balance: (loyaltyAcc.points_balance || 0) + pointsEarned,
-                lifetime_points_earned: (loyaltyAcc.lifetime_points_earned || 0) + pointsEarned,
+                lifetime_points_earned: newLifetime,
+                tier: newTier,
               })
               .eq('customer_id', order.customer_id);
           } else {
+            const newTier = pointsEarned >= 1500 ? 'HEIRLOOM' : (pointsEarned >= 500 ? 'BLOSSOM' : 'FLORET');
             await supabaseAdmin.from('loyalty_accounts').insert({
               customer_id: order.customer_id,
               points_balance: pointsEarned,
               lifetime_points_earned: pointsEarned,
-              tier: 'FLORET',
+              tier: newTier,
             });
           }
+        }
+
+        // Check and Reward Referrer on First Order
+        try {
+          const { data: pendingRef } = await supabaseAdmin
+            .from('referrals')
+            .select('id, referrer_id, status')
+            .eq('referee_id', order.customer_id)
+            .eq('status', 'PENDING')
+            .maybeSingle();
+
+          if (pendingRef && pendingRef.referrer_id) {
+            const referralRewardPoints = 100; // ₹100 worth of Petal Points
+            await supabaseAdmin.from('loyalty_transactions').insert({
+              customer_id: pendingRef.referrer_id,
+              order_id: order.id,
+              type: 'REFERRAL_BONUS',
+              points: referralRewardPoints,
+              description: `Referral Gift: Your invited friend completed their first order (${order.order_number})!`,
+            });
+
+            const { data: refLoyalty } = await supabaseAdmin
+              .from('loyalty_accounts')
+              .select('points_balance, lifetime_points_earned')
+              .eq('customer_id', pendingRef.referrer_id)
+              .maybeSingle();
+
+            if (refLoyalty) {
+              const updatedLifetime = (refLoyalty.lifetime_points_earned || 0) + referralRewardPoints;
+              const refTier = updatedLifetime >= 1500 ? 'HEIRLOOM' : (updatedLifetime >= 500 ? 'BLOSSOM' : 'FLORET');
+
+              await supabaseAdmin
+                .from('loyalty_accounts')
+                .update({
+                  points_balance: (refLoyalty.points_balance || 0) + referralRewardPoints,
+                  lifetime_points_earned: updatedLifetime,
+                  tier: refTier,
+                })
+                .eq('customer_id', pendingRef.referrer_id);
+            }
+
+            await supabaseAdmin
+              .from('referrals')
+              .update({ status: 'REWARDED' })
+              .eq('id', pendingRef.id);
+          }
+        } catch (refRewardErr) {
+          console.warn('[Referral Reward Warning]:', refRewardErr);
         }
       }
 
