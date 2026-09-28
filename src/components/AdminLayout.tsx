@@ -21,12 +21,13 @@ import {
   FileText,
   Sparkles,
   ShoppingBag,
+  BarChart3,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
-  activePage: 'dashboard' | 'orders' | 'editor' | 'settings' | 'navigation' | 'assets' | 'coupons' | 'customers' | 'messages' | 'reviews' | 'audit-logs' | 'influencers' | 'abandoned-carts';
+  activePage: 'dashboard' | 'orders' | 'editor' | 'settings' | 'navigation' | 'assets' | 'coupons' | 'customers' | 'messages' | 'reviews' | 'audit-logs' | 'influencers' | 'abandoned-carts' | 'reports';
 }
 
 export default function AdminLayout({ children, activePage }: AdminLayoutProps) {
@@ -108,6 +109,19 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           >
             <LayoutDashboard size={18} />
             {!isCollapsed && <span className="text-sm">Dashboard</span>}
+          </Link>
+          <Link
+            to="/admin/reports"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`flex items-center gap-3 px-4 py-3 rounded-sm transition-all duration-300 ${
+              activePage === 'reports'
+                ? 'bg-white/20 text-white font-medium shadow-inner'
+                : 'hover:bg-white/10 text-white/60 hover:text-white'
+            } ${isCollapsed ? 'justify-center px-2' : ''}`}
+            title="Executive Reports & BI"
+          >
+            <BarChart3 size={18} />
+            {!isCollapsed && <span className="text-sm">Reports &amp; Analytics</span>}
           </Link>
           <Link
             to="/admin/orders"
