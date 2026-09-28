@@ -1,6 +1,7 @@
 import React from 'react';
 import { Printer, X, Package, ShieldAlert } from 'lucide-react';
 import { InvoiceOrderData, INVOICE_STORE_CONFIG } from './InvoiceModal';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 interface PackingSlipModalProps {
   order: InvoiceOrderData;
@@ -15,6 +16,13 @@ export default function PackingSlipModal({
   awbNumber = '',
   onClose,
 }: PackingSlipModalProps) {
+  const { settings } = useStoreSettings();
+  const storeConfig = {
+    legalBusinessName: settings.legalBusinessName || INVOICE_STORE_CONFIG.legalBusinessName,
+    studioAddress: settings.studioAddress || INVOICE_STORE_CONFIG.studioAddress,
+    phone: settings.whatsappNumber || INVOICE_STORE_CONFIG.phone,
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -116,9 +124,9 @@ export default function PackingSlipModal({
           <div className="text-[10px] text-gray-600 pt-1 flex justify-between items-end">
             <div>
               <p className="font-bold text-black uppercase">Return If Undelivered:</p>
-              <p>{INVOICE_STORE_CONFIG.legalBusinessName}</p>
-              <p>{INVOICE_STORE_CONFIG.studioAddress}</p>
-              <p>Helpline: {INVOICE_STORE_CONFIG.phone}</p>
+              <p>{storeConfig.legalBusinessName}</p>
+              <p>{storeConfig.studioAddress}</p>
+              <p>Helpline: {storeConfig.phone}</p>
             </div>
             <div className="border border-black px-2 py-1 text-center font-bold text-[9px] uppercase">
               FRAGILE<br />HANDMADE

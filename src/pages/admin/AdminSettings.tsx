@@ -270,7 +270,7 @@ export default function AdminSettings() {
                   Current Storefront Behavior:{' '}
                   <span className="text-rose font-bold">
                     {profileForm.conciergeChannelMode === 'WHATSAPP'
-                      ? 'Direct WhatsApp (+91 9931653303)'
+                      ? `Direct WhatsApp (${profileForm.whatsappNumber || '+91 9931653303'})`
                       : 'In-System Live Assistant Window'}
                   </span>
                 </p>

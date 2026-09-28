@@ -30,6 +30,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useNotification } from '@/context/NotificationContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { supabase } from '@/lib/supabaseClient';
 import { formatPrice } from '@/data/products';
 import { buildWhatsAppLink } from '@/utils/whatsapp';
@@ -89,6 +90,7 @@ type TabType = 'orders' | 'loyalty' | 'referrals' | 'addresses' | 'profile';
 export default function Account() {
   const { user, profile, loyalty, loading: authLoading, signInWithEmail, signUpWithEmail, signOut, updateProfile, refreshProfile } = useAuth();
   const { showNotification } = useNotification();
+  const { triggerAssistance } = useStoreSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const { openCart } = useCart();
@@ -1109,17 +1111,18 @@ export default function Account() {
                                 Bespoke Crafting · Non-Cancellable
                               </span>
                             )}
-                            <a
-                              href={`https://wa.me/919931653303?text=${encodeURIComponent(
-                                `Hello The Petal & Bloom Atelier, I would like an update / have a question regarding my order #${order.order_number}.`
-                              )}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-rose hover:text-rose-deep font-medium flex items-center gap-1.5 transition-colors"
+                            <button
+                              type="button"
+                              onClick={() =>
+                                triggerAssistance(
+                                  `Hello The Petal & Bloom Atelier, I would like an update / have a question regarding my order #${order.order_number}.`
+                                )
+                              }
+                              className="text-xs text-rose hover:text-rose-deep font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                             >
                               <MessageCircle size={13} />
                               Studio Concierge
-                            </a>
+                            </button>
                           </div>
                         </div>
                       </div>

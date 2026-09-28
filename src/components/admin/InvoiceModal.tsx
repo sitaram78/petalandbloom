@@ -1,6 +1,7 @@
 import React from 'react';
 import { Printer, X, Download } from 'lucide-react';
 import { formatPrice } from '@/data/products';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 export interface InvoiceOrderData {
   order_number: string;
@@ -56,6 +57,19 @@ export const INVOICE_STORE_CONFIG = {
 };
 
 export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
+  const { settings } = useStoreSettings();
+  const storeConfig = {
+    legalBusinessName: settings.legalBusinessName || INVOICE_STORE_CONFIG.legalBusinessName,
+    gstin: settings.gstin || INVOICE_STORE_CONFIG.gstin,
+    pan: INVOICE_STORE_CONFIG.pan,
+    studioAddress: settings.studioAddress || INVOICE_STORE_CONFIG.studioAddress,
+    phone: settings.whatsappNumber || INVOICE_STORE_CONFIG.phone,
+    email: settings.supportEmail || INVOICE_STORE_CONFIG.email,
+    website: INVOICE_STORE_CONFIG.website,
+    hsnSacCode: INVOICE_STORE_CONFIG.hsnSacCode,
+    stateCode: INVOICE_STORE_CONFIG.stateCode,
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -103,11 +117,11 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
               <h1 className="font-serif text-3xl font-bold text-bark tracking-tight">THE PETAL &amp; BLOOM</h1>
               <p className="text-xs uppercase tracking-[0.2em] text-rose font-medium mt-1">Bespoke Handcrafted Florals &amp; Gifts</p>
               <div className="mt-3 text-[11px] text-gray-600 space-y-0.5">
-                <p className="font-medium text-gray-900">{INVOICE_STORE_CONFIG.legalBusinessName}</p>
-                <p>{INVOICE_STORE_CONFIG.studioAddress}</p>
-                <p>Phone: {INVOICE_STORE_CONFIG.phone} · Email: {INVOICE_STORE_CONFIG.email}</p>
+                <p className="font-medium text-gray-900">{storeConfig.legalBusinessName}</p>
+                <p>{storeConfig.studioAddress}</p>
+                <p>Phone: {storeConfig.phone} · Email: {storeConfig.email}</p>
                 <p className="font-mono text-[10px] text-gray-500 pt-1">
-                  GSTIN: <span className="font-semibold text-gray-800">{INVOICE_STORE_CONFIG.gstin}</span>
+                  GSTIN: <span className="font-semibold text-gray-800">{storeConfig.gstin}</span>
                 </p>
               </div>
             </div>
@@ -254,7 +268,7 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
             <div className="text-right">
               <div className="h-10 border-b border-gray-300 w-36 mb-1 ml-auto"></div>
               <p className="font-medium text-gray-800">Authorized Signatory</p>
-              <p className="text-gray-500">{INVOICE_STORE_CONFIG.legalBusinessName}</p>
+              <p className="text-gray-500">{storeConfig.legalBusinessName}</p>
             </div>
           </div>
         </div>
