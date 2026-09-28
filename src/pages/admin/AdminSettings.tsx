@@ -26,6 +26,7 @@ import AdminLayout from '@/components/AdminLayout';
 import { removeCache } from '@/utils/cache';
 import { CATEGORIES_CACHE } from '@/utils/cacheKeys';
 import { useStoreSettings, ConciergeChannelMode } from '@/context/StoreSettingsContext';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 
 interface Category {
   id: string;
@@ -145,6 +146,17 @@ export default function AdminSettings() {
     });
 
     if (result.success) {
+      logAudit({
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entity: 'settings',
+        entity_id: 'company_profile',
+        new_values: {
+          whatsappNumber: profileForm.whatsappNumber.trim(),
+          supportEmail: profileForm.supportEmail.trim(),
+          legalBusinessName: profileForm.legalBusinessName.trim(),
+        },
+        reason: 'Updated company profile details from admin settings',
+      });
       showNotification('Company Profile and Contact details saved successfully!', 'success');
     } else {
       showNotification('Failed to save profile: ' + (result.error || 'Unknown error'), 'error');
@@ -156,6 +168,13 @@ export default function AdminSettings() {
     setProfileForm((prev) => ({ ...prev, conciergeChannelMode: mode }));
     const result = await updateSettings({ conciergeChannelMode: mode });
     if (result.success) {
+      logAudit({
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entity: 'settings',
+        entity_id: 'concierge_mode',
+        new_values: { conciergeChannelMode: mode },
+        reason: `Switched live concierge channel mode to ${mode}`,
+      });
       showNotification(
         mode === 'IN_SYSTEM'
           ? 'Switched live concierge to In-System Live Assistant Mode across storefront!'
@@ -184,6 +203,17 @@ export default function AdminSettings() {
     });
 
     if (result.success) {
+      logAudit({
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entity: 'settings',
+        entity_id: 'logistics_config',
+        new_values: {
+          automationMode: logisticsForm.logisticsAutomationMode,
+          shiprocketLocation: logisticsForm.shiprocketPickupLocation,
+          delhiveryWarehouse: logisticsForm.delhiveryWarehouseName,
+        },
+        reason: 'Updated carrier logistics credentials & automation config',
+      });
       showNotification('Logistics & courier automation configuration saved successfully!', 'success');
     } else {
       showNotification('Failed to save logistics settings: ' + (result.error || 'Unknown error'), 'error');

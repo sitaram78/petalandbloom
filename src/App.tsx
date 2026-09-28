@@ -39,6 +39,9 @@ import AdminOrders from '@/pages/admin/AdminOrders';
 import AdminCustomers from '@/pages/admin/AdminCustomers';
 import AdminMessages from '@/pages/admin/AdminMessages';
 import AdminReviews from '@/pages/admin/AdminReviews';
+import AdminAuditLogs from '@/pages/admin/AdminAuditLogs';
+import AdminInfluencers from '@/pages/admin/AdminInfluencers';
+import AdminAbandonedCarts from '@/pages/admin/AdminAbandonedCarts';
 import { StoreSettingsProvider } from '@/context/StoreSettingsContext';
 import AtelierConciergeWidget from '@/components/AtelierConciergeWidget';
 import NotFound from '@/pages/NotFound';
@@ -88,6 +91,9 @@ function AppContent() {
             <Route path="/admin/assets" element={<AdminAssets />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/coupons" element={<AdminCoupons />} />
+            <Route path="/admin/influencers" element={<AdminInfluencers />} />
+            <Route path="/admin/abandoned-carts" element={<AdminAbandonedCarts />} />
+            <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
           </Route>
         </Routes>
       </main>

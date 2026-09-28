@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
+import { logAuditEvent, AUDIT_ACTIONS } from '../lib/auditService';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -88,6 +89,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         })
         .eq('id', payment.id);
     }
+
+    // Central Audit Logging
+    await logAuditEvent({
+      action: AUDIT_ACTIONS.PAYMENT_REFUNDED,
+      entity: 'payments',
+      entity_id: order.order_number || order.id,
+      old_values: { payment_status: order.payment_status, total_in_paise: order.total_in_paise },
+      new_values: { refund_amount: refundAmount, refund_id: cfRefundResponse.cf_refund_id || refundId },
+      reason: reason || 'Customer requested refund via Atelier Admin',
+    });
 
     return res.status(200).json({
       success: true,

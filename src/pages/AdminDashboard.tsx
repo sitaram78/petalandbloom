@@ -18,13 +18,18 @@ import {
   ExternalLink,
   Clock,
   Sparkles,
-  Ticket
+  Ticket,
+  Upload,
+  Download,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useProducts } from '@/context/ProductContext';
 import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
 import { formatPrice } from '@/data/products';
+import { downloadCSV } from '@/utils/csvExporter';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
 
 interface OrderSummary {
   id: string;
@@ -97,6 +102,8 @@ export default function AdminDashboard() {
     loadAnalytics();
   }, []);
 
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+
   const filteredProducts = products.filter((p) => {
     const name = p.name?.toLowerCase() || '';
     const code = p.code?.toLowerCase() || '';
@@ -109,17 +116,70 @@ export default function AdminDashboard() {
       return;
     }
 
+    const targetProduct = products.find((p) => p.code === code);
     setIsDeleting(code);
     try {
       const { error } = await supabase.from('products').delete().eq('code', code);
 
       if (error) throw error;
+
+      // Central Audit Logging
+      logAudit({
+        action: AUDIT_ACTIONS.PRODUCT_DEACTIVATED,
+        entity: 'products',
+        entity_id: code,
+        old_values: targetProduct ? { name: targetProduct.name, price: targetProduct.price } : null,
+        reason: 'Product deleted from atelier catalog',
+      });
+
       await refreshProducts();
     } catch (err: any) {
       alert(`Error deleting product: ${err.message}`);
     } finally {
       setIsDeleting(null);
     }
+  };
+
+  const exportCatalogCSV = () => {
+    const headers = [
+      'code',
+      'name',
+      'category',
+      'price_inr',
+      'compare_price_inr',
+      'description',
+      'preparation_days',
+      'made_to_order',
+      'bestseller',
+      'featured',
+      'customisable',
+      'image_urls_comma_separated',
+    ];
+
+    const rows = products.map((p) => [
+      p.code,
+      p.name,
+      p.category,
+      p.price,
+      p.compareAtPrice || '',
+      p.description || '',
+      p.preparationDays || '2–3 days',
+      p.madeToOrder ? 'true' : 'false',
+      p.bestseller ? 'true' : 'false',
+      p.featured ? 'true' : 'false',
+      p.customisable ? 'true' : 'false',
+      (p.images || []).join(','),
+    ]);
+
+    downloadCSV(`tpb_catalog_export_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+
+    logAudit({
+      action: AUDIT_ACTIONS.CUSTOMER_PII_EXPORTED,
+      entity: 'products',
+      entity_id: 'catalog_export',
+      new_values: { exported_rows: products.length, format: 'CSV' },
+      reason: 'Admin exported complete product catalog dataset',
+    });
   };
 
   const aovRupees = confirmedOrdersCount > 0 ? Math.round(totalRevenueRupees / confirmedOrdersCount) : 0;
@@ -367,15 +427,44 @@ export default function AdminDashboard() {
               <h2 className="font-serif text-2xl text-bark">Studio Pieces</h2>
               <p className="text-xs text-ink-light mt-0.5">Manage pricing, photographs, and floral descriptions.</p>
             </div>
-            <div className="relative w-full sm:w-80">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search piece by name or code..."
-                className="w-full pl-10 pr-4 py-2 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-              />
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative w-full sm:w-64">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search code/name..."
+                  className="w-full pl-9 pr-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                />
+              </div>
+
+              <button
+                onClick={exportCatalogCSV}
+                className="px-3 py-1.5 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
+                title="Export catalog dataset to CSV"
+              >
+                <Download size={13} className="text-emerald-700" />
+                Export CSV
+              </button>
+
+              <button
+                onClick={() => setIsBulkImportOpen(true)}
+                className="px-3 py-1.5 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
+                title="Bulk import or update catalog from CSV"
+              >
+                <Upload size={13} className="text-rose" />
+                Bulk Import
+              </button>
+
+              <Link
+                to="/admin/editor"
+                className="px-3.5 py-1.5 bg-ink text-white hover:bg-bark text-xs font-medium uppercase tracking-wider rounded-sm flex items-center gap-1.5 transition-all shadow-soft"
+              >
+                <Plus size={14} className="text-rose" />
+                Add Piece
+              </Link>
             </div>
           </div>
 
@@ -459,6 +548,22 @@ export default function AdminDashboard() {
           </div>
         </section>
       </main>
+
+      {/* Two-Stage Bulk Catalog Import Modal */}
+      <ProductBulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onSuccess={async () => {
+          await refreshProducts();
+        }}
+        existingProducts={products.map((p) => ({
+          code: p.code,
+          name: p.name,
+          price: p.price,
+          compareAtPrice: p.compareAtPrice,
+          category: p.category,
+        }))}
+      />
     </AdminLayout>
   );
 }

@@ -19,6 +19,8 @@ import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
 import { formatPrice } from '@/data/products';
 import { occasions } from '@/data/site';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
 
 interface ProductForm {
   name: string;
@@ -100,6 +102,7 @@ export default function AdminEditor() {
   const [uploading, setUploading] = useState<string | null>(null);
   const [categories, setCategories] = useState<{ name: string; slug: string }[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
 
   const [form, setForm] = useState<ProductForm>({
     name: '',
@@ -279,6 +282,16 @@ export default function AdminEditor() {
           console.warn('Update request sent, but 0 rows were changed. Check RLS policies.');
           throw new Error('Product was not updated. Check database permissions.');
         }
+
+        // Central Audit Logging
+        logAudit({
+          action: AUDIT_ACTIONS.PRODUCT_PRICE_CHANGED,
+          entity: 'products',
+          entity_id: form.code,
+          new_values: { name: form.name, price: form.price, compare_at_price: form.compareAtPrice },
+          reason: 'Product updated from atelier catalog editor',
+        });
+
         await refreshProducts();
       } else {
         const { error: insertError, data: insertData } = await supabase
@@ -293,6 +306,16 @@ export default function AdminEditor() {
           console.warn('Insert request sent, but no data returned. Check RLS policies.');
           throw new Error('Product was not saved. Check database permissions.');
         }
+
+        // Central Audit Logging
+        logAudit({
+          action: AUDIT_ACTIONS.PRODUCT_PRICE_CHANGED,
+          entity: 'products',
+          entity_id: form.code,
+          new_values: { name: form.name, price: form.price, category: form.category },
+          reason: 'New handcrafted product created',
+        });
+
         await refreshProducts();
       }
 
@@ -337,6 +360,17 @@ export default function AdminEditor() {
                 {isEditMode ? `Refining ${form.code}` : 'Adding a new exhibit to the studio collection.'}
               </p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsBulkImportOpen(true)}
+              className="px-4 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
+            >
+              <Upload size={14} className="text-rose" />
+              Bulk Import CSV
+            </button>
           </div>
         </header>
 
@@ -757,6 +791,16 @@ export default function AdminEditor() {
           </div>
         </form>
       </main>
+
+      {/* Two-Stage Bulk Catalog Import Modal */}
+      <ProductBulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onSuccess={async () => {
+          await refreshProducts();
+        }}
+        existingProducts={[]}
+      />
     </AdminLayout>
   );
 }

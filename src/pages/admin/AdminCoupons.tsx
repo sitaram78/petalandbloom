@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Trash2, Loader2, Ticket } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import AdminLayout from '@/components/AdminLayout';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 
 interface Coupon {
   id: string;
@@ -34,8 +35,9 @@ export default function AdminCoupons() {
     event.preventDefault();
     setSaving(true);
     setError('');
+    const couponCode = form.code.trim().toUpperCase();
     const { error: insertError } = await supabase.from('coupons').insert({
-      code: form.code.trim().toUpperCase(),
+      code: couponCode,
       recipient_name: form.recipientName.trim(),
       discount_type: 'PERCENT',
       discount_value: form.discountPercent,
@@ -47,6 +49,18 @@ export default function AdminCoupons() {
     });
     if (insertError) setError(insertError.message);
     else {
+      logAudit({
+        action: AUDIT_ACTIONS.COUPON_CREATED,
+        entity: 'coupons',
+        entity_id: couponCode,
+        new_values: {
+          code: couponCode,
+          recipient_name: form.recipientName.trim(),
+          discount_percent: form.discountPercent,
+          usage_limit: form.usageLimit ? Number(form.usageLimit) : null,
+        },
+        reason: 'New promotional coupon created',
+      });
       setForm({ code: '', recipientName: '', discountPercent: 10, expiresAt: '', usageLimit: '' });
       await loadCoupons();
     }
@@ -55,9 +69,20 @@ export default function AdminCoupons() {
 
   const deleteCoupon = async (id: string) => {
     if (!confirm('Delete this coupon?')) return;
+    const target = coupons.find(c => c.id === id);
     const { error: deleteError } = await supabase.from('coupons').delete().eq('id', id);
     if (deleteError) setError(deleteError.message);
-    else setCoupons((current) => current.filter((coupon) => coupon.id !== id));
+    else {
+      logAudit({
+        action: AUDIT_ACTIONS.COUPON_RATE_MODIFIED,
+        entity: 'coupons',
+        entity_id: target?.code || id,
+        old_values: target || null,
+        new_values: { active: false, deleted: true },
+        reason: 'Coupon deleted from admin workbench',
+      });
+      setCoupons((current) => current.filter((coupon) => coupon.id !== id));
+    }
   };
 
   const toggleCoupon = async (coupon: Coupon) => {

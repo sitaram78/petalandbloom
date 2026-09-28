@@ -19,6 +19,7 @@ import {
   Mail,
   FileText,
   MessageCircle,
+  Download,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import Reveal from '@/components/Reveal';
@@ -33,6 +34,8 @@ import {
 import InvoiceModal from '@/components/admin/InvoiceModal';
 import PackingSlipModal from '@/components/admin/PackingSlipModal';
 import CourierBookingModal from '@/components/admin/CourierBookingModal';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import { downloadCSV } from '@/utils/csvExporter';
 
 interface AdminOrderItem {
   id: string;
@@ -184,6 +187,16 @@ export default function AdminOrders() {
         created_by: 'admin',
       });
 
+      // 2b. Central Audit Log
+      logAudit({
+        action: newStatus === 'CANCELLED' ? AUDIT_ACTIONS.ORDER_CANCELLED : AUDIT_ACTIONS.ORDER_STATUS_TRANSITION,
+        entity: 'orders',
+        entity_id: selectedOrder.order_number || selectedOrder.id,
+        old_values: { order_status: selectedOrder.order_status },
+        new_values: { order_status: newStatus, carrier, awb_number: awbNumber.trim() || null },
+        reason: statusNote.trim() || `Status updated to ${newStatus} by atelier admin`,
+      });
+
       // 3. Handle shipment details if marking SHIPPED or modifying carrier
       if (newStatus === 'SHIPPED' || awbNumber.trim()) {
         const finalTrackingUrl = customTrackingUrl.trim() || generateTrackingUrl(carrier, awbNumber.trim());
@@ -310,6 +323,16 @@ export default function AdminOrders() {
         created_by: 'admin',
       });
 
+      // Central Audit Log
+      logAudit({
+        action: AUDIT_ACTIONS.ORDER_STATUS_TRANSITION,
+        entity: 'orders',
+        entity_id: selectedOrder.order_number || selectedOrder.id,
+        old_values: { order_status: selectedOrder.order_status },
+        new_values: { order_status: 'SHIPPED', carrier: bookingCarrier, awb_number: bookingAwb },
+        reason: `Courier booked via ${bookingCarrier} (AWB: ${bookingAwb}). ${bookingNote}`,
+      });
+
       // Trigger Dispatch Email & Concierge WhatsApp Link
       try {
         const notifyRes = await fetch('/api/orders/notify', {
@@ -380,6 +403,105 @@ export default function AdminOrders() {
     }
   };
 
+  const exportDispatchManifest = () => {
+    const headers = [
+      'Order #',
+      'Order Date',
+      'Status',
+      'Recipient Name',
+      'Phone',
+      'Address Line 1',
+      'Address Line 2',
+      'City',
+      'State',
+      'PIN Code',
+      'Items Summary',
+      'Total Items Count',
+      'Total Amount (INR)',
+      'Carrier',
+      'AWB Tracking Number',
+    ];
+
+    const rows = filteredOrders.map((o) => {
+      const addr = o.shipping_address_snapshot || {};
+      const itemsSummary = (o.order_items || [])
+        .map((item) => `${item.quantity}x ${item.product_name} (${item.product_code})`)
+        .join(' | ');
+      const totalQty = (o.order_items || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
+      const shipment = o.shipments?.[0];
+
+      return [
+        o.order_number,
+        new Date(o.created_at).toLocaleString('en-IN'),
+        o.order_status,
+        addr.recipientName || o.guest_name || '',
+        addr.phone || o.guest_phone || '',
+        addr.addressLine1 || '',
+        addr.addressLine2 || '',
+        addr.city || '',
+        addr.state || '',
+        addr.pincode || '',
+        itemsSummary,
+        totalQty,
+        (o.total_in_paise / 100).toFixed(2),
+        shipment?.carrier || 'UNASSIGNED',
+        shipment?.awb_number || '',
+      ];
+    });
+
+    downloadCSV(`tpb_dispatch_manifest_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+
+    logAudit({
+      action: AUDIT_ACTIONS.CUSTOMER_PII_EXPORTED,
+      entity: 'orders',
+      entity_id: 'dispatch_manifest',
+      new_values: { exported_rows: filteredOrders.length, format: 'CSV', type: 'DISPATCH_MANIFEST' },
+      reason: 'Admin exported orders logistics dispatch manifest',
+    });
+    showNotification(`Exported ${filteredOrders.length} orders to Dispatch Manifest CSV!`, 'success');
+  };
+
+  const exportFinancialSummary = () => {
+    const headers = [
+      'Order #',
+      'Date & Time',
+      'Order Status',
+      'Payment Status',
+      'Subtotal (INR)',
+      'Coupon Discount (INR)',
+      'Coupon Code',
+      'Points Redeemed',
+      'Loyalty Discount (INR)',
+      'Shipping Fee (INR)',
+      'Net Total (INR)',
+    ];
+
+    const rows = filteredOrders.map((o) => [
+      o.order_number,
+      new Date(o.created_at).toLocaleString('en-IN'),
+      o.order_status,
+      o.payment_status,
+      ((o.subtotal_in_paise || 0) / 100).toFixed(2),
+      ((o.discount_in_paise || 0) / 100).toFixed(2),
+      o.applied_coupon_code || '',
+      o.loyalty_points_redeemed || 0,
+      ((o.loyalty_discount_in_paise || 0) / 100).toFixed(2),
+      ((o.shipping_fee_in_paise || 0) / 100).toFixed(2),
+      ((o.total_in_paise || 0) / 100).toFixed(2),
+    ]);
+
+    downloadCSV(`tpb_financial_sales_summary_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+
+    logAudit({
+      action: AUDIT_ACTIONS.CUSTOMER_PII_EXPORTED,
+      entity: 'orders',
+      entity_id: 'financial_summary',
+      new_values: { exported_rows: filteredOrders.length, format: 'CSV', type: 'FINANCIAL_SUMMARY' },
+      reason: 'Admin exported financial sales summary report',
+    });
+    showNotification(`Exported ${filteredOrders.length} orders to Financial Summary CSV!`, 'success');
+  };
+
   return (
     <AdminLayout activePage="orders">
       <main className="p-6 lg:p-10 max-w-7xl mx-auto">
@@ -395,14 +517,36 @@ export default function AdminOrders() {
             </p>
           </div>
 
-          <button
-            onClick={fetchOrders}
-            disabled={loading}
-            className="self-start md:self-auto px-4 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-2 transition-all"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Refresh Orders
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={exportDispatchManifest}
+              disabled={filteredOrders.length === 0}
+              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/50 rounded-sm flex items-center gap-1.5 transition-all disabled:opacity-40"
+              title="Export logistics manifest for courier dispatch"
+            >
+              <Download size={14} className="text-rose" />
+              Dispatch Manifest
+            </button>
+
+            <button
+              onClick={exportFinancialSummary}
+              disabled={filteredOrders.length === 0}
+              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/50 rounded-sm flex items-center gap-1.5 transition-all disabled:opacity-40"
+              title="Export financial accounting summary"
+            >
+              <Download size={14} className="text-emerald-700" />
+              Financial Summary
+            </button>
+
+            <button
+              onClick={fetchOrders}
+              disabled={loading}
+              className="px-3.5 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-2 transition-all"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
         </header>
 
         {/* Filter Tabs & Search Bar */}

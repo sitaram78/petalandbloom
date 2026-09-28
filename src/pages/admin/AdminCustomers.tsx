@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabaseClient';
 import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
 import { formatPrice } from '@/data/products';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 
 interface CustomerProfile {
   id: string;
@@ -199,6 +200,16 @@ export default function AdminCustomers() {
         });
       }
 
+      // Central Audit Logging
+      logAudit({
+        action: AUDIT_ACTIONS.POINTS_ADJUSTED,
+        entity: 'loyalty_accounts',
+        entity_id: selectedCustomer.id,
+        old_values: { points_balance: currentBalance },
+        new_values: { points_balance: newBalance, delta, type: pointsType },
+        reason: adjustmentReason || 'Atelier administrative points adjustment',
+      });
+
       alert(`Petal points updated! New balance: ${newBalance} points.`);
       await fetchCustomers();
       if (selectedCustomer) {
@@ -236,6 +247,15 @@ export default function AdminCustomers() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    // Central Audit Logging
+    logAudit({
+      action: AUDIT_ACTIONS.CUSTOMER_PII_EXPORTED,
+      entity: 'profiles',
+      entity_id: 'bulk_export',
+      new_values: { exported_rows: filteredCustomers.length, format: 'CSV' },
+      reason: 'Admin customer CRM data export',
+    });
   };
 
   const filteredCustomers = customers.filter(c => {

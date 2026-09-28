@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { useNotification } from '@/context/NotificationContext';
+import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 
 interface AdminReview {
   id: string;
@@ -77,6 +78,16 @@ export default function AdminReviews() {
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Action failed.');
       }
+
+      const target = reviews.find((r) => r.id === reviewId);
+      logAudit({
+        action: AUDIT_ACTIONS.REVIEW_MODERATED,
+        entity: 'reviews',
+        entity_id: reviewId,
+        old_values: target ? { is_approved: target.is_approved } : null,
+        new_values: { action, is_approved: action === 'approve' },
+        reason: `Admin review moderation: ${action}`,
+      });
 
       showNotification(data.message || 'Review updated.', 'success');
       await fetchReviews();
