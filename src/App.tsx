@@ -37,6 +37,9 @@ import AdminSettings from '@/pages/admin/AdminSettings';
 import AdminCoupons from '@/pages/admin/AdminCoupons';
 import AdminOrders from '@/pages/admin/AdminOrders';
 import AdminCustomers from '@/pages/admin/AdminCustomers';
+import AdminMessages from '@/pages/admin/AdminMessages';
+import { StoreSettingsProvider } from '@/context/StoreSettingsContext';
+import AtelierConciergeWidget from '@/components/AtelierConciergeWidget';
 import NotFound from '@/pages/NotFound';
 
 function AppContent() {
@@ -77,6 +80,7 @@ function AppContent() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/customers" element={<AdminCustomers />} />
+            <Route path="/admin/messages" element={<AdminMessages />} />
             <Route path="/admin/navigation" element={<AdminNavigation />} />
             <Route path="/admin/editor" element={<AdminEditor />} />
             <Route path="/admin/assets" element={<AdminAssets />} />
@@ -86,9 +90,10 @@ function AppContent() {
         </Routes>
       </main>
 
-      {/* Bottom Navigation and Footer only on storefront routes */}
+      {/* Bottom Navigation, Footer, and In-System / WhatsApp Concierge Widget on storefront routes */}
       {!isAdminRoute && (
         <>
+          <AtelierConciergeWidget />
           <MobileBottomNav />
           <Footer />
         </>
@@ -102,20 +107,22 @@ function App() {
     <BrowserRouter>
       <NotificationProvider>
         <AuthProvider>
-          <WishlistProvider>
-            <ProductProvider>
-              <CartProvider>
-                <QuickViewProvider>
-                  <SiteAssetsProvider>
-                    <NavigationProvider>
-                      <ScrollToTop />
-                      <AppContent />
-                    </NavigationProvider>
-                  </SiteAssetsProvider>
-                </QuickViewProvider>
-              </CartProvider>
-            </ProductProvider>
-          </WishlistProvider>
+          <StoreSettingsProvider>
+            <WishlistProvider>
+              <ProductProvider>
+                <CartProvider>
+                  <QuickViewProvider>
+                    <SiteAssetsProvider>
+                      <NavigationProvider>
+                        <ScrollToTop />
+                        <AppContent />
+                      </NavigationProvider>
+                    </SiteAssetsProvider>
+                  </QuickViewProvider>
+                </CartProvider>
+              </ProductProvider>
+            </WishlistProvider>
+          </StoreSettingsProvider>
         </AuthProvider>
       </NotificationProvider>
     </BrowserRouter>

@@ -16,12 +16,13 @@ import {
   Ticket,
   Truck,
   Users,
+  MessageCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
-  activePage: 'dashboard' | 'orders' | 'editor' | 'settings' | 'navigation' | 'assets' | 'coupons' | 'customers';
+  activePage: 'dashboard' | 'orders' | 'editor' | 'settings' | 'navigation' | 'assets' | 'coupons' | 'customers' | 'messages';
 }
 
 export default function AdminLayout({ children, activePage }: AdminLayoutProps) {
@@ -131,6 +132,19 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
             {!isCollapsed && <span className="text-sm">Customers & Loyalty</span>}
           </Link>
           <Link
+            to="/admin/messages"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className={`flex items-center gap-3 px-4 py-3 rounded-sm transition-all duration-300 ${
+              activePage === 'messages'
+                ? 'bg-white/20 text-white font-medium shadow-inner'
+                : 'hover:bg-white/10 text-white/60 hover:text-white'
+            } ${isCollapsed ? 'justify-center px-2' : ''}`}
+            title="Live Assistance Inbox"
+          >
+            <MessageCircle size={18} />
+            {!isCollapsed && <span className="text-sm">Live Assistance</span>}
+          </Link>
+          <Link
             to="/admin/editor"
             onClick={() => setIsMobileMenuOpen(false)}
             className={`flex items-center gap-3 px-4 py-3 rounded-sm transition-all duration-300 ${
@@ -151,10 +165,10 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
                 ? 'bg-white/20 text-white font-medium shadow-inner'
                 : 'hover:bg-white/10 text-white/60 hover:text-white'
             } ${isCollapsed ? 'justify-center px-2' : ''}`}
-            title="Category Manager"
+            title="Company Profile & Settings"
           >
             <SlidersHorizontal size={18} />
-            {!isCollapsed && <span className="text-sm">Category Manager</span>}
+            {!isCollapsed && <span className="text-sm">Company Settings</span>}
           </Link>
           <Link
             to="/admin/navigation"

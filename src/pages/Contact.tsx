@@ -6,11 +6,13 @@ import AtelierButton from '@/components/AtelierButton';
 import { brandInfo } from '@/data/site';
 import { useSiteAssets, getDynamicAsset } from '@/context/SiteAssetsContext';
 import { SITE_ASSET_KEYS } from '@/utils/siteAssetKeys';
-import { buildWhatsAppLink, generalEnquiryMessage } from '@/utils/whatsapp';
+import { generalEnquiryMessage } from '@/utils/whatsapp';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 import SEO from '@/components/SEO';
 
 export default function Contact() {
   const { assets } = useSiteAssets();
+  const { settings, triggerAssistance, buildWhatsAppUrl } = useStoreSettings();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -25,8 +27,13 @@ export default function Contact() {
       product && `Product of interest: ${product}`,
       message && `Message: ${message}`,
     ].filter(Boolean);
-    const link = buildWhatsAppLink(parts.join('\n'));
-    window.open(link, '_blank');
+    const fullMessage = parts.join('\n');
+
+    if (settings.conciergeChannelMode === 'IN_SYSTEM') {
+      triggerAssistance(fullMessage);
+    } else {
+      window.open(buildWhatsAppUrl(fullMessage), '_blank');
+    }
   };
 
   return (
@@ -68,22 +75,27 @@ export default function Contact() {
             <Reveal>
               <h2 className="font-serif text-3xl text-bark mb-8">Talk to the studio</h2>
               <div className="space-y-4">
-                {/* WhatsApp */}
+                {/* WhatsApp or In-System Concierge */}
                 <div className="flex items-center gap-5 p-6 bg-canvas rounded-atelier-panel border border-canvas-line transition-all duration-300 hover:border-rose/40">
                   <div className="w-12 h-12 rounded-full bg-moss/10 flex items-center justify-center flex-shrink-0 text-moss">
                     <MessageCircle size={22} strokeWidth={1.5} />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-serif text-lg text-bark">WhatsApp</h3>
-                    <p className="text-sm text-ink-light mt-1">The fastest way to reach us. Order, enquire, or ask anything.</p>
-                    <a
-                      href={buildWhatsAppLink(generalEnquiryMessage())}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <h3 className="font-serif text-lg text-bark">
+                      {settings.conciergeChannelMode === 'IN_SYSTEM' ? 'Atelier Live Chat' : 'WhatsApp'}
+                    </h3>
+                    <p className="text-sm text-ink-light mt-1">
+                      {settings.conciergeChannelMode === 'IN_SYSTEM'
+                        ? 'Chat live with our studio artisan team directly on this site.'
+                        : `Direct messaging via WhatsApp (${settings.whatsappNumber}). Order, enquire, or ask anything.`}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => triggerAssistance(generalEnquiryMessage())}
                       className="text-sm text-rose hover:text-rose-deep mt-2 inline-block font-medium link-underline"
                     >
-                      Message on WhatsApp →
-                    </a>
+                      {settings.conciergeChannelMode === 'IN_SYSTEM' ? 'Open Atelier Assistant →' : 'Message on WhatsApp →'}
+                    </button>
                   </div>
                 </div>
 
@@ -96,12 +108,12 @@ export default function Contact() {
                     <h3 className="font-serif text-lg text-bark">Instagram</h3>
                     <p className="text-sm text-ink-light mt-1">Follow our latest blooms and share your gifts with us.</p>
                     <a
-                      href={brandInfo.instagramUrl}
+                      href={settings.instagramUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-rose hover:text-rose-deep mt-2 inline-block font-medium link-underline"
                     >
-                      {brandInfo.instagram} →
+                      {settings.instagramHandle} →
                     </a>
                   </div>
                 </div>
@@ -114,9 +126,14 @@ export default function Contact() {
                   <div className="flex-1">
                     <h3 className="font-serif text-lg text-bark">Email</h3>
                     <p className="text-sm text-ink-light mt-1">
-                      Email address coming soon. For now, please reach us on WhatsApp or Instagram.
+                      Reach our studio team for custom arrangements, corporate gifting, or support.
                     </p>
-                    <span className="text-xs text-ink-light/50 mt-2 inline-block italic">Coming soon</span>
+                    <a
+                      href={`mailto:${settings.supportEmail}`}
+                      className="text-sm text-rose hover:text-rose-deep mt-2 inline-block font-medium link-underline font-mono"
+                    >
+                      {settings.supportEmail} →
+                    </a>
                   </div>
                 </div>
 
@@ -127,8 +144,8 @@ export default function Contact() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-serif text-lg text-bark">Business hours</h3>
-                    <p className="text-sm text-ink-light mt-1">{brandInfo.businessHours}</p>
-                    <p className="text-xs text-ink-light/60 mt-1 italic">{brandInfo.responseTime}</p>
+                    <p className="text-sm text-ink-light mt-1">{settings.businessHours}</p>
+                    <p className="text-xs text-ink-light/60 mt-1 italic">{settings.responseTime}</p>
                   </div>
                 </div>
               </div>

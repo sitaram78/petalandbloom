@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { Instagram, MessageCircle, Mail, Heart } from 'lucide-react';
 import { brandInfo, footerPolicyLinks } from '@/data/site';
-import { buildWhatsAppLink, generalEnquiryMessage } from '@/utils/whatsapp';
+import { generalEnquiryMessage } from '@/utils/whatsapp';
 import { useNavigation } from '@/context/NavigationContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 export default function Footer() {
   const { navItems } = useNavigation();
+  const { settings, triggerAssistance, buildWhatsAppUrl } = useStoreSettings();
   const topLevelNav = navItems.filter(item => !item.parent_id).sort((a, b) => a.order - b.order);
 
   const infoPaths = ['/contact', '/custom'];
@@ -85,35 +87,38 @@ export default function Footer() {
             <h4 className="text-[10px] uppercase tracking-[0.2em] text-linen/40 mb-4 font-semibold">Connect</h4>
             <div className="flex items-center gap-3 mb-6">
               <a
-                href={brandInfo.instagramUrl}
+                href={settings.instagramUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-10 h-10 rounded-full border border-linen/20 flex items-center justify-center hover:border-rose hover:text-rose transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-bark-dark"
                 aria-label="Follow on Instagram"
+                title={settings.instagramHandle}
               >
                 <Instagram size={18} strokeWidth={1.5} />
               </a>
-              <a
-                href={buildWhatsAppLink(generalEnquiryMessage())}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => triggerAssistance(generalEnquiryMessage())}
                 className="w-10 h-10 rounded-full border border-linen/20 flex items-center justify-center hover:border-rose hover:text-rose transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-bark-dark"
-                aria-label="Message on WhatsApp"
+                aria-label={settings.conciergeChannelMode === 'IN_SYSTEM' ? "Chat with Atelier Assistance" : "Message on WhatsApp"}
+                title={settings.conciergeChannelMode === 'IN_SYSTEM' ? "Atelier Live Chat" : `WhatsApp: ${settings.whatsappNumber}`}
               >
                 <MessageCircle size={18} strokeWidth={1.5} />
-              </a>
-              <span
-                className="w-10 h-10 rounded-full border border-linen/20 flex items-center justify-center text-linen/30 cursor-not-allowed"
-                aria-label="Email (coming soon)"
+              </button>
+              <a
+                href={`mailto:${settings.supportEmail}`}
+                className="w-10 h-10 rounded-full border border-linen/20 flex items-center justify-center hover:border-rose hover:text-rose transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-bark-dark"
+                aria-label="Email studio concierge"
+                title={`Email: ${settings.supportEmail}`}
               >
                 <Mail size={18} strokeWidth={1.5} />
-              </span>
+              </a>
             </div>
             <p className="text-xs text-linen/50 leading-relaxed">
-              {brandInfo.businessHours}
+              {settings.businessHours}
             </p>
             <p className="text-xs text-linen/30 mt-1 italic">
-              {brandInfo.responseTime}
+              {settings.responseTime}
             </p>
           </div>
         </div>

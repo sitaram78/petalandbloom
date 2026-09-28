@@ -1,5 +1,6 @@
+import React from 'react';
 import { MessageCircle } from 'lucide-react';
-import { buildWhatsAppLink } from '@/utils/whatsapp';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 interface WhatsAppButtonProps {
   message: string;
@@ -14,16 +15,31 @@ export default function WhatsAppButton({
   variant = 'primary',
   className = '',
 }: WhatsAppButtonProps) {
+  const { triggerAssistance, buildWhatsAppUrl, settings } = useStoreSettings();
   const baseClass = variant === 'primary' ? 'btn-whatsapp' : 'btn-secondary';
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (settings.conciergeChannelMode === 'IN_SYSTEM') {
+      e.preventDefault();
+      triggerAssistance(message);
+    }
+  };
+
+  const dynamicLabel =
+    settings.conciergeChannelMode === 'IN_SYSTEM' && label === 'Order on WhatsApp'
+      ? 'Order via Atelier Chat'
+      : label;
+
   return (
     <a
-      href={buildWhatsAppLink(message)}
+      href={buildWhatsAppUrl(message)}
+      onClick={handleClick}
       target="_blank"
       rel="noopener noreferrer"
       className={`${baseClass} ${className}`}
     >
       <MessageCircle size={16} />
-      {label}
+      {dynamicLabel}
     </a>
   );
 }
