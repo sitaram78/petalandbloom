@@ -202,7 +202,22 @@ export default function ProductDetail() {
                 </div>
 
                 <p className="text-xs uppercase tracking-[0.3em] text-rose mb-3">{product.code}</p>
-                <h1 className="font-serif text-5xl lg:text-6xl mb-6 leading-tight text-bark">{product.name}</h1>
+                <h1 className="font-serif text-5xl lg:text-6xl mb-3 leading-tight text-bark">{product.name}</h1>
+
+                {/* Rating Badge with Smooth Scroll */}
+                <div className="flex items-center gap-2 mb-6">
+                  <div className="flex items-center gap-0.5 text-rose">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} size={13} className="fill-rose text-rose" />
+                    ))}
+                  </div>
+                  <a
+                    href="#reviews"
+                    className="text-xs text-ink-light hover:text-bark underline underline-offset-4 transition-colors font-medium"
+                  >
+                    5.0 · Verified Patron Reviews
+                  </a>
+                </div>
 
                 <div className="flex items-center gap-6 mb-10">
                   <div className="flex items-baseline gap-2 flex-wrap">
@@ -465,8 +480,8 @@ export default function ProductDetail() {
         </section>
       )}
 
-      {/* Reviews */}
-      <ReviewsSection />
+      {/* Reviews Section */}
+      <ReviewsSection productCode={product.code} productName={product.name} />
 
       {/* Process Guide */}
       <section className="pt-24 lg:pt-32 pb-12 lg:pb-16 bg-bark text-linen">
