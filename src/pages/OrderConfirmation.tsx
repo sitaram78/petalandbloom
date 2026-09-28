@@ -228,14 +228,11 @@ export default function OrderConfirmation() {
                 <p className="text-xs text-ink-light leading-relaxed">
                   Our gift concierge is available on WhatsApp to answer questions regarding custom notes or delivery timing.
                 </p>
-                <a
-                  href={buildWhatsAppLink(`Hi The Petal & Bloom! I have a question regarding my order ${order.orderNumber}.`)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-whatsapp w-full flex items-center justify-center gap-2 py-3 text-sm"
-                >
-                  <MessageCircle size={18} /> Chat with Concierge
-                </a>
+                <WhatsAppButton
+                  message={`Hi The Petal & Bloom! I have a question regarding my order ${order.orderNumber}.`}
+                  label="Chat with Concierge"
+                  className="w-full justify-center py-3 text-sm"
+                />
                 <Link to="/shop" className="btn-secondary w-full flex items-center justify-center gap-2 py-3 text-sm">
                   Continue Exploring <ArrowRight size={16} />
                 </Link>

@@ -92,6 +92,20 @@ export default function AtelierConciergeWidget() {
 
     async function loadMessages() {
       try {
+        const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(conversationId)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.messages && json.messages.length > 0) {
+            setMessages(json.messages);
+            setHasStartedConversation(true);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch messages via API:', err);
+      }
+
+      try {
         const { data, error } = await supabase
           .from('assistance_messages')
           .select('*')
@@ -103,35 +117,33 @@ export default function AtelierConciergeWidget() {
           setHasStartedConversation(true);
         }
       } catch (err) {
-        console.warn('Failed to fetch messages:', err);
+        console.warn('Failed to fetch messages from Supabase:', err);
       }
     }
 
     loadMessages();
 
-    // Subscribe to new messages in real-time
-    const channel = supabase
-      .channel(`assistance:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'assistance_messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as ChatMessage;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-        }
-      )
-      .subscribe();
+    // Subscribe to new messages via BroadcastChannel (local & cross-tab)
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('tpb_assistance_channel');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'NEW_MESSAGE' && event.data.message?.conversation_id === conversationId) {
+            const newMsg = event.data.message as ChatMessage;
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
+          }
+        };
+      } catch (err) {
+        console.warn('BroadcastChannel error:', err);
+      }
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (bc) bc.close();
     };
   }, [conversationId]);
 
@@ -143,7 +155,7 @@ export default function AtelierConciergeWidget() {
     setIsSending(true);
 
     const senderName = customerName.trim() || profile?.full_name || 'Guest Visitor';
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newMsg: ChatMessage = {
       id: tempId,
       sender_type: 'CUSTOMER',
@@ -160,47 +172,48 @@ export default function AtelierConciergeWidget() {
 
       // Create conversation if not exists
       if (!activeConvId) {
-        const { data: conv, error: convErr } = await supabase
-          .from('assistance_conversations')
-          .insert({
-            customer_id: user?.id || null,
-            customer_name: senderName,
-            customer_phone: customerPhone.trim() || profile?.phone || null,
-            customer_email: user?.email || null,
-            subject: text.slice(0, 60),
-            status: 'PENDING_ADMIN',
-            last_message_preview: text,
-            last_message_at: new Date().toISOString(),
-          })
-          .select('id')
-          .single();
+        activeConvId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        setConversationId(activeConvId);
+        localStorage.setItem('tpb_active_conversation_id', activeConvId);
+        setHasStartedConversation(true);
 
-        if (!convErr && conv) {
-          activeConvId = conv.id;
-          setConversationId(conv.id);
-          localStorage.setItem('tpb_active_conversation_id', conv.id);
-          setHasStartedConversation(true);
-        }
-      } else {
-        // Update conversation last message
-        await supabase
-          .from('assistance_conversations')
-          .update({
-            last_message_preview: text,
-            last_message_at: new Date().toISOString(),
-            status: 'PENDING_ADMIN',
-          })
-          .eq('id', activeConvId);
+        try {
+          await fetch('/api/assistance/conversations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: activeConvId,
+              customer_id: user?.id || null,
+              customer_name: senderName,
+              customer_phone: customerPhone.trim() || profile?.phone || null,
+              customer_email: user?.email || null,
+              subject: text.slice(0, 60),
+              status: 'PENDING_ADMIN',
+              last_message_preview: text,
+            }),
+          });
+        } catch {}
       }
 
-      if (activeConvId) {
-        await supabase.from('assistance_messages').insert({
+      await fetch('/api/assistance/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newMsg.id,
           conversation_id: activeConvId,
           sender_type: 'CUSTOMER',
           sender_name: senderName,
-          sender_id: user?.id || null,
           message_text: text,
+        }),
+      });
+
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('tpb_assistance_channel');
+        bc.postMessage({
+          type: 'NEW_MESSAGE',
+          message: { ...newMsg, conversation_id: activeConvId },
         });
+        bc.close();
       }
     } catch (err) {
       console.warn('Error saving in-system message:', err);

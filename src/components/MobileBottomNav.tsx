@@ -2,12 +2,14 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, ShoppingBag, MessageCircle, User } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
-import { buildWhatsAppLink, generalEnquiryMessage } from '@/utils/whatsapp';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
+import { generalEnquiryMessage } from '@/utils/whatsapp';
 
 export default function MobileBottomNav() {
   const location = useLocation();
   const { totalItems, openCart } = useCart();
   const { user } = useAuth();
+  const { settings, triggerAssistance, isChatOpen } = useStoreSettings();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -70,16 +72,21 @@ export default function MobileBottomNav() {
           <span className="text-[10px] font-medium">{user ? 'Account' : 'Sign In'}</span>
         </Link>
 
-        <a
-          href={buildWhatsAppLink(generalEnquiryMessage())}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex flex-col items-center justify-center gap-1 w-16 h-full text-moss"
-          aria-label="Order on WhatsApp"
+        <button
+          type="button"
+          onClick={() => triggerAssistance(generalEnquiryMessage())}
+          className={`flex flex-col items-center justify-center gap-1 w-16 h-full transition-colors cursor-pointer ${
+            isChatOpen
+              ? 'text-rose-deep font-semibold'
+              : settings.conciergeChannelMode === 'IN_SYSTEM'
+              ? 'text-rose hover:text-rose-deep'
+              : 'text-moss'
+          }`}
+          aria-label={settings.conciergeChannelMode === 'IN_SYSTEM' ? 'Studio Concierge' : 'Order on WhatsApp'}
         >
           <MessageCircle size={20} strokeWidth={1.5} />
           <span className="text-[10px] font-medium">Concierge</span>
-        </a>
+        </button>
       </div>
     </nav>
   );

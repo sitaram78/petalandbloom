@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { supabase } from '@/lib/supabaseClient';
 import { formatPrice } from '@/data/products';
 import { trackEvent } from '@/utils/analytics';
@@ -25,6 +26,7 @@ export default function CartDrawer() {
     items, isOpen, closeCart, removeItem, updateQuantity, totalItems, totalPrice,
     appliedCoupon, discountAmount, applyCoupon, removeCoupon, initiateCheckout, checkoutWhatsApp,
   } = useCart();
+  const { settings, triggerAssistance } = useStoreSettings();
 
   const [justAdded, setJustAdded] = useState(false);
   const [couponCode, setCouponCode] = useState('');
@@ -456,12 +458,25 @@ export default function CartDrawer() {
                   <Lock size={16} /> Proceed to Checkout
                 </button>
 
-                {/* Secondary WhatsApp concierge button */}
+                {/* Secondary concierge assistance button */}
                 <button
-                  onClick={openCheckout}
-                  className="btn-whatsapp w-full py-2.5 text-xs flex items-center justify-center gap-2 opacity-90 hover:opacity-100"
+                  type="button"
+                  onClick={() => {
+                    closeCart();
+                    triggerAssistance(
+                      `Hi The Petal & Bloom Atelier, I have items in my bag and would like some assistance before placing my order.`
+                    );
+                  }}
+                  className={`w-full py-2.5 text-xs flex items-center justify-center gap-2 rounded-atelier-btn transition-all duration-300 cursor-pointer ${
+                    settings.conciergeChannelMode === 'IN_SYSTEM'
+                      ? 'bg-rose text-linen hover:bg-rose-deep shadow-soft'
+                      : 'btn-whatsapp opacity-90 hover:opacity-100'
+                  }`}
                 >
-                  <MessageCircle size={15} /> Order via WhatsApp Concierge
+                  <MessageCircle size={15} />
+                  {settings.conciergeChannelMode === 'IN_SYSTEM'
+                    ? 'Ask Studio Concierge'
+                    : 'Order via WhatsApp Concierge'}
                 </button>
               </div>
             )}

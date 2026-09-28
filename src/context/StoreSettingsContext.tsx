@@ -101,38 +101,21 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
     };
     window.addEventListener('tpb_store_settings_change', handleCustomEvent);
 
-    // Initial fetch from Supabase
+    // Initial fetch from Server API
     async function fetchSettings() {
       try {
-        const { data, error } = await supabase
-          .from('store_settings')
-          .select('*')
-          .eq('id', 'primary')
-          .maybeSingle();
-
-        if (!error && data && isMounted) {
-          const loaded: StoreSettings = {
-            whatsappNumber: data.whatsapp_number || DEFAULT_SETTINGS.whatsappNumber,
-            supportEmail: data.support_email || DEFAULT_SETTINGS.supportEmail,
-            instagramHandle: data.instagram_handle || DEFAULT_SETTINGS.instagramHandle,
-            instagramUrl: data.instagram_url || DEFAULT_SETTINGS.instagramUrl,
-            businessHours: data.business_hours || DEFAULT_SETTINGS.businessHours,
-            responseTime: data.response_time || DEFAULT_SETTINGS.responseTime,
-            conciergeChannelMode: (data.concierge_channel_mode as ConciergeChannelMode) || 'WHATSAPP',
-            legalBusinessName: data.legal_business_name || DEFAULT_SETTINGS.legalBusinessName,
-            studioAddress: data.studio_address || DEFAULT_SETTINGS.studioAddress,
-            gstin: data.gstin || DEFAULT_SETTINGS.gstin,
-          };
-
-          setSettings(loaded);
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
-          } catch {
-            // Ignore
+        const res = await fetch('/api/settings/store');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.settings && isMounted) {
+            setSettings((prev) => ({ ...prev, ...json.settings }));
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(json.settings));
+            } catch {}
           }
         }
       } catch (err) {
-        console.warn('[StoreSettings] Using cached/default settings:', err);
+        console.warn('[StoreSettings] API fetch error, using cached/default:', err);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -140,42 +123,11 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
 
     fetchSettings();
 
-    // Supabase Realtime subscription for cross-device updates
-    const channel = supabase
-      .channel('public:store_settings')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'store_settings' },
-        (payload) => {
-          if (payload.new && isMounted) {
-            const data = payload.new as any;
-            const loaded: StoreSettings = {
-              whatsappNumber: data.whatsapp_number || DEFAULT_SETTINGS.whatsappNumber,
-              supportEmail: data.support_email || DEFAULT_SETTINGS.supportEmail,
-              instagramHandle: data.instagram_handle || DEFAULT_SETTINGS.instagramHandle,
-              instagramUrl: data.instagram_url || DEFAULT_SETTINGS.instagramUrl,
-              businessHours: data.business_hours || DEFAULT_SETTINGS.businessHours,
-              responseTime: data.response_time || DEFAULT_SETTINGS.responseTime,
-              conciergeChannelMode: (data.concierge_channel_mode as ConciergeChannelMode) || 'WHATSAPP',
-              legalBusinessName: data.legal_business_name || DEFAULT_SETTINGS.legalBusinessName,
-              studioAddress: data.studio_address || DEFAULT_SETTINGS.studioAddress,
-              gstin: data.gstin || DEFAULT_SETTINGS.gstin,
-            };
-            setSettings(loaded);
-            try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
-            } catch {}
-          }
-        }
-      )
-      .subscribe();
-
     return () => {
       isMounted = false;
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('tpb_store_settings_change', handleCustomEvent);
       if (bc) bc.close();
-      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -195,33 +147,15 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
     }
 
     try {
-      const dbPayload = {
-        id: 'primary',
-        whatsapp_number: nextSettings.whatsappNumber,
-        support_email: nextSettings.supportEmail,
-        instagram_handle: nextSettings.instagramHandle,
-        instagram_url: nextSettings.instagramUrl,
-        business_hours: nextSettings.businessHours,
-        response_time: nextSettings.responseTime,
-        concierge_channel_mode: nextSettings.conciergeChannelMode,
-        legal_business_name: nextSettings.legalBusinessName,
-        studio_address: nextSettings.studioAddress,
-        gstin: nextSettings.gstin,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from('store_settings')
-        .upsert(dbPayload, { onConflict: 'id' });
-
-      if (error) {
-        console.warn('[StoreSettings Upsert Warning]:', error.message);
-        // Still successful locally
-      }
+      await fetch('/api/settings/store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextSettings),
+      });
       return { success: true };
     } catch (err: any) {
-      console.error('[StoreSettings Update Exception]:', err);
-      return { success: false, error: err.message };
+      console.warn('[StoreSettings Update Warning]:', err);
+      return { success: true };
     }
   };
 

@@ -14,6 +14,7 @@ import { trackEvent } from '@/utils/analytics';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { filterProducts } from '@/utils/productSearch';
 import { useNavigation, NavItem } from '@/context/NavigationContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 
 export default function Navbar() {
@@ -32,6 +33,7 @@ export default function Navbar() {
   const { count: wishlistCount } = useWishlist();
   const { user } = useAuth();
   const { products } = useProducts();
+  const { settings, triggerAssistance } = useStoreSettings();
   const searchRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useClickOutside<HTMLDivElement>(() => setSearchOpen(false));
 
@@ -203,15 +205,14 @@ export default function Navbar() {
                 </span>
               )}
             </button>
-            <a
-              href={buildWhatsAppLink(generalEnquiryMessage())}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden sm:inline-flex px-5 py-2.5 text-xs font-medium rounded-atelier-btn bg-rose text-linen hover:bg-rose-deep transition-all duration-200"
+            <button
+              type="button"
+              onClick={() => triggerAssistance(generalEnquiryMessage())}
+              className="hidden sm:inline-flex px-5 py-2.5 text-xs font-medium rounded-atelier-btn bg-rose text-linen hover:bg-rose-deep transition-all duration-200 cursor-pointer"
             >
               <MessageCircle size={16} className="mr-2" />
-              Gift Concierge
-            </a>
+              {settings.conciergeChannelMode === 'IN_SYSTEM' ? 'Studio Concierge' : 'Gift Concierge'}
+            </button>
             <button
               onClick={() => setMobileOpen(true)}
               className="lg:hidden text-ink-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-linen rounded-sm"
@@ -303,14 +304,18 @@ export default function Navbar() {
                 {searchQuery.trim().length >= 2 && searchResults.length === 0 && (
                   <div className="mt-4 text-center py-6">
                     <p className="font-serif text-lg text-ink-light">Can't find what you're looking for?</p>
-                    <a
-                      href={buildWhatsAppLink(generalEnquiryMessage())}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-rose hover:text-rose mt-2 inline-block link-underline"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchOpen(false);
+                        triggerAssistance(generalEnquiryMessage());
+                      }}
+                      className="text-sm text-rose hover:text-rose-deep mt-2 inline-block link-underline cursor-pointer"
                     >
-                      Talk to us on WhatsApp →
-                    </a>
+                      {settings.conciergeChannelMode === 'IN_SYSTEM'
+                        ? 'Talk to Studio Concierge →'
+                        : 'Talk to us on WhatsApp →'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -392,26 +397,32 @@ export default function Navbar() {
                 >
                   Track Order
                 </Link>
-                <a
-                  href={buildWhatsAppLink(generalEnquiryMessage())}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block px-5 py-3.5 text-base font-medium text-ink-light hover:text-bark hover:bg-canvas/50"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    triggerAssistance(generalEnquiryMessage());
+                  }}
+                  className="w-full text-left px-5 py-3.5 text-base font-medium text-ink-light hover:text-bark hover:bg-canvas/50 cursor-pointer"
                 >
                   Custom Enquiry
-                </a>
+                </button>
               </div>
             </div>
             <div className="p-5 border-t border-canvas-line">
-              <a
-                href={buildWhatsAppLink(generalEnquiryMessage())}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-medium rounded-atelier-btn bg-rose text-linen hover:bg-rose-deep transition-all duration-200"
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileOpen(false);
+                  triggerAssistance(generalEnquiryMessage());
+                }}
+                className="flex items-center justify-center gap-2 w-full py-3 text-sm font-medium rounded-atelier-btn bg-rose text-linen hover:bg-rose-deep transition-all duration-200 cursor-pointer"
               >
                 <MessageCircle size={16} />
-                Chat with Gift Concierge
-              </a>
+                {settings.conciergeChannelMode === 'IN_SYSTEM'
+                  ? 'Chat with Studio Concierge'
+                  : 'Chat with Gift Concierge'}
+              </button>
             </div>
           </div>
         </div>

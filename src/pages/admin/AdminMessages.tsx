@@ -62,6 +62,20 @@ export default function AdminMessages() {
   const fetchConversations = async () => {
     setLoading(true);
     try {
+      const res = await fetch('/api/assistance/conversations');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.conversations) {
+          setConversations(json.conversations);
+          if (json.conversations.length > 0 && !selectedConv) {
+            setSelectedConv(json.conversations[0]);
+          }
+          return;
+        }
+      }
+    } catch {}
+
+    try {
       const { data, error } = await supabase
         .from('assistance_conversations')
         .select('*')
@@ -91,6 +105,17 @@ export default function AdminMessages() {
 
     async function loadMessages() {
       try {
+        const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(selectedConv?.id || '')}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.messages) {
+            setMessages(json.messages);
+            return;
+          }
+        }
+      } catch {}
+
+      try {
         const { data, error } = await supabase
           .from('assistance_messages')
           .select('*')
@@ -109,29 +134,28 @@ export default function AdminMessages() {
 
     loadMessages();
 
-    // Subscribe to new incoming messages for the active conversation
-    const channel = supabase
-      .channel(`admin_chat:${selectedConv.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'assistance_messages',
-          filter: `conversation_id=eq.${selectedConv.id}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as MessageItem;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-        }
-      )
-      .subscribe();
+    // Subscribe to new incoming messages via BroadcastChannel
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('tpb_assistance_channel');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'NEW_MESSAGE') {
+            if (event.data.message?.conversation_id === selectedConv?.id) {
+              const newMsg = event.data.message as MessageItem;
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === newMsg.id)) return prev;
+                return [...prev, newMsg];
+              });
+            }
+            fetchConversations();
+          }
+        };
+      } catch {}
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (bc) bc.close();
     };
   }, [selectedConv?.id]);
 
@@ -146,7 +170,7 @@ export default function AdminMessages() {
     setIsSending(true);
     const text = replyText.trim();
     const tempMsg: MessageItem = {
-      id: `temp-${Date.now()}`,
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       conversation_id: selectedConv.id,
       sender_type: 'ADMIN',
       sender_name: 'Studio Artisan',
@@ -158,21 +182,26 @@ export default function AdminMessages() {
     setReplyText('');
 
     try {
-      await supabase.from('assistance_messages').insert({
-        conversation_id: selectedConv.id,
-        sender_type: 'ADMIN',
-        sender_name: 'Studio Artisan',
-        message_text: text,
+      await fetch('/api/assistance/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: tempMsg.id,
+          conversation_id: selectedConv.id,
+          sender_type: 'ADMIN',
+          sender_name: 'Studio Artisan',
+          message_text: text,
+        }),
       });
 
-      await supabase
-        .from('assistance_conversations')
-        .update({
-          status: 'REPLIED',
-          last_message_preview: `Artisan: ${text}`,
-          last_message_at: new Date().toISOString(),
-        })
-        .eq('id', selectedConv.id);
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('tpb_assistance_channel');
+        bc.postMessage({
+          type: 'NEW_MESSAGE',
+          message: tempMsg,
+        });
+        bc.close();
+      }
 
       setSelectedConv((prev) => (prev ? { ...prev, status: 'REPLIED' } : null));
       showNotification('Reply delivered to customer chat!', 'success');
