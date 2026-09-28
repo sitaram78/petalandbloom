@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Truck,
   ShieldAlert,
+  Edit2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
@@ -117,8 +118,9 @@ export default function Account() {
   const [loyaltyTransactions, setLoyaltyTransactions] = useState<LoyaltyLedgerEntry[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
 
-  // New Address Form State
+  // Address Form State
   const [showAddressModal, setShowAddressModal] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [newRecipient, setNewRecipient] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newLine1, setNewLine1] = useState('');
@@ -305,7 +307,54 @@ export default function Account() {
     }
   };
 
-  // Handle Add Address
+  const handleOpenAddAddress = () => {
+    setEditingAddressId(null);
+    setNewRecipient(profile?.full_name || '');
+    setNewPhone(profile?.phone || '');
+    setNewLine1('');
+    setNewLine2('');
+    setNewCity('');
+    setNewState('');
+    setNewPincode('');
+    setIsDefaultAddress(addresses.length === 0);
+    setShowAddressModal(true);
+  };
+
+  const handleOpenEditAddress = (addr: SavedAddress) => {
+    setEditingAddressId(addr.id);
+    setNewRecipient(addr.recipient_name);
+    setNewPhone(addr.phone);
+    setNewLine1(addr.address_line1);
+    setNewLine2(addr.address_line2 || '');
+    setNewCity(addr.city);
+    setNewState(addr.state);
+    setNewPincode(addr.pincode);
+    setIsDefaultAddress(addr.is_default);
+    setShowAddressModal(true);
+  };
+
+  const handleSetDefaultAddress = async (addressId: string) => {
+    if (!user) return;
+    try {
+      await supabase
+        .from('customer_addresses')
+        .update({ is_default: false })
+        .eq('customer_id', user.id);
+
+      const { error } = await supabase
+        .from('customer_addresses')
+        .update({ is_default: true })
+        .eq('id', addressId);
+
+      if (error) throw error;
+      showNotification('Default delivery address updated.', 'success');
+      loadAddresses();
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to update default address.', 'error');
+    }
+  };
+
+  // Handle Save Address (Create or Edit)
   const handleSaveAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -316,6 +365,16 @@ export default function Account() {
         throw new Error('Please fill in all required address fields.');
       }
 
+      const cleanPhone = newPhone.replace(/\D/g, '').slice(-10);
+      const cleanPincode = newPincode.replace(/\D/g, '');
+
+      if (cleanPhone.length !== 10) {
+        throw new Error('Please enter a valid 10-digit mobile number.');
+      }
+      if (cleanPincode.length !== 6) {
+        throw new Error('Please enter a valid 6-digit postal PIN code.');
+      }
+
       // If set as default, reset other defaults first
       if (isDefaultAddress) {
         await supabase
@@ -324,22 +383,42 @@ export default function Account() {
           .eq('customer_id', user.id);
       }
 
-      const { error } = await supabase.from('customer_addresses').insert({
-        customer_id: user.id,
-        recipient_name: newRecipient,
-        phone: newPhone,
-        address_line1: newLine1,
-        address_line2: newLine2 || null,
-        city: newCity,
-        state: newState,
-        pincode: newPincode,
-        is_default: isDefaultAddress || addresses.length === 0,
-      });
+      if (editingAddressId) {
+        const { error } = await supabase
+          .from('customer_addresses')
+          .update({
+            recipient_name: newRecipient.trim(),
+            phone: cleanPhone,
+            address_line1: newLine1.trim(),
+            address_line2: newLine2.trim() || null,
+            city: newCity.trim(),
+            state: newState.trim(),
+            pincode: cleanPincode,
+            is_default: isDefaultAddress,
+          })
+          .eq('id', editingAddressId);
 
-      if (error) throw error;
+        if (error) throw error;
+        showNotification('Address updated successfully.', 'success');
+      } else {
+        const { error } = await supabase.from('customer_addresses').insert({
+          customer_id: user.id,
+          recipient_name: newRecipient.trim(),
+          phone: cleanPhone,
+          address_line1: newLine1.trim(),
+          address_line2: newLine2.trim() || null,
+          city: newCity.trim(),
+          state: newState.trim(),
+          pincode: cleanPincode,
+          is_default: isDefaultAddress || addresses.length === 0,
+        });
 
-      showNotification('Address saved successfully.', 'success');
+        if (error) throw error;
+        showNotification('Address saved to your Atelier profile.', 'success');
+      }
+
       setShowAddressModal(false);
+      setEditingAddressId(null);
       setNewRecipient('');
       setNewPhone('');
       setNewLine1('');
@@ -1362,9 +1441,12 @@ export default function Account() {
               {activeTab === 'addresses' && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="heading-serif text-2xl text-bark">Saved Delivery Addresses</h3>
+                    <div>
+                      <h3 className="heading-serif text-2xl text-bark">Saved Delivery Addresses</h3>
+                      <p className="text-xs text-ink-light mt-0.5">Manage your shipping destinations for 1-click checkout.</p>
+                    </div>
                     <button
-                      onClick={() => setShowAddressModal(true)}
+                      onClick={handleOpenAddAddress}
                       className="px-4 py-2 rounded-atelier-btn bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-medium transition-all flex items-center gap-1.5"
                     >
                       <Plus size={14} />
@@ -1381,7 +1463,7 @@ export default function Account() {
                       <MapPin size={32} className="text-ink-light mx-auto mb-3" />
                       <p className="text-xs text-ink-light mb-4">No addresses saved yet.</p>
                       <button
-                        onClick={() => setShowAddressModal(true)}
+                        onClick={handleOpenAddAddress}
                         className="px-4 py-2 rounded-atelier-btn bg-bark text-linen text-xs uppercase tracking-wider font-medium hover:bg-rose-deep"
                       >
                         Add Address
@@ -1392,7 +1474,9 @@ export default function Account() {
                       {addresses.map((addr) => (
                         <div
                           key={addr.id}
-                          className="bg-linen p-5 rounded-sm border border-canvas-line shadow-soft relative"
+                          className={`bg-linen p-5 rounded-sm border shadow-soft relative transition-all ${
+                            addr.is_default ? 'border-bark ring-1 ring-bark' : 'border-canvas-line hover:border-canvas-line-hover'
+                          }`}
                         >
                           {addr.is_default && (
                             <span className="absolute top-4 right-4 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose/10 text-rose-deep border border-rose/20">
@@ -1410,28 +1494,56 @@ export default function Account() {
                             {addr.city}, {addr.state} — <span className="font-mono">{addr.pincode}</span>
                           </p>
 
-                          <div className="mt-4 pt-3 border-t border-canvas-line flex justify-end">
-                            <button
-                              onClick={() => handleDeleteAddress(addr.id)}
-                              className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1"
-                            >
-                              <Trash2 size={13} />
-                              Remove
-                            </button>
+                          <div className="mt-4 pt-3 border-t border-canvas-line flex items-center justify-between">
+                            {!addr.is_default ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSetDefaultAddress(addr.id)}
+                                className="text-xs text-rose hover:text-rose-deep font-medium underline underline-offset-2"
+                              >
+                                Set as Default
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-ink-light italic">Primary delivery address</span>
+                            )}
+
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditAddress(addr)}
+                                className="text-xs text-ink-light hover:text-bark flex items-center gap-1 font-medium transition-colors"
+                              >
+                                <Edit2 size={13} />
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAddress(addr.id)}
+                                className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors"
+                              >
+                                <Trash2 size={13} />
+                                Remove
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {/* Add Address Modal */}
+                  {/* Add / Edit Address Modal */}
                   {showAddressModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bark/40 backdrop-blur-xs">
                       <div className="bg-linen w-full max-w-lg rounded-sm border border-canvas-line shadow-2xl p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between pb-4 border-b border-canvas-line mb-6">
-                          <h4 className="heading-serif text-2xl text-bark">Add Delivery Address</h4>
+                          <h4 className="heading-serif text-2xl text-bark">
+                            {editingAddressId ? 'Edit Delivery Address' : 'Add Delivery Address'}
+                          </h4>
                           <button
-                            onClick={() => setShowAddressModal(false)}
+                            onClick={() => {
+                              setShowAddressModal(false);
+                              setEditingAddressId(null);
+                            }}
                             className="text-ink-light hover:text-bark text-sm"
                           >
                             ✕
@@ -1570,6 +1682,8 @@ export default function Account() {
                                   <Loader2 size={14} className="animate-spin" />
                                   Saving...
                                 </>
+                              ) : editingAddressId ? (
+                                'Update Address'
                               ) : (
                                 'Save Address'
                               )}

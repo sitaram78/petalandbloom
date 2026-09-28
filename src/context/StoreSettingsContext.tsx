@@ -15,6 +15,16 @@ export interface StoreSettings {
   legalBusinessName: string;
   studioAddress: string;
   gstin: string;
+  // Decision 5: Logistics & Courier Automation Configuration
+  shiprocketEmail: string;
+  shiprocketPassword: string;
+  shiprocketPickupLocation: string;
+  delhiveryApiKey: string;
+  delhiveryWarehouseName: string;
+  logisticsAutomationMode: 'AUTOMATED_WITH_CONFIRMATION' | 'MANUAL_ONLY';
+  pickupContactName: string;
+  pickupContactPhone: string;
+  pickupPincode: string;
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {
@@ -28,6 +38,16 @@ const DEFAULT_SETTINGS: StoreSettings = {
   legalBusinessName: 'The Petal & Bloom Studio',
   studioAddress: 'Handmade Floral Craft Studio, India',
   gstin: 'GSTIN-PENDING-UNREGISTERED',
+  // Decision 5 defaults
+  shiprocketEmail: '',
+  shiprocketPassword: '',
+  shiprocketPickupLocation: 'Atelier Primary Studio',
+  delhiveryApiKey: '',
+  delhiveryWarehouseName: 'Atelier Central Studio',
+  logisticsAutomationMode: 'AUTOMATED_WITH_CONFIRMATION',
+  pickupContactName: 'The Petal & Bloom Atelier',
+  pickupContactPhone: '9931653303',
+  pickupPincode: '560001',
 };
 
 const STORAGE_KEY = 'tpb_store_settings_cache';

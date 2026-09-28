@@ -17,6 +17,9 @@ import {
   ToggleRight,
   Sparkles,
   SlidersHorizontal,
+  Truck,
+  Zap,
+  ShieldCheck,
 } from 'lucide-react';
 import { useNotification } from '@/context/NotificationContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -31,7 +34,7 @@ interface Category {
   display_order: number;
 }
 
-type SettingsTab = 'profile' | 'categories';
+type SettingsTab = 'profile' | 'logistics' | 'categories';
 
 export default function AdminSettings() {
   const { showNotification } = useNotification();
@@ -55,6 +58,21 @@ export default function AdminSettings() {
 
   const [savingProfile, setSavingProfile] = useState(false);
 
+  // Decision 5: Logistics & Courier Form State
+  const [logisticsForm, setLogisticsForm] = useState({
+    shiprocketEmail: settings.shiprocketEmail || '',
+    shiprocketPassword: settings.shiprocketPassword || '',
+    shiprocketPickupLocation: settings.shiprocketPickupLocation || 'Atelier Primary Studio',
+    delhiveryApiKey: settings.delhiveryApiKey || '',
+    delhiveryWarehouseName: settings.delhiveryWarehouseName || 'Atelier Central Studio',
+    logisticsAutomationMode: settings.logisticsAutomationMode || 'AUTOMATED_WITH_CONFIRMATION',
+    pickupContactName: settings.pickupContactName || 'The Petal & Bloom Atelier',
+    pickupContactPhone: settings.pickupContactPhone || '9931653303',
+    pickupPincode: settings.pickupPincode || '560001',
+  });
+
+  const [savingLogistics, setSavingLogistics] = useState(false);
+
   // Sync profile form when settings load from Supabase
   useEffect(() => {
     setProfileForm({
@@ -68,6 +86,17 @@ export default function AdminSettings() {
       legalBusinessName: settings.legalBusinessName,
       studioAddress: settings.studioAddress,
       gstin: settings.gstin,
+    });
+    setLogisticsForm({
+      shiprocketEmail: settings.shiprocketEmail || '',
+      shiprocketPassword: settings.shiprocketPassword || '',
+      shiprocketPickupLocation: settings.shiprocketPickupLocation || 'Atelier Primary Studio',
+      delhiveryApiKey: settings.delhiveryApiKey || '',
+      delhiveryWarehouseName: settings.delhiveryWarehouseName || 'Atelier Central Studio',
+      logisticsAutomationMode: settings.logisticsAutomationMode || 'AUTOMATED_WITH_CONFIRMATION',
+      pickupContactName: settings.pickupContactName || 'The Petal & Bloom Atelier',
+      pickupContactPhone: settings.pickupContactPhone || '9931653303',
+      pickupPincode: settings.pickupPincode || '560001',
     });
   }, [settings]);
 
@@ -138,6 +167,30 @@ export default function AdminSettings() {
     }
   };
 
+  const handleSaveLogistics = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingLogistics(true);
+
+    const result = await updateSettings({
+      shiprocketEmail: logisticsForm.shiprocketEmail.trim(),
+      shiprocketPassword: logisticsForm.shiprocketPassword.trim(),
+      shiprocketPickupLocation: logisticsForm.shiprocketPickupLocation.trim(),
+      delhiveryApiKey: logisticsForm.delhiveryApiKey.trim(),
+      delhiveryWarehouseName: logisticsForm.delhiveryWarehouseName.trim(),
+      logisticsAutomationMode: logisticsForm.logisticsAutomationMode,
+      pickupContactName: logisticsForm.pickupContactName.trim(),
+      pickupContactPhone: logisticsForm.pickupContactPhone.trim(),
+      pickupPincode: logisticsForm.pickupPincode.trim(),
+    });
+
+    if (result.success) {
+      showNotification('Logistics & courier automation configuration saved successfully!', 'success');
+    } else {
+      showNotification('Failed to save logistics settings: ' + (result.error || 'Unknown error'), 'error');
+    }
+    setSavingLogistics(false);
+  };
+
   async function addCategory() {
     if (!newCategory.name || !newCategory.slug) {
       showNotification('Please fill in both name and slug for the category.', 'error');
@@ -200,11 +253,11 @@ export default function AdminSettings() {
         </header>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-canvas-line mb-8 gap-4">
+        <div className="flex border-b border-canvas-line mb-8 gap-4 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all ${
+            className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'profile'
                 ? 'border-bark text-bark'
                 : 'border-transparent text-ink-light hover:text-ink'
@@ -215,8 +268,20 @@ export default function AdminSettings() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('logistics')}
+            className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'logistics'
+                ? 'border-bark text-bark'
+                : 'border-transparent text-ink-light hover:text-ink'
+            }`}
+          >
+            <Truck size={15} className="text-rose" />
+            Logistics &amp; Couriers (Decision 5)
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('categories')}
-            className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all ${
+            className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'categories'
                 ? 'border-bark text-bark'
                 : 'border-transparent text-ink-light hover:text-ink'
@@ -492,7 +557,278 @@ export default function AdminSettings() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 2: PRODUCT CATEGORIES                                                 */}
+        {/* TAB 2: LOGISTICS & COURIERS (DECISION 5)                                  */}
+        {/* ========================================================================= */}
+        {activeTab === 'logistics' && (
+          <form onSubmit={handleSaveLogistics} className="space-y-8">
+            {/* Header Notice Card */}
+            <div className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-3">
+              <div className="flex items-center gap-2">
+                <Truck size={18} className="text-rose" />
+                <h2 className="heading-serif text-xl text-bark">
+                  Logistics &amp; Courier Automation Hub (Decision 5)
+                </h2>
+              </div>
+              <p className="text-xs text-ink-light leading-relaxed max-w-2xl">
+                Because Petal &amp; Bloom floral pieces are bespoke made-to-order creations, orders enter crafting first. Once crafting and packaging are complete, you can trigger automated 1-click pickup booking or manual dispatch with Delhivery, Shiprocket, or India Post.
+              </p>
+            </div>
+
+            {/* Automation Policy Mode */}
+            <div className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-4">
+              <h3 className="heading-serif text-lg text-bark flex items-center gap-2">
+                <ShieldCheck size={16} className="text-rose" />
+                Dispatch &amp; Booking Workflow
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label
+                  className={`p-4 rounded-sm border cursor-pointer transition-all flex flex-col justify-between ${
+                    logisticsForm.logisticsAutomationMode === 'AUTOMATED_WITH_CONFIRMATION'
+                      ? 'border-bark bg-canvas/40 shadow-xs ring-1 ring-bark'
+                      : 'border-canvas-line bg-canvas/20 hover:bg-canvas/30'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-xs text-bark flex items-center gap-1.5">
+                        <Zap size={14} className="text-rose" />
+                        Automated API Booking (With Confirmation)
+                      </span>
+                      <input
+                        type="radio"
+                        name="logisticsAutomationMode"
+                        value="AUTOMATED_WITH_CONFIRMATION"
+                        checked={logisticsForm.logisticsAutomationMode === 'AUTOMATED_WITH_CONFIRMATION'}
+                        onChange={() =>
+                          setLogisticsForm({
+                            ...logisticsForm,
+                            logisticsAutomationMode: 'AUTOMATED_WITH_CONFIRMATION',
+                          })
+                        }
+                        className="accent-rose"
+                      />
+                    </div>
+                    <p className="text-[11px] text-ink-light leading-relaxed">
+                      Recommended. When packaging is done, click <strong>Auto-Book Pickup</strong> in the courier modal. You will be prompted to approve the parcel specs and customer address, and the system automatically calls the carrier API to book and fetch the AWB tracking number.
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  className={`p-4 rounded-sm border cursor-pointer transition-all flex flex-col justify-between ${
+                    logisticsForm.logisticsAutomationMode === 'MANUAL_ONLY'
+                      ? 'border-bark bg-canvas/40 shadow-xs ring-1 ring-bark'
+                      : 'border-canvas-line bg-canvas/20 hover:bg-canvas/30'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-xs text-bark">
+                        Manual AWB Entry Only
+                      </span>
+                      <input
+                        type="radio"
+                        name="logisticsAutomationMode"
+                        value="MANUAL_ONLY"
+                        checked={logisticsForm.logisticsAutomationMode === 'MANUAL_ONLY'}
+                        onChange={() =>
+                          setLogisticsForm({
+                            ...logisticsForm,
+                            logisticsAutomationMode: 'MANUAL_ONLY',
+                          })
+                        }
+                        className="accent-rose"
+                      />
+                    </div>
+                    <p className="text-[11px] text-ink-light leading-relaxed">
+                      All parcels are booked externally through physical post office drops (e.g. India Post Speed Post) or carrier portals. Admin manually pastes the consignment AWB into the dispatch slip.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Shiprocket Partner Credentials */}
+            <div className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="heading-serif text-lg text-bark">Shiprocket Partner Credentials</h3>
+                  <p className="text-xs text-ink-light">Multi-carrier aggregator (BlueDart, Delhivery, DTDC, XpressBees).</p>
+                </div>
+                <span className="text-[10px] font-mono uppercase bg-rose/10 text-rose-deep border border-rose/20 px-2 py-0.5 rounded-full">
+                  Aggregator
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Shiprocket User Email
+                  </label>
+                  <input
+                    type="email"
+                    value={logisticsForm.shiprocketEmail}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, shiprocketEmail: e.target.value })
+                    }
+                    placeholder="e.g. logistics@thepetalandbloom.com"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Shiprocket API Password
+                  </label>
+                  <input
+                    type="password"
+                    value={logisticsForm.shiprocketPassword}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, shiprocketPassword: e.target.value })
+                    }
+                    placeholder="••••••••••••"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Pickup Location Nickname (As Registered on Shiprocket Dashboard)
+                  </label>
+                  <input
+                    type="text"
+                    value={logisticsForm.shiprocketPickupLocation}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, shiprocketPickupLocation: e.target.value })
+                    }
+                    placeholder="e.g. Atelier Primary Studio or Hub-Bangalore"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <p className="text-[10px] text-ink-light mt-1">
+                    Must match the exact pickup nickname registered under your Shiprocket pickup addresses.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Delhivery Direct Credentials */}
+            <div className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="heading-serif text-lg text-bark">Delhivery Surface / Express Direct</h3>
+                  <p className="text-xs text-ink-light">Direct B2C API contract with Delhivery logistics network.</p>
+                </div>
+                <span className="text-[10px] font-mono uppercase bg-canvas/50 text-bark border border-canvas-line px-2 py-0.5 rounded-full">
+                  Direct API
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Delhivery API Key / Client Token
+                  </label>
+                  <input
+                    type="password"
+                    value={logisticsForm.delhiveryApiKey}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, delhiveryApiKey: e.target.value })
+                    }
+                    placeholder="e.g. c39f82810a9f82..."
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Registered Warehouse Name
+                  </label>
+                  <input
+                    type="text"
+                    value={logisticsForm.delhiveryWarehouseName}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, delhiveryWarehouseName: e.target.value })
+                    }
+                    placeholder="e.g. Atelier Central Studio"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Studio Pickup Details */}
+            <div className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-4">
+              <h3 className="heading-serif text-lg text-bark">Atelier Studio Dispatch Origin</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Dispatch Contact Person
+                  </label>
+                  <input
+                    type="text"
+                    value={logisticsForm.pickupContactName}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, pickupContactName: e.target.value })
+                    }
+                    placeholder="The Petal & Bloom Atelier"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Pickup Mobile Contact
+                  </label>
+                  <input
+                    type="tel"
+                    value={logisticsForm.pickupContactPhone}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, pickupContactPhone: e.target.value })
+                    }
+                    placeholder="9931653303"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-ink-light font-bold mb-1">
+                    Origin Postal PIN Code
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={logisticsForm.pickupPincode}
+                    onChange={(e) =>
+                      setLogisticsForm({ ...logisticsForm, pickupPincode: e.target.value.replace(/\D/g, '') })
+                    }
+                    placeholder="560001"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={savingLogistics}
+                className="px-8 py-3 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-widest font-semibold rounded-sm flex items-center gap-2 shadow-soft transition-all disabled:opacity-50"
+              >
+                {savingLogistics ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Saving Configuration...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    Save Logistics Configuration
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 3: PRODUCT CATEGORIES                                                 */}
         {/* ========================================================================= */}
         {activeTab === 'categories' && (
           <div className="space-y-6">

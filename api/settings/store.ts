@@ -12,6 +12,16 @@ const DEFAULT_SETTINGS = {
   legalBusinessName: 'The Petal & Bloom Studio',
   studioAddress: 'Handmade Floral Craft Studio, India',
   gstin: 'GSTIN-PENDING-UNREGISTERED',
+  // Decision 5: Logistics & Courier Automation
+  shiprocketEmail: '',
+  shiprocketPassword: '',
+  shiprocketPickupLocation: 'Atelier Primary Studio',
+  delhiveryApiKey: '',
+  delhiveryWarehouseName: 'Atelier Central Studio',
+  logisticsAutomationMode: 'AUTOMATED_WITH_CONFIRMATION',
+  pickupContactName: 'The Petal & Bloom Atelier',
+  pickupContactPhone: '9931653303',
+  pickupPincode: '560001',
 };
 
 // In-memory server fallback cache
@@ -40,6 +50,15 @@ export default async function handler(req: any, res: any) {
           legalBusinessName: data.legal_business_name || serverCache.legalBusinessName,
           studioAddress: data.studio_address || serverCache.studioAddress,
           gstin: data.gstin || serverCache.gstin,
+          shiprocketEmail: data.shiprocket_email || serverCache.shiprocketEmail,
+          shiprocketPassword: data.shiprocket_password || serverCache.shiprocketPassword,
+          shiprocketPickupLocation: data.shiprocket_pickup_location || serverCache.shiprocketPickupLocation,
+          delhiveryApiKey: data.delhivery_api_key || serverCache.delhiveryApiKey,
+          delhiveryWarehouseName: data.delhivery_warehouse_name || serverCache.delhiveryWarehouseName,
+          logisticsAutomationMode: data.logistics_automation_mode || serverCache.logisticsAutomationMode,
+          pickupContactName: data.pickup_contact_name || serverCache.pickupContactName,
+          pickupContactPhone: data.pickup_contact_phone || serverCache.pickupContactPhone,
+          pickupPincode: data.pickup_pincode || serverCache.pickupPincode,
         };
       }
     } catch (err) {
@@ -70,6 +89,15 @@ export default async function handler(req: any, res: any) {
         legal_business_name: serverCache.legalBusinessName,
         studio_address: serverCache.studioAddress,
         gstin: serverCache.gstin,
+        shiprocket_email: serverCache.shiprocketEmail,
+        shiprocket_password: serverCache.shiprocketPassword,
+        shiprocket_pickup_location: serverCache.shiprocketPickupLocation,
+        delhivery_api_key: serverCache.delhiveryApiKey,
+        delhivery_warehouse_name: serverCache.delhiveryWarehouseName,
+        logistics_automation_mode: serverCache.logisticsAutomationMode,
+        pickup_contact_name: serverCache.pickupContactName,
+        pickup_contact_phone: serverCache.pickupContactPhone,
+        pickup_pincode: serverCache.pickupPincode,
         updated_at: new Date().toISOString(),
       };
 
