@@ -20,12 +20,15 @@ import {
   FileText,
   MessageCircle,
   Download,
+  X,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import Reveal from '@/components/Reveal';
 import { supabase } from '@/lib/supabaseClient';
 import { formatPrice } from '@/data/products';
 import { useNotification } from '@/context/NotificationContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
+import { authFetch } from '@/lib/apiClient';
 import {
   CarrierType,
   SUPPORTED_CARRIERS,
@@ -99,12 +102,13 @@ interface AdminOrder {
 
 const ORDER_STATUSES = [
   { id: 'ALL', label: 'All Orders' },
+  { id: 'PENDING_PAYMENT', label: 'Awaiting UPI' },
   { id: 'PAYMENT_CONFIRMED', label: 'Confirmed (Paid)' },
   { id: 'PROCESSING', label: 'In Crafting' },
   { id: 'PACKED', label: 'Packed' },
   { id: 'SHIPPED', label: 'Shipped' },
   { id: 'DELIVERED', label: 'Delivered' },
-  { id: 'PENDING_PAYMENT', label: 'Pending Payment' },
+  { id: 'CANCELLED', label: 'Cancelled' },
 ];
 
 export default function AdminOrders() {
@@ -138,7 +142,11 @@ export default function AdminOrders() {
   const [awbNumber, setAwbNumber] = useState('');
   const [customTrackingUrl, setCustomTrackingUrl] = useState('');
 
+  // Batch Operations State
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+
   const { showNotification } = useNotification();
+  const { settings } = useStoreSettings();
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -193,72 +201,46 @@ export default function AdminOrders() {
     setIsUpdating(true);
 
     try {
-      // 1. Update order status
-      const { error: orderErr } = await supabase
-        .from('orders')
-        .update({
-          order_status: newStatus,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedOrder.id);
+      if (newStatus === 'CANCELLED') {
+        // Secure cancellation API with inventory restock & loyalty point reversal
+        const cancelRes = await authFetch('/api/orders/cancel', {
+          method: 'POST',
+          body: JSON.stringify({
+            orderId: selectedOrder.id,
+            reason: statusNote.trim() || 'Order cancelled by atelier admin',
+          }),
+        });
+        const cancelData = await cancelRes.json();
+        if (!cancelRes.ok || !cancelData.success) {
+          throw new Error(cancelData.message || 'Failed to cancel order.');
+        }
+      } else {
+        // Authenticated order status transition with server-enforced audit trail
+        const updateRes = await authFetch('/api/admin/orders/update-status', {
+          method: 'POST',
+          body: JSON.stringify({
+            orderId: selectedOrder.id,
+            newStatus,
+            statusNote,
+            carrier,
+            awbNumber: awbNumber.trim(),
+            customTrackingUrl: customTrackingUrl.trim(),
+          }),
+        });
+        const updateData = await updateRes.json();
+        if (!updateRes.ok || !updateData.success) {
+          throw new Error(updateData.message || updateData.error || 'Failed to update order status.');
+        }
+      }
 
-      if (orderErr) throw orderErr;
-
-      // 2. Audit history
-      await supabase.from('order_status_history').insert({
-        order_id: selectedOrder.id,
-        previous_status: selectedOrder.order_status,
-        new_status: newStatus,
-        note: statusNote.trim() || `Status updated to ${newStatus} by atelier admin`,
-        created_by: 'admin',
-      });
-
-      // 2b. Central Audit Log
-      logAudit({
-        action: newStatus === 'CANCELLED' ? AUDIT_ACTIONS.ORDER_CANCELLED : AUDIT_ACTIONS.ORDER_STATUS_TRANSITION,
-        entity: 'orders',
-        entity_id: selectedOrder.order_number || selectedOrder.id,
-        old_values: { order_status: selectedOrder.order_status },
-        new_values: { order_status: newStatus, carrier, awb_number: awbNumber.trim() || null },
-        reason: statusNote.trim() || `Status updated to ${newStatus} by atelier admin`,
-      });
-
-      // 3. Handle shipment details if marking SHIPPED or modifying carrier
+      // If marking SHIPPED, generate WhatsApp concierge link
       if (newStatus === 'SHIPPED' || awbNumber.trim()) {
         const finalTrackingUrl = customTrackingUrl.trim() || generateTrackingUrl(carrier, awbNumber.trim());
 
-        const { data: existingShip } = await supabase
-          .from('shipments')
-          .select('id')
-          .eq('order_id', selectedOrder.id)
-          .maybeSingle();
-
-        if (existingShip) {
-          await supabase
-            .from('shipments')
-            .update({
-              carrier,
-              awb_number: awbNumber.trim() || null,
-              tracking_url: finalTrackingUrl || null,
-              status: newStatus === 'DELIVERED' ? 'DELIVERED' : 'IN_TRANSIT',
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingShip.id);
-        } else {
-          await supabase.from('shipments').insert({
-            order_id: selectedOrder.id,
-            carrier,
-            awb_number: awbNumber.trim() || null,
-            tracking_url: finalTrackingUrl || null,
-            status: newStatus === 'DELIVERED' ? 'DELIVERED' : 'IN_TRANSIT',
-          });
-        }
-
         // Trigger Automated Email Dispatch Notification & generate WhatsApp Concierge link
         try {
-          const notifyRes = await fetch('/api/orders/notify', {
+          const notifyRes = await authFetch('/api/orders/notify', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               orderId: selectedOrder.id,
               awbNumber: awbNumber.trim(),
@@ -302,6 +284,40 @@ export default function AdminOrders() {
     const trackingLink = `https://thepetalandbloom.vercel.app/track?order_id=${order.order_number}`;
     const text = `🌸 *The Petal & Bloom Studio Update*\n\nHello ${order.guest_name},\nRegarding your bespoke floral order *#${order.order_number}* (Current Status: ${order.order_status.replace(/_/g, ' ')}).\nTrack Live: ${trackingLink}\n\nPlease let us know if you have any questions or customization notes! ✨`;
     window.open(`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const openWhatsAppForPaymentRequest = (order: AdminOrder) => {
+    const cleanPhone = (order.guest_phone || order.shipping_address_snapshot?.phone || '').replace(/\D/g, '').slice(-10);
+    const amount = (order.total_in_paise / 100).toFixed(0);
+    const upiId = settings.upiId || '9931657805@ptsbi';
+    const upiPhone = settings.upiPhone || '9931657805';
+    const text = `🌸 *The Petal & Bloom Studio — Order #${order.order_number}*\n\nHello ${order.guest_name || 'Collector'},\nThank you for placing your order with The Petal & Bloom! Your bespoke crochet floral order is saved.\n\n*Order Summary:*\n• Order Number: #${order.order_number}\n• Amount Due: ₹${amount}\n\n*Payment Details (UPI):*\n• UPI ID: ${upiId}\n• Google Pay / PhonePe / Paytm / BHIM: ${upiPhone}\n\nPlease transfer ₹${amount} and send us a screenshot of the payment confirmation here. Once confirmed, our atelier team will begin handcrafting your flowers! ✨`;
+    window.open(`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleQuickStatusTransition = async (order: AdminOrder, targetStatus: string) => {
+    setIsUpdating(true);
+    try {
+      const res = await authFetch('/api/admin/orders/update-status', {
+        method: 'POST',
+        body: JSON.stringify({
+          orderId: order.id,
+          newStatus: targetStatus,
+          statusNote: `Status updated to ${targetStatus} via quick action shortcut`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Status transition failed');
+      }
+
+      showNotification(`Order ${order.order_number} moved to ${targetStatus.replace(/_/g, ' ')}!`, 'success');
+      await fetchOrders();
+    } catch (err: any) {
+      showNotification(`Failed to transition status: ${err.message}`, 'error');
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const handleConfirmCourierBooking = async (
@@ -361,9 +377,8 @@ export default function AdminOrders() {
 
       // Trigger Dispatch Email & Concierge WhatsApp Link
       try {
-        const notifyRes = await fetch('/api/orders/notify', {
+        const notifyRes = await authFetch('/api/orders/notify', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             orderId: selectedOrder.id,
             awbNumber: bookingAwb,
@@ -407,6 +422,103 @@ export default function AdminOrders() {
     return matchesFilter && matchesSearch;
   });
 
+  // Batch Selection Computations & Handlers
+  const eligibleForPaymentConfirm = orders.filter(
+    (o) => selectedOrderIds.includes(o.id) && o.order_status === 'PENDING_PAYMENT'
+  );
+  const eligibleForCrafting = orders.filter(
+    (o) => selectedOrderIds.includes(o.id) && o.order_status === 'PAYMENT_CONFIRMED'
+  );
+  const eligibleForPacked = orders.filter(
+    (o) => selectedOrderIds.includes(o.id) && o.order_status === 'PROCESSING'
+  );
+
+  const toggleOrderSelect = (orderId: string) => {
+    setSelectedOrderIds((prev) =>
+      prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
+    );
+  };
+
+  const selectAllFilteredOrders = () => {
+    if (filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length) {
+      setSelectedOrderIds([]);
+    } else {
+      setSelectedOrderIds(filteredOrders.map((o) => o.id));
+    }
+  };
+
+  const handleBatchStatusTransition = async (targetStatus: string, actionName: string) => {
+    const targets = orders.filter((o) => selectedOrderIds.includes(o.id));
+    if (targets.length === 0) return;
+
+    setIsUpdating(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const ord of targets) {
+      try {
+        const res = await authFetch('/api/admin/orders/update-status', {
+          method: 'POST',
+          body: JSON.stringify({
+            orderId: ord.id,
+            newStatus: targetStatus,
+            statusNote: `Batch update to ${targetStatus} via bulk operations toolbar`,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsUpdating(false);
+    if (successCount > 0) {
+      showNotification(`Batch: ${successCount} orders transitioned to ${targetStatus.replace(/_/g, ' ')}!`, 'success');
+      setSelectedOrderIds([]);
+      await fetchOrders();
+    }
+    if (failCount > 0) {
+      showNotification(`${failCount} orders could not be updated.`, 'error');
+    }
+  };
+
+  const handleBatchExportCSV = () => {
+    const selectedOrders = orders.filter((o) => selectedOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) return;
+
+    const headers = [
+      'Order #',
+      'Date & Time',
+      'Order Status',
+      'Customer Name',
+      'Phone',
+      'City',
+      'Net Total (INR)',
+      'Carrier',
+      'AWB',
+    ];
+
+    const rows = selectedOrders.map((o) => [
+      o.order_number,
+      new Date(o.created_at).toLocaleString('en-IN'),
+      o.order_status,
+      o.guest_name,
+      o.guest_phone,
+      o.shipping_address_snapshot?.city || '',
+      ((o.total_in_paise || 0) / 100).toFixed(2),
+      o.shipments?.[0]?.carrier || 'UNASSIGNED',
+      o.shipments?.[0]?.awb_number || '',
+    ]);
+
+    downloadCSV(`tpb_batch_orders_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+    showNotification(`Exported ${selectedOrders.length} selected orders to CSV!`, 'success');
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'PAYMENT_CONFIRMED':
@@ -424,8 +536,14 @@ export default function AdminOrders() {
       case 'CANCELLED':
         return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">Cancelled</span>;
       case 'PENDING_PAYMENT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-300">
+            <Clock size={11} className="text-amber-600 animate-pulse" />
+            Awaiting UPI
+          </span>
+        );
       default:
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">Pending Payment</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">{status}</span>;
     }
   };
 
@@ -530,12 +648,17 @@ export default function AdminOrders() {
 
   const kanbanColumns: KanbanColumn<AdminOrder>[] = [
     {
+      id: 'PENDING_PAYMENT',
+      title: 'Awaiting UPI',
+      badgeColor: 'bg-amber-500',
+      items: filteredOrders.filter((o) => o.order_status === 'PENDING_PAYMENT'),
+      emptyMessage: 'No orders awaiting UPI payment',
+    },
+    {
       id: 'PAYMENT_CONFIRMED',
       title: 'Confirmed',
       badgeColor: 'bg-blue-500',
-      items: filteredOrders.filter(
-        (o) => o.order_status === 'PAYMENT_CONFIRMED' || o.order_status === 'PENDING_PAYMENT'
-      ),
+      items: filteredOrders.filter((o) => o.order_status === 'PAYMENT_CONFIRMED'),
       emptyMessage: 'No orders awaiting crafting',
     },
     {
@@ -568,17 +691,37 @@ export default function AdminOrders() {
     },
   ];
 
-  const renderKanbanCard = (order: AdminOrder) => (
-    <div
-      onClick={() => setSelectedOrder(order)}
-      className="bg-linen p-3.5 rounded-sm border border-canvas-line shadow-xs hover:border-bark hover:shadow-soft transition-all cursor-pointer space-y-2.5"
-    >
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs font-bold text-bark">{order.order_number}</span>
-        <span className="font-serif text-sm font-bold text-bark">
-          {formatPrice(order.total_in_paise / 100)}
-        </span>
-      </div>
+  const renderKanbanCard = (order: AdminOrder) => {
+    const isSelected = selectedOrderIds.includes(order.id);
+    return (
+      <div
+        onClick={() => setSelectedOrder(order)}
+        className={`bg-linen p-3.5 rounded-sm border shadow-xs hover:border-bark hover:shadow-soft transition-all cursor-pointer space-y-2.5 ${
+          isSelected
+            ? 'border-rose/80 ring-2 ring-rose/40 bg-rose/[0.04]'
+            : 'border-canvas-line'
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <label
+              className="flex items-center justify-center min-w-[36px] min-h-[36px] -ml-2 -my-2 p-2 cursor-pointer rounded hover:bg-rose/10 active:bg-rose/20 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+              title="Select order"
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleOrderSelect(order.id)}
+                className="w-4 h-4 rounded text-rose accent-rose border-canvas-line cursor-pointer"
+              />
+            </label>
+            <span className="font-mono text-xs font-bold text-bark">{order.order_number}</span>
+          </div>
+          <span className="font-serif text-sm font-bold text-bark">
+            {formatPrice(order.total_in_paise / 100)}
+          </span>
+        </div>
       <div>
         <p className="text-xs font-medium text-ink truncate">{order.guest_name}</p>
         <p className="text-[11px] text-ink-light flex items-center gap-1">
@@ -601,6 +744,7 @@ export default function AdminOrders() {
       </div>
     </div>
   );
+};
 
   return (
     <AdminLayout activePage="orders">
@@ -674,6 +818,30 @@ export default function AdminOrders() {
           supportedModes={['table', 'kanban']}
           onRefresh={fetchOrders}
           isRefreshing={loading}
+          filterControls={
+            filteredOrders.length > 0 ? (
+              <button
+                type="button"
+                onClick={selectAllFilteredOrders}
+                className="px-3 py-1.5 rounded-sm bg-white border border-canvas-line text-xs text-bark hover:border-bark flex items-center gap-2 transition-colors font-medium cursor-pointer shadow-2xs whitespace-nowrap"
+                title={selectedOrderIds.length === filteredOrders.length ? 'Deselect all visible orders' : 'Select all visible orders'}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedOrderIds.length === filteredOrders.length && filteredOrders.length > 0}
+                  onChange={selectAllFilteredOrders}
+                  className="w-4 h-4 rounded text-rose accent-rose border-canvas-line cursor-pointer"
+                />
+                <span className="font-mono text-xs">
+                  {selectedOrderIds.length === filteredOrders.length
+                    ? 'Deselect All'
+                    : selectedOrderIds.length > 0
+                    ? `Selected (${selectedOrderIds.length})`
+                    : `Select All (${filteredOrders.length})`}
+                </span>
+              </button>
+            ) : null
+          }
         />
 
         {/* Orders List */}
@@ -691,33 +859,52 @@ export default function AdminOrders() {
             </p>
           </div>
         ) : viewMode === 'kanban' ? (
-          <AdminKanbanBoard
-            columns={kanbanColumns}
-            renderCard={renderKanbanCard}
-          />
+          <div className={selectedOrderIds.length > 0 ? 'pb-36 sm:pb-24' : ''}>
+            <AdminKanbanBoard
+              columns={kanbanColumns}
+              renderCard={renderKanbanCard}
+            />
+          </div>
         ) : (
-          <div className="space-y-4">
+          <div className={`space-y-4 ${selectedOrderIds.length > 0 ? 'pb-36 sm:pb-24' : ''}`}>
             {filteredOrders.map((order) => {
               const shipment = order.shipments?.[0];
+              const isSelected = selectedOrderIds.includes(order.id);
               return (
                 <div
                   key={order.id}
-                  className="bg-linen rounded-sm border border-canvas-line shadow-soft p-5 sm:p-6 transition-all hover:border-canvas-line-hover"
+                  className={`bg-linen rounded-sm border shadow-soft p-5 sm:p-6 transition-all hover:border-canvas-line-hover ${
+                    isSelected ? 'border-rose/80 ring-2 ring-rose/40 bg-rose/[0.04]' : 'border-canvas-line'
+                  }`}
                 >
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-canvas-line">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                        <span className="font-serif font-bold text-lg text-bark">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 pb-4 border-b border-canvas-line">
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                        <label
+                          className="flex items-center justify-center min-w-[40px] min-h-[40px] -ml-2.5 -my-2.5 p-2.5 cursor-pointer rounded-sm hover:bg-rose/10 active:bg-rose/20 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Select order for batch operations"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleOrderSelect(order.id)}
+                            className="w-4.5 h-4.5 sm:w-4 sm:h-4 rounded text-rose accent-rose border-canvas-line focus:ring-rose/30 cursor-pointer"
+                          />
+                        </label>
+                        <span className="font-mono font-bold text-base sm:text-lg text-bark tracking-tight whitespace-nowrap">
                           {order.order_number}
                         </span>
-                        {getStatusBadge(order.order_status)}
-                        {order.applied_coupon_code && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-800">
-                            🏷 {order.applied_coupon_code}
-                          </span>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {getStatusBadge(order.order_status)}
+                          {order.applied_coupon_code && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-800 whitespace-nowrap">
+                              🏷 {order.applied_coupon_code}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs text-ink-light flex items-center gap-3">
+                      <div className="text-xs text-ink-light flex flex-wrap items-center gap-x-2.5 gap-y-1">
                         <span>
                           {new Date(order.created_at).toLocaleString('en-IN', {
                             dateStyle: 'medium',
@@ -725,31 +912,114 @@ export default function AdminOrders() {
                           })}
                         </span>
                         <span>•</span>
-                        <strong>{order.guest_name}</strong> (+91 {order.guest_phone})
-                      </p>
+                        <span className="font-medium text-bark">{order.guest_name}</span>
+                        <span>(+91 {order.guest_phone})</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openWhatsAppForOrder(order);
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded transition-colors"
+                          title="Open WhatsApp Concierge"
+                        >
+                          <MessageCircle size={11} /> WhatsApp
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-4 self-end lg:self-auto">
-                      <div className="text-right">
-                        <p className="font-serif text-xl font-bold text-bark">
+                    <div className="flex items-center justify-between sm:justify-end gap-2.5 sm:gap-3 pt-2 lg:pt-0 border-t lg:border-t-0 border-canvas-line/60">
+                      <div className="text-left sm:text-right mr-1">
+                        <p className="font-serif text-base sm:text-lg font-bold text-bark leading-tight">
                           {formatPrice(order.total_in_paise / 100)}
                         </p>
-                        <p className="text-[11px] text-ink-light">
+                        <p className="text-[10px] text-ink-light">
                           {order.order_items.length} item{order.order_items.length === 1 ? '' : 's'}
                         </p>
                       </div>
 
+                      <div className="flex items-center gap-2 flex-wrap">
+
+                      {order.order_status === 'PENDING_PAYMENT' && (
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => openWhatsAppForPaymentRequest(order)}
+                            className="px-2.5 py-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-sm text-xs font-semibold uppercase tracking-wider flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                            title="Send UPI QR & details to customer on WhatsApp"
+                          >
+                            <MessageCircle size={12} />
+                            <span>Request UPI</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickStatusTransition(order, 'PAYMENT_CONFIRMED')}
+                            disabled={isUpdating}
+                            className="px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-sm text-xs font-semibold uppercase tracking-wider flex items-center gap-1 shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
+                            title="Confirm payment received and advance to Confirmed"
+                          >
+                            <CheckCircle2 size={12} />
+                            <span>Confirm Paid</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {order.order_status === 'PAYMENT_CONFIRMED' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickStatusTransition(order, 'PROCESSING');
+                          }}
+                          disabled={isUpdating}
+                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-sm text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 shadow-2xs transition-all disabled:opacity-50"
+                          title="Advance order to In Crafting"
+                        >
+                          <Clock size={13} />
+                          Start Crafting
+                        </button>
+                      )}
+
+                      {order.order_status === 'PROCESSING' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickStatusTransition(order, 'PACKED');
+                          }}
+                          disabled={isUpdating}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-sm text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 shadow-2xs transition-all disabled:opacity-50"
+                          title="Mark piece packed and ready for courier"
+                        >
+                          <Package size={13} />
+                          Mark Packed
+                        </button>
+                      )}
+
+                      {order.order_status === 'PACKED' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedOrder(order);
+                            setShowCourierModal(true);
+                          }}
+                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-sm text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 shadow-2xs transition-all"
+                          title="Generate shipment waybill"
+                        >
+                          <Truck size={13} />
+                          Book Courier
+                        </button>
+                      )}
+
                       <button
                         onClick={() => openOrderDetails(order)}
-                        className="px-4 py-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-medium rounded-sm transition-all flex items-center gap-1.5"
+                        className="px-3.5 py-1.5 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-medium rounded-sm transition-all flex items-center gap-1"
                       >
-                        Manage & Dispatch
+                        Details
                         <ChevronRight size={14} />
                       </button>
                     </div>
                   </div>
+                </div>
 
-                  {/* Items snapshot and shipping summary */}
+                {/* Items snapshot and shipping summary */}
                   <div className="mt-4 flex flex-col md:flex-row justify-between gap-4 text-xs">
                     <div className="space-y-1.5 flex-1">
                       {order.order_items.map((item) => (
@@ -818,6 +1088,72 @@ export default function AdminOrders() {
         >
           {selectedOrder && (
             <div className="space-y-6">
+              {/* Manual UPI Settlement Panel for PENDING_PAYMENT */}
+              {selectedOrder.order_status === 'PENDING_PAYMENT' && (
+                <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-sm space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 text-amber-900 font-semibold text-sm">
+                      <Clock size={16} className="text-amber-700 animate-pulse shrink-0" />
+                      <span>Action Required: Manual UPI Settlement</span>
+                    </div>
+                    <span className="font-serif font-bold text-base text-amber-950">
+                      Due: {formatPrice(selectedOrder.total_in_paise / 100)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-900/90 leading-relaxed">
+                    Customer placed order #{selectedOrder.order_number} without upfront online payment. Connect via WhatsApp to share our studio UPI ID (<strong>{settings.upiId || '9931657805@ptsbi'}</strong>), verify payment confirmation screenshot, and click Confirm Payment below to start crafting.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => openWhatsAppForPaymentRequest(selectedOrder)}
+                      className="px-3.5 py-2 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                    >
+                      <MessageCircle size={14} />
+                      Request Payment on WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickStatusTransition(selectedOrder, 'PAYMENT_CONFIRMED')}
+                      disabled={isUpdating}
+                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs disabled:opacity-50 cursor-pointer"
+                    >
+                      <CheckCircle2 size={14} />
+                      Confirm Payment Received ({formatPrice(selectedOrder.total_in_paise / 100)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (window.confirm(`Are you sure you want to cancel order #${selectedOrder.order_number}? Any redeemed loyalty points will be restored.`)) {
+                          setIsUpdating(true);
+                          try {
+                            const res = await authFetch('/api/orders/cancel', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                orderId: selectedOrder.id,
+                                reason: 'Payment not received within settlement window',
+                              }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok || !data.success) throw new Error(data.message || 'Failed to cancel order');
+                            showNotification(`Order #${selectedOrder.order_number} cancelled`, 'success');
+                            setSelectedOrder(null);
+                            await fetchOrders();
+                          } catch (err: any) {
+                            showNotification(err.message, 'error');
+                          } finally {
+                            setIsUpdating(false);
+                          }
+                        }
+                      }}
+                      disabled={isUpdating}
+                      className="px-3 py-2 border border-red-300 text-red-700 hover:bg-red-50 rounded-sm text-xs font-medium transition-all ml-auto disabled:opacity-50 cursor-pointer"
+                    >
+                      Cancel Order
+                    </button>
+                  </div>
+                </div>
+              )}
               {/* MTO Cancellation Protection Notice */}
               {['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(
                 selectedOrder.order_status
@@ -992,6 +1328,7 @@ export default function AdminOrders() {
                       onChange={(e) => setNewStatus(e.target.value)}
                       className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     >
+                      <option value="PENDING_PAYMENT">Pending Payment (PENDING_PAYMENT)</option>
                       <option value="PAYMENT_CONFIRMED">Confirmed (Paid)</option>
                       <option value="PROCESSING">PROCESSING (In Crafting)</option>
                       <option value="PACKED">PACKED (Ready to Ship)</option>
@@ -1100,6 +1437,159 @@ export default function AdminOrders() {
             onClose={() => setShowCourierModal(false)}
             onConfirmBooking={handleConfirmCourierBooking}
           />
+        )}
+
+        {/* Responsive Batch Action Bar: Mobile Bottom Dock + Desktop Floating Pill */}
+        {selectedOrderIds.length > 0 && (
+          <>
+            {/* Mobile Batch Action Dock (Sticky Bottom Sheet) */}
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-bark text-linen border-t border-linen/20 px-4 pt-3 pb-safe shadow-2xl sm:hidden flex flex-col gap-2.5 animate-slide-up">
+              {/* Header: Selection counter & Clear button */}
+              <div className="flex items-center justify-between pb-1 border-b border-linen/10">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-rose text-white text-[11px] font-bold flex items-center justify-center">
+                    {selectedOrderIds.length}
+                  </span>
+                  <span className="text-xs font-semibold text-linen">
+                    {selectedOrderIds.length === 1 ? '1 Order Selected' : `${selectedOrderIds.length} Orders Selected`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrderIds([])}
+                  className="text-xs text-linen/70 hover:text-linen flex items-center gap-1 py-1 px-2.5 rounded-full bg-white/10 active:bg-white/20 transition-colors"
+                  title="Clear selection"
+                >
+                  <X size={12} />
+                  <span>Deselect</span>
+                </button>
+              </div>
+
+              {/* Action Buttons: Full-width touch friendly row */}
+              <div className="flex items-center gap-2">
+                {eligibleForPaymentConfirm.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleBatchStatusTransition('PAYMENT_CONFIRMED', 'Confirm Paid')}
+                    disabled={isUpdating}
+                    className="flex-1 py-2.5 px-3 bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 shadow-sm active:scale-98"
+                    title="Confirm payments for selected UPI orders"
+                  >
+                    {isUpdating ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                    <span>Confirm Paid ({eligibleForPaymentConfirm.length})</span>
+                  </button>
+                )}
+
+                {eligibleForCrafting.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleBatchStatusTransition('PROCESSING', 'Start Crafting')}
+                    disabled={isUpdating}
+                    className="flex-1 py-2.5 px-3 bg-amber-600 active:bg-amber-700 text-white rounded-lg text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 shadow-sm active:scale-98"
+                    title="Move selected paid orders to crafting"
+                  >
+                    {isUpdating ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
+                    <span>Craft ({eligibleForCrafting.length})</span>
+                  </button>
+                )}
+
+                {eligibleForPacked.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleBatchStatusTransition('PACKED', 'Mark Packed')}
+                    disabled={isUpdating}
+                    className="flex-1 py-2.5 px-3 bg-blue-600 active:bg-blue-700 text-white rounded-lg text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 shadow-sm active:scale-98"
+                    title="Mark selected crafting orders as packed"
+                  >
+                    {isUpdating ? <Loader2 size={13} className="animate-spin" /> : <Package size={13} />}
+                    <span>Pack ({eligibleForPacked.length})</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleBatchExportCSV}
+                  className="py-2.5 px-3.5 bg-white/15 active:bg-white/25 text-linen rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-98 flex-shrink-0"
+                  title="Export selected orders to CSV"
+                >
+                  <Download size={13} />
+                  <span>CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Desktop Floating Batch Action Toolbar */}
+            <div className="hidden sm:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-bark text-linen px-5 sm:px-6 py-3 rounded-full shadow-2xl border border-canvas-line/40 items-center gap-3 sm:gap-4 animate-fade-up max-w-[95vw]">
+              <div className="flex items-center gap-2 pr-3 border-r border-linen/20 flex-shrink-0">
+                <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-rose text-white text-[11px] sm:text-xs font-bold flex items-center justify-center">
+                  {selectedOrderIds.length}
+                </span>
+                <span className="text-xs font-medium whitespace-nowrap">
+                  {selectedOrderIds.length === 1 ? 'Order' : 'Orders'} Selected
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {eligibleForPaymentConfirm.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleBatchStatusTransition('PAYMENT_CONFIRMED', 'Confirm Paid')}
+                    disabled={isUpdating}
+                    className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-full text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap disabled:opacity-50 shadow-sm hover:scale-102 active:scale-98"
+                    title="Confirm payments for selected UPI orders"
+                  >
+                    {isUpdating ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                    Confirm Paid ({eligibleForPaymentConfirm.length})
+                  </button>
+                )}
+
+                {eligibleForCrafting.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleBatchStatusTransition('PROCESSING', 'Start Crafting')}
+                    disabled={isUpdating}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-full text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap disabled:opacity-50 shadow-sm hover:scale-102 active:scale-98"
+                    title="Move selected paid orders to crafting"
+                  >
+                    {isUpdating ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />}
+                    Start Crafting ({eligibleForCrafting.length})
+                  </button>
+                )}
+
+                {eligibleForPacked.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleBatchStatusTransition('PACKED', 'Mark Packed')}
+                    disabled={isUpdating}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap disabled:opacity-50 shadow-sm hover:scale-102 active:scale-98"
+                    title="Mark selected crafting orders as packed"
+                  >
+                    {isUpdating ? <Loader2 size={12} className="animate-spin" /> : <Package size={12} />}
+                    Mark Packed ({eligibleForPacked.length})
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleBatchExportCSV}
+                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-linen rounded-full text-xs font-medium flex items-center gap-1.5 transition-all whitespace-nowrap shadow-sm hover:scale-102 active:scale-98"
+                  title="Export selected orders to CSV"
+                >
+                  <Download size={12} />
+                  <span>Export CSV</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrderIds([])}
+                  className="p-1.5 text-linen/60 hover:text-linen rounded-full hover:bg-white/10 transition-colors ml-1"
+                  title="Clear selection"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </main>
     </AdminLayout>

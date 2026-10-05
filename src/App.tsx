@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
@@ -7,45 +8,62 @@ import { ProductProvider } from '@/context/ProductContext';
 import { NotificationProvider } from '@/context/NotificationContext';
 import { NavigationProvider } from '@/context/NavigationContext';
 import { SiteAssetsProvider } from '@/context/SiteAssetsContext';
+import { StoreSettingsProvider } from '@/context/StoreSettingsContext';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import CartDrawer from '@/components/CartDrawer';
 import MobileBottomNav from '@/components/MobileBottomNav';
 import ScrollToTop from '@/components/ScrollToTop';
+import AtelierConciergeWidget from '@/components/AtelierConciergeWidget';
+
+// Core Eager Pages (immediate render without suspense lag)
 import Home from '@/pages/Home';
 import Shop from '@/pages/Shop';
 import Wishlist from '@/pages/Wishlist';
-import CustomOrders from '@/pages/CustomOrders';
-import CustomBouquetBuilder from '@/pages/CustomBouquetBuilder';
-import GiftFinder from '@/pages/GiftFinder';
-import About from '@/pages/About';
-import Contact from '@/pages/Contact';
 import ProductDetail from '@/pages/ProductDetail';
-import Account from '@/pages/Account';
-import Privacy from '@/pages/Privacy';
-import Terms from '@/pages/Terms';
-import Refund from '@/pages/Refund';
-import OrderConfirmation from '@/pages/OrderConfirmation';
-import TrackOrder from '@/pages/TrackOrder';
-import AdminLogin from '@/pages/AdminLogin';
-import AdminRoute from '@/components/AdminRoute';
-import AdminDashboard from '@/pages/AdminDashboard';
-import AdminEditor from '@/pages/AdminEditor';
-import AdminAssets from '@/pages/admin/AdminAssets';
-import AdminNavigation from '@/pages/admin/AdminNavigation';
-import AdminSettings from '@/pages/admin/AdminSettings';
-import AdminCoupons from '@/pages/admin/AdminCoupons';
-import AdminOrders from '@/pages/admin/AdminOrders';
-import AdminCustomers from '@/pages/admin/AdminCustomers';
-import AdminMessages from '@/pages/admin/AdminMessages';
-import AdminReviews from '@/pages/admin/AdminReviews';
-import AdminAuditLogs from '@/pages/admin/AdminAuditLogs';
-import AdminInfluencers from '@/pages/admin/AdminInfluencers';
-import AdminAbandonedCarts from '@/pages/admin/AdminAbandonedCarts';
-import AdminReports from '@/pages/admin/AdminReports';
-import { StoreSettingsProvider } from '@/context/StoreSettingsContext';
-import AtelierConciergeWidget from '@/components/AtelierConciergeWidget';
 import NotFound from '@/pages/NotFound';
+import AdminRoute from '@/components/AdminRoute';
+
+// Secondary Storefront Pages (Lazy Loaded)
+const CustomOrders = lazy(() => import('@/pages/CustomOrders'));
+const CustomBouquetBuilder = lazy(() => import('@/pages/CustomBouquetBuilder'));
+const GiftFinder = lazy(() => import('@/pages/GiftFinder'));
+const About = lazy(() => import('@/pages/About'));
+const Contact = lazy(() => import('@/pages/Contact'));
+const Account = lazy(() => import('@/pages/Account'));
+const Privacy = lazy(() => import('@/pages/Privacy'));
+const Terms = lazy(() => import('@/pages/Terms'));
+const Refund = lazy(() => import('@/pages/Refund'));
+const OrderConfirmation = lazy(() => import('@/pages/OrderConfirmation'));
+const TrackOrder = lazy(() => import('@/pages/TrackOrder'));
+
+// Admin Backoffice Pages (Lazy Loaded - isolated from storefront bundle)
+const AdminLogin = lazy(() => import('@/pages/AdminLogin'));
+const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'));
+const AdminEditor = lazy(() => import('@/pages/AdminEditor'));
+const AdminAssets = lazy(() => import('@/pages/admin/AdminAssets'));
+const AdminNavigation = lazy(() => import('@/pages/admin/AdminNavigation'));
+const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
+const AdminCoupons = lazy(() => import('@/pages/admin/AdminCoupons'));
+const AdminOrders = lazy(() => import('@/pages/admin/AdminOrders'));
+const AdminCustomers = lazy(() => import('@/pages/admin/AdminCustomers'));
+const AdminMessages = lazy(() => import('@/pages/admin/AdminMessages'));
+const AdminReviews = lazy(() => import('@/pages/admin/AdminReviews'));
+const AdminAuditLogs = lazy(() => import('@/pages/admin/AdminAuditLogs'));
+const AdminInfluencers = lazy(() => import('@/pages/admin/AdminInfluencers'));
+const AdminAbandonedCarts = lazy(() => import('@/pages/admin/AdminAbandonedCarts'));
+const AdminReports = lazy(() => import('@/pages/admin/AdminReports'));
+
+function PageFallback() {
+  return (
+    <div className="min-h-[50vh] flex flex-col items-center justify-center">
+      <div className="w-8 h-8 rounded-full border-2 border-bark/20 border-t-bark animate-spin mb-3" />
+      <p className="text-xs uppercase tracking-widest text-ink-light font-medium font-sans">
+        Loading Atelier...
+      </p>
+    </div>
+  );
+}
 
 function AppContent() {
   const location = useLocation();
@@ -60,7 +78,8 @@ function AppContent() {
       <CartDrawer />
 
       <main className={`min-h-screen ${!isAdminRoute ? 'pb-16 sm:pb-0' : ''}`}>
-        <Routes>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
           {/* Storefront Routes */}
           <Route path="/" element={<Home />} />
           <Route path="/shop" element={<Shop />} />
@@ -98,6 +117,7 @@ function AppContent() {
             <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
           </Route>
         </Routes>
+        </Suspense>
       </main>
 
       {/* Bottom Navigation, Footer, and In-System / WhatsApp Concierge Widget on storefront routes */}

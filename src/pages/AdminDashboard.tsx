@@ -30,6 +30,9 @@ import { formatPrice } from '@/data/products';
 import { downloadCSV } from '@/utils/csvExporter';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
+import AtelierAreaChart, { ChartDataPoint } from '@/components/admin/charts/AtelierAreaChart';
+import AtelierDonutChart, { DonutSegment } from '@/components/admin/charts/AtelierDonutChart';
+import AtelierSparkline from '@/components/admin/charts/AtelierSparkline';
 
 interface OrderSummary {
   id: string;
@@ -49,10 +52,14 @@ export default function AdminDashboard() {
 
   // Business Analytics State
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [allOrders, setAllOrders] = useState<any[]>([]);
+  const [chartTimeRange, setChartTimeRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [totalRevenueRupees, setTotalRevenueRupees] = useState(0);
   const [totalOrdersCount, setTotalOrdersCount] = useState(0);
   const [confirmedOrdersCount, setConfirmedOrdersCount] = useState(0);
   const [processingOrdersCount, setProcessingOrdersCount] = useState(0);
+  const [packedOrdersCount, setPackedOrdersCount] = useState(0);
+  const [shippedOrdersCount, setShippedOrdersCount] = useState(0);
   const [deliveredOrdersCount, setDeliveredOrdersCount] = useState(0);
   const [recentOrders, setRecentOrders] = useState<OrderSummary[]>([]);
   const [totalCustomersCount, setTotalCustomersCount] = useState(0);
@@ -68,6 +75,7 @@ export default function AdminDashboard() {
           .order('created_at', { ascending: false });
 
         if (!ordersErr && orders) {
+          setAllOrders(orders);
           setTotalOrdersCount(orders.length);
           setRecentOrders(orders.slice(0, 5));
 
@@ -76,8 +84,14 @@ export default function AdminDashboard() {
           );
           setConfirmedOrdersCount(confirmed.length);
 
-          const processing = orders.filter((o) => o.order_status === 'PROCESSING' || o.order_status === 'PACKED');
+          const processing = orders.filter((o) => o.order_status === 'PROCESSING');
           setProcessingOrdersCount(processing.length);
+
+          const packed = orders.filter((o) => o.order_status === 'PACKED');
+          setPackedOrdersCount(packed.length);
+
+          const shipped = orders.filter((o) => o.order_status === 'SHIPPED');
+          setShippedOrdersCount(shipped.length);
 
           const delivered = orders.filter((o) => o.order_status === 'DELIVERED');
           setDeliveredOrdersCount(delivered.length);
@@ -101,6 +115,53 @@ export default function AdminDashboard() {
 
     loadAnalytics();
   }, []);
+
+  // Generate daily revenue timeline data for AtelierAreaChart
+  const timelineData: ChartDataPoint[] = (() => {
+    const days = chartTimeRange === '7d' ? 7 : chartTimeRange === '30d' ? 30 : 90;
+    const now = new Date();
+    const result: ChartDataPoint[] = [];
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = d.toISOString().split('T')[0];
+      const label = d.toLocaleDateString('en-IN', {
+        month: 'short',
+        day: 'numeric',
+      });
+
+      const dayOrders = allOrders.filter((o) => {
+        if (!o.created_at) return false;
+        const oDate = o.created_at.split('T')[0];
+        const isPaid = o.payment_status === 'SUCCESS' || o.order_status !== 'PENDING_PAYMENT';
+        return oDate === dateStr && isPaid;
+      });
+
+      const dayTotalPaise = dayOrders.reduce((sum, o) => sum + (o.total_in_paise || 0), 0);
+
+      result.push({
+        date: dateStr,
+        label,
+        value: Math.round(dayTotalPaise / 100),
+        ordersCount: dayOrders.length,
+      });
+    }
+
+    return result;
+  })();
+
+  const aovRupees = confirmedOrdersCount > 0 ? Math.round(totalRevenueRupees / confirmedOrdersCount) : 0;
+
+  const donutSegments: DonutSegment[] = [
+    { label: 'Confirmed (Paid)', value: confirmedOrdersCount, color: '#047857' },
+    { label: 'In Crafting', value: processingOrdersCount, color: '#D97706' },
+    { label: 'Packed & Staged', value: packedOrdersCount, color: '#2563EB' },
+    { label: 'Shipped', value: shippedOrdersCount, color: '#7C3AED' },
+    { label: 'Delivered', value: deliveredOrdersCount, color: '#2C2724' },
+  ].filter((s) => s.value > 0);
+
+  const sparklineRevenueData = timelineData.slice(-7).map((d) => d.value);
+  const sparklineOrdersData = timelineData.slice(-7).map((d) => d.ordersCount || 0);
 
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
 
@@ -182,8 +243,6 @@ export default function AdminDashboard() {
     });
   };
 
-  const aovRupees = confirmedOrdersCount > 0 ? Math.round(totalRevenueRupees / confirmedOrdersCount) : 0;
-
   if (productsLoading && analyticsLoading) {
     return (
       <AdminLayout activePage="dashboard">
@@ -235,63 +294,107 @@ export default function AdminDashboard() {
         <section>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <Reveal>
-              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Gross Revenue</p>
-                  <div className="p-2.5 rounded-full bg-rose/10 text-rose">
-                    <TrendingUp size={20} />
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Gross Revenue</p>
+                    <div className="p-2.5 rounded-full bg-rose/10 text-rose">
+                      <TrendingUp size={20} />
+                    </div>
                   </div>
+                  <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{formatPrice(totalRevenueRupees, { roundWhole: true })}</p>
                 </div>
-                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{formatPrice(totalRevenueRupees)}</p>
-                <p className="text-[11px] text-emerald-800 mt-2 font-medium flex items-center gap-1">
-                  ✓ Confirmed captured payments
-                </p>
+                <div className="mt-4 pt-3 border-t border-canvas-line/60 flex items-center justify-between">
+                  <span className="text-[11px] text-emerald-800 font-medium">✓ Confirmed</span>
+                  <AtelierSparkline data={sparklineRevenueData} color="#8A3344" />
+                </div>
               </div>
             </Reveal>
 
             <Reveal delay={100}>
-              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Active Orders</p>
-                  <div className="p-2.5 rounded-full bg-amber-100 text-amber-800">
-                    <ShoppingBag size={20} />
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Active Orders</p>
+                    <div className="p-2.5 rounded-full bg-amber-100 text-amber-800">
+                      <ShoppingBag size={20} />
+                    </div>
                   </div>
+                  <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{processingOrdersCount + packedOrdersCount}</p>
                 </div>
-                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{processingOrdersCount}</p>
-                <p className="text-[11px] text-ink-light mt-2">
-                  In Handcrafting & Packaging
-                </p>
+                <div className="mt-4 pt-3 border-t border-canvas-line/60 flex items-center justify-between">
+                  <span className="text-[11px] text-ink-light">In Fulfillment</span>
+                  <AtelierSparkline data={sparklineOrdersData} color="#D97706" />
+                </div>
               </div>
             </Reveal>
 
             <Reveal delay={200}>
-              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Average Order Value</p>
-                  <div className="p-2.5 rounded-full bg-moss/10 text-moss">
-                    <CreditCard size={20} />
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Average Order Value</p>
+                    <div className="p-2.5 rounded-full bg-moss/10 text-moss">
+                      <CreditCard size={20} />
+                    </div>
                   </div>
+                  <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{formatPrice(aovRupees)}</p>
                 </div>
-                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{formatPrice(aovRupees)}</p>
-                <p className="text-[11px] text-ink-light mt-2">
-                  Across {confirmedOrdersCount} confirmed orders
-                </p>
+                <div className="mt-4 pt-3 border-t border-canvas-line/60 flex items-center justify-between">
+                  <span className="text-[11px] text-ink-light">{confirmedOrdersCount} paid orders</span>
+                  <AtelierSparkline data={sparklineRevenueData} color="#2D5A27" />
+                </div>
               </div>
             </Reveal>
 
             <Reveal delay={300}>
-              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Registered Patrons</p>
-                  <div className="p-2.5 rounded-full bg-purple-100 text-purple-700">
-                    <Users size={20} />
+              <div className="bg-linen p-6 rounded-atelier-panel border border-canvas-line shadow-soft group hover:border-rose/50 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] uppercase tracking-wider text-ink-light font-semibold">Registered Patrons</p>
+                    <div className="p-2.5 rounded-full bg-purple-100 text-purple-700">
+                      <Users size={20} />
+                    </div>
                   </div>
+                  <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{totalCustomersCount}</p>
                 </div>
-                <p className="font-serif text-3xl sm:text-4xl text-bark mt-4">{totalCustomersCount}</p>
-                <Link to="/admin/customers" className="text-[11px] text-rose hover:underline mt-2 inline-flex items-center gap-1 font-medium">
-                  View Patrons CRM <ArrowRight size={12} />
-                </Link>
+                <div className="mt-4 pt-3 border-t border-canvas-line/60 flex items-center justify-between">
+                  <Link to="/admin/customers" className="text-[11px] text-rose hover:underline inline-flex items-center gap-1 font-medium">
+                    View Patrons CRM <ArrowRight size={12} />
+                  </Link>
+                  <span className="text-[10px] text-purple-800 font-mono font-semibold">Floret &bull; Heirloom</span>
+                </div>
               </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* Visual Analytics Hub: Revenue Trajectory + Order Status Donut */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+          <div className="lg:col-span-8">
+            <Reveal>
+              <AtelierAreaChart
+                data={timelineData}
+                title="Revenue Trajectory"
+                subtitle="Captured studio revenue across online checkout orders"
+                timeRange={chartTimeRange}
+                onTimeRangeChange={setChartTimeRange}
+              />
+            </Reveal>
+          </div>
+
+          <div className="lg:col-span-4">
+            <Reveal delay={150}>
+              <AtelierDonutChart
+                segments={
+                  donutSegments.length > 0
+                    ? donutSegments
+                    : [{ label: 'Confirmed (Paid)', value: 1, color: '#047857' }]
+                }
+                title="Fulfillment Pipeline"
+                subtitle="Active studio orders by fulfillment lifecycle"
+                centerLabel="Total Orders"
+              />
             </Reveal>
           </div>
         </section>

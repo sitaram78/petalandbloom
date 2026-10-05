@@ -1,11 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
 import { logAuditEvent, AUDIT_ACTIONS } from '../lib/auditService';
+import { requireAuth } from '../lib/authMiddleware';
+import { reverseOrderLoyalty } from '../lib/loyaltyReversalService';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
   }
+
+  // Enforce Super Admin only authorization for issuing monetary refunds
+  const authUser = await requireAuth(req, res, { allowedRoles: ['super_admin'] });
+  if (!authUser) return;
 
   try {
     const { orderId, amountInRupees, reason } = req.body || {};
@@ -74,7 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       previous_status: order.payment_status,
       new_status: 'REFUNDED',
       note: `Refund of ₹${refundAmount} processed (${reason || 'Atelier refund'}). Ref ID: ${cfRefundResponse.cf_refund_id || refundId}`,
-      created_by: 'admin',
+      created_by: authUser.email,
     });
 
     if (payment) {
@@ -90,8 +96,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('id', payment.id);
     }
 
-    // Central Audit Logging
+    // Automated Bidirectional Loyalty Points Reversal
+    await reverseOrderLoyalty(order.id, reason || 'Order refunded', true);
+
+    // Central Audit Logging with verified actor
     await logAuditEvent({
+      actor_id: authUser.id,
+      actor_email: authUser.email,
+      actor_role: authUser.role,
       action: AUDIT_ACTIONS.PAYMENT_REFUNDED,
       entity: 'payments',
       entity_id: order.order_number || order.id,

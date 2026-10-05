@@ -20,6 +20,7 @@ import {
   Truck,
   Zap,
   ShieldCheck,
+  CreditCard,
 } from 'lucide-react';
 import { useNotification } from '@/context/NotificationContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -35,7 +36,7 @@ interface Category {
   display_order: number;
 }
 
-type SettingsTab = 'profile' | 'logistics' | 'categories';
+type SettingsTab = 'profile' | 'commerce' | 'logistics' | 'categories';
 
 export default function AdminSettings() {
   const { showNotification } = useNotification();
@@ -55,9 +56,24 @@ export default function AdminSettings() {
     legalBusinessName: settings.legalBusinessName,
     studioAddress: settings.studioAddress,
     gstin: settings.gstin,
+    upiId: settings.upiId || '9931657805@ptsbi',
+    upiPhone: settings.upiPhone || '9931657805',
   });
 
   const [savingProfile, setSavingProfile] = useState(false);
+
+  // Feature Flags & Commerce Rules Form State
+  const [flagsForm, setFlagsForm] = useState(settings.featureFlags);
+  const [rulesForm, setRulesForm] = useState({
+    freeShippingThresholdRupees: (settings.businessRules?.freeShippingThresholdPaise ?? 120000) / 100,
+    standardShippingFeeRupees: (settings.businessRules?.standardShippingFeePaise ?? 6900) / 100,
+    expressShippingFeeRupees: (settings.businessRules?.expressShippingFeePaise ?? 4900) / 100,
+    giftWrapFeeRupees: (settings.businessRules?.giftWrapFeePaise ?? 7900) / 100,
+    loyaltySpendPerPointRupees: (settings.businessRules?.loyaltySpendPerPointPaise ?? 2000) / 100,
+    loyaltyPointRedemptionRupees: (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100,
+    minLoyaltyOrderRupees: (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100,
+  });
+  const [savingCommerce, setSavingCommerce] = useState(false);
 
   // Decision 5: Logistics & Courier Form State
   const [logisticsForm, setLogisticsForm] = useState({
@@ -74,7 +90,7 @@ export default function AdminSettings() {
 
   const [savingLogistics, setSavingLogistics] = useState(false);
 
-  // Sync profile form when settings load from Supabase
+  // Sync forms when settings load from Supabase
   useEffect(() => {
     setProfileForm({
       whatsappNumber: settings.whatsappNumber,
@@ -87,7 +103,21 @@ export default function AdminSettings() {
       legalBusinessName: settings.legalBusinessName,
       studioAddress: settings.studioAddress,
       gstin: settings.gstin,
+      upiId: settings.upiId || '9931657805@ptsbi',
+      upiPhone: settings.upiPhone || '9931657805',
     });
+
+    setFlagsForm(settings.featureFlags);
+    setRulesForm({
+      freeShippingThresholdRupees: (settings.businessRules?.freeShippingThresholdPaise ?? 120000) / 100,
+      standardShippingFeeRupees: (settings.businessRules?.standardShippingFeePaise ?? 6900) / 100,
+      expressShippingFeeRupees: (settings.businessRules?.expressShippingFeePaise ?? 4900) / 100,
+      giftWrapFeeRupees: (settings.businessRules?.giftWrapFeePaise ?? 7900) / 100,
+      loyaltySpendPerPointRupees: (settings.businessRules?.loyaltySpendPerPointPaise ?? 2000) / 100,
+      loyaltyPointRedemptionRupees: (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100,
+      minLoyaltyOrderRupees: (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100,
+    });
+
     setLogisticsForm({
       shiprocketEmail: settings.shiprocketEmail || '',
       shiprocketPassword: settings.shiprocketPassword || '',
@@ -143,6 +173,8 @@ export default function AdminSettings() {
       legalBusinessName: profileForm.legalBusinessName.trim(),
       studioAddress: profileForm.studioAddress.trim(),
       gstin: profileForm.gstin.trim(),
+      upiId: profileForm.upiId.trim(),
+      upiPhone: profileForm.upiPhone.trim(),
     });
 
     if (result.success) {
@@ -154,8 +186,10 @@ export default function AdminSettings() {
           whatsappNumber: profileForm.whatsappNumber.trim(),
           supportEmail: profileForm.supportEmail.trim(),
           legalBusinessName: profileForm.legalBusinessName.trim(),
+          upiId: profileForm.upiId.trim(),
+          upiPhone: profileForm.upiPhone.trim(),
         },
-        reason: 'Updated company profile details from admin settings',
+        reason: 'Updated company profile and UPI settlement details from admin settings',
       });
       showNotification('Company Profile and Contact details saved successfully!', 'success');
     } else {
@@ -166,13 +200,20 @@ export default function AdminSettings() {
 
   const handleToggleConciergeMode = async (mode: ConciergeChannelMode) => {
     setProfileForm((prev) => ({ ...prev, conciergeChannelMode: mode }));
-    const result = await updateSettings({ conciergeChannelMode: mode });
+    setFlagsForm((prev) => ({ ...prev, enableLiveChat: mode === 'IN_SYSTEM' }));
+    const result = await updateSettings({
+      conciergeChannelMode: mode,
+      featureFlags: {
+        ...settings.featureFlags,
+        enableLiveChat: mode === 'IN_SYSTEM',
+      },
+    });
     if (result.success) {
       logAudit({
         action: AUDIT_ACTIONS.SETTINGS_UPDATED,
         entity: 'settings',
         entity_id: 'concierge_mode',
-        new_values: { conciergeChannelMode: mode },
+        new_values: { conciergeChannelMode: mode, enableLiveChat: mode === 'IN_SYSTEM' },
         reason: `Switched live concierge channel mode to ${mode}`,
       });
       showNotification(
@@ -219,6 +260,41 @@ export default function AdminSettings() {
       showNotification('Failed to save logistics settings: ' + (result.error || 'Unknown error'), 'error');
     }
     setSavingLogistics(false);
+  };
+
+  const handleSaveCommerce = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingCommerce(true);
+
+    const result = await updateSettings({
+      featureFlags: flagsForm,
+      businessRules: {
+        freeShippingThresholdPaise: Math.round(Number(rulesForm.freeShippingThresholdRupees || 0) * 100),
+        standardShippingFeePaise: Math.round(Number(rulesForm.standardShippingFeeRupees || 0) * 100),
+        expressShippingFeePaise: Math.round(Number(rulesForm.expressShippingFeeRupees || 0) * 100),
+        giftWrapFeePaise: Math.round(Number(rulesForm.giftWrapFeeRupees || 0) * 100),
+        loyaltySpendPerPointPaise: Math.round(Number(rulesForm.loyaltySpendPerPointRupees || 0) * 100),
+        loyaltyPointRedemptionPaise: Math.round(Number(rulesForm.loyaltyPointRedemptionRupees || 0) * 100),
+        minLoyaltyOrderPaise: Math.round(Number(rulesForm.minLoyaltyOrderRupees || 0) * 100),
+      },
+    });
+
+    if (result.success) {
+      logAudit({
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entity: 'settings',
+        entity_id: 'commerce_rules_and_flags',
+        new_values: {
+          featureFlags: flagsForm,
+          businessRules: rulesForm,
+        },
+        reason: 'Super Admin updated feature flags and commerce pricing rules',
+      });
+      showNotification('Commerce rules & feature flags saved successfully!', 'success');
+    } else {
+      showNotification('Failed to save commerce settings: ' + (result.error || 'Unknown error'), 'error');
+    }
+    setSavingCommerce(false);
   };
 
   async function addCategory() {
@@ -298,6 +374,18 @@ export default function AdminSettings() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('commerce')}
+            className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'commerce'
+                ? 'border-bark text-bark'
+                : 'border-transparent text-ink-light hover:text-ink'
+            }`}
+          >
+            <Zap size={15} className="text-rose" />
+            Commerce &amp; Feature Flags
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('logistics')}
             className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'logistics'
@@ -306,7 +394,7 @@ export default function AdminSettings() {
             }`}
           >
             <Truck size={15} className="text-rose" />
-            Logistics &amp; Couriers (Decision 5)
+            Logistics &amp; Couriers
           </button>
           <button
             type="button"
@@ -508,7 +596,62 @@ export default function AdminSettings() {
               </div>
             </div>
 
-            {/* 3. Legal, Invoicing & Packaging Info */}
+            {/* 3. Studio UPI Payment Settlement Details */}
+            <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="heading-serif text-lg text-bark flex items-center gap-2">
+                  <CreditCard size={18} className="text-emerald-700" />
+                  Studio UPI Payment Settlement
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 self-start sm:self-auto">
+                  Active Payment Mode
+                </span>
+              </div>
+              <p className="text-xs text-ink-light leading-relaxed">
+                Configure your studio UPI ID and mobile payee number. When customers place an order, this UPI ID is automatically pre-filled into their WhatsApp payment requests and order confirmation screen.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Studio UPI ID (VPA) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.upiId}
+                    onChange={(e) =>
+                      setProfileForm({ ...profileForm, upiId: e.target.value })
+                    }
+                    placeholder="e.g. 9931657805@ptsbi"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs font-mono font-semibold text-bark focus:outline-none focus:border-bark"
+                  />
+                  <p className="text-[10px] text-ink-light mt-1">
+                    Format: mobile@bank or username@bank (e.g. 9931657805@ptsbi)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    UPI Phone Number (GPay / PhonePe / Paytm / BHIM)
+                  </label>
+                  <input
+                    type="text"
+                    value={profileForm.upiPhone}
+                    onChange={(e) =>
+                      setProfileForm({ ...profileForm, upiPhone: e.target.value })
+                    }
+                    placeholder="e.g. 9931657805"
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs font-mono font-semibold text-bark focus:outline-none focus:border-bark"
+                  />
+                  <p className="text-[10px] text-ink-light mt-1">
+                    Customers who search by phone number in UPI apps can transfer directly to this number.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Legal, Invoicing & Packaging Info */}
             <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
               <h3 className="heading-serif text-lg text-bark flex items-center gap-2">
                 <FileText size={18} className="text-rose" />
@@ -587,7 +730,284 @@ export default function AdminSettings() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 2: LOGISTICS & COURIERS (DECISION 5)                                  */}
+        {/* TAB 2: COMMERCE RULES & FEATURE FLAGS                                     */}
+        {/* ========================================================================= */}
+        {activeTab === 'commerce' && (
+          <form onSubmit={handleSaveCommerce} className="space-y-8">
+            {/* Header Description */}
+            <div className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-3">
+              <div className="flex items-center gap-2">
+                <Zap size={18} className="text-rose" />
+                <h2 className="heading-serif text-xl text-bark">
+                  Commerce Engine &amp; Feature Flags
+                </h2>
+              </div>
+              <p className="text-xs text-ink-light leading-relaxed max-w-2xl">
+                Configure live storefront modules, checkout pricing rules, luxury packaging fees, and customer loyalty exchange rates in real-time. Changes apply immediately across all customer sessions and checkout calculations.
+              </p>
+            </div>
+
+            {/* Section 1: Modular Feature Flags */}
+            <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
+              <div>
+                <h3 className="heading-serif text-lg text-bark">Storefront Module Flags</h3>
+                <p className="text-xs text-ink-light mt-0.5">
+                  Enable or disable commerce features without modifying or redeploying code.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                {/* Loyalty Engine */}
+                <div className="flex items-center justify-between p-4 rounded-sm border border-canvas-line bg-canvas/20">
+                  <div>
+                    <span className="font-semibold text-xs text-bark block">Atelier Loyalty Rewards</span>
+                    <span className="text-[11px] text-ink-light">Points accrual and redemption at checkout</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFlagsForm(prev => ({ ...prev, enableLoyalty: !prev.enableLoyalty }))}
+                    className="text-bark focus:outline-none"
+                  >
+                    {flagsForm.enableLoyalty ? (
+                      <ToggleRight size={32} className="text-rose" />
+                    ) : (
+                      <ToggleLeft size={32} className="text-ink-muted" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Coupons Engine */}
+                <div className="flex items-center justify-between p-4 rounded-sm border border-canvas-line bg-canvas/20">
+                  <div>
+                    <span className="font-semibold text-xs text-bark block">Coupon &amp; Voucher Engine</span>
+                    <span className="text-[11px] text-ink-light">Promotional coupon redemption in cart &amp; checkout</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFlagsForm(prev => ({ ...prev, enableCoupons: !prev.enableCoupons }))}
+                    className="text-bark focus:outline-none"
+                  >
+                    {flagsForm.enableCoupons ? (
+                      <ToggleRight size={32} className="text-rose" />
+                    ) : (
+                      <ToggleLeft size={32} className="text-ink-muted" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Influencer Program */}
+                <div className="flex items-center justify-between p-4 rounded-sm border border-canvas-line bg-canvas/20">
+                  <div>
+                    <span className="font-semibold text-xs text-bark block">Creator &amp; Affiliate Portal</span>
+                    <span className="text-[11px] text-ink-light">Influencer tracking links and commission metrics</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFlagsForm(prev => ({ ...prev, enableInfluencerProgram: !prev.enableInfluencerProgram }))}
+                    className="text-bark focus:outline-none"
+                  >
+                    {flagsForm.enableInfluencerProgram ? (
+                      <ToggleRight size={32} className="text-rose" />
+                    ) : (
+                      <ToggleLeft size={32} className="text-ink-muted" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Customer Reviews */}
+                <div className="flex items-center justify-between p-4 rounded-sm border border-canvas-line bg-canvas/20">
+                  <div>
+                    <span className="font-semibold text-xs text-bark block">Verified Customer Reviews</span>
+                    <span className="text-[11px] text-ink-light">Display ratings and moderation queue on product pages</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFlagsForm(prev => ({ ...prev, enableReviews: !prev.enableReviews }))}
+                    className="text-bark focus:outline-none"
+                  >
+                    {flagsForm.enableReviews ? (
+                      <ToggleRight size={32} className="text-rose" />
+                    ) : (
+                      <ToggleLeft size={32} className="text-ink-muted" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Maintenance Mode */}
+                <div className="flex items-center justify-between p-4 rounded-sm border border-canvas-line bg-amber-50/50">
+                  <div>
+                    <span className="font-semibold text-xs text-bark block">Store Maintenance Mode</span>
+                    <span className="text-[11px] text-ink-light">Show maintenance banner and freeze new checkout orders</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFlagsForm(prev => ({ ...prev, storeMaintenanceMode: !prev.storeMaintenanceMode }))}
+                    className="text-bark focus:outline-none"
+                  >
+                    {flagsForm.storeMaintenanceMode ? (
+                      <ToggleRight size={32} className="text-amber-600" />
+                    ) : (
+                      <ToggleLeft size={32} className="text-ink-muted" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Pricing & Shipping Rules */}
+            <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
+              <div>
+                <h3 className="heading-serif text-lg text-bark">Shipping &amp; Packaging Rules</h3>
+                <p className="text-xs text-ink-light mt-0.5">
+                  Set live currency thresholds for dispatch and luxury presentation.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Free Shipping Min Spend (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.freeShippingThresholdRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, freeShippingThresholdRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">Free delivery above this cart subtotal</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Standard Delivery Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.standardShippingFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, standardShippingFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">Standard surface dispatch rate</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Express Delivery Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.expressShippingFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, expressShippingFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">Air express priority surcharge</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Luxury Gift Wrap Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.giftWrapFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, giftWrapFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">Wax-sealed bespoke calligraphy box</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Loyalty Points Rules */}
+            <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
+              <div>
+                <h3 className="heading-serif text-lg text-bark">Loyalty Exchange Rules</h3>
+                <p className="text-xs text-ink-light mt-0.5">
+                  Define points earning velocity and redemption rates for Atelier members.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Earn Velocity (₹ spend per 1 point)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={rulesForm.loyaltySpendPerPointRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, loyaltySpendPerPointRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">e.g. ₹20 spend earns 1 point (5%)</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Redemption Value (₹ discount per 1 point)
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.05"
+                    value={rulesForm.loyaltyPointRedemptionRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, loyaltyPointRedemptionRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">e.g. 1 point = ₹0.50 discount</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Min Order Subtotal to Redeem (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.minLoyaltyOrderRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, minLoyaltyOrderRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">Cart threshold required before points apply</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={savingCommerce}
+                className="px-8 py-3 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-widest font-semibold rounded-sm flex items-center gap-2 shadow-soft transition-all disabled:opacity-50"
+              >
+                {savingCommerce ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Saving Rules &amp; Flags...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={16} />
+                    Save Commerce Rules &amp; Flags
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 3: LOGISTICS & COURIERS (DECISION 5)                                  */}
         {/* ========================================================================= */}
         {activeTab === 'logistics' && (
           <form onSubmit={handleSaveLogistics} className="space-y-8">

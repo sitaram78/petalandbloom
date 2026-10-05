@@ -81,3 +81,36 @@ export const SUPPORTED_CARRIERS: Array<{ id: CarrierType; name: string; estimate
   { id: 'INDIA_POST', name: 'India Post Speed Post', estimatedDays: '4–7 days' },
   { id: 'MANUAL', name: 'Studio Direct / Local Courier', estimatedDays: '1–2 days' },
 ];
+
+export interface ShippingRules {
+  freeShippingThresholdPaise: number; // e.g. 120000 = ₹1,200
+  standardShippingFeePaise: number; // e.g. 6900 = ₹69
+  expressShippingFeePaise: number; // e.g. 4900 = ₹49 extra
+}
+
+export const DEFAULT_SHIPPING_RULES: ShippingRules = {
+  freeShippingThresholdPaise: 120000,
+  standardShippingFeePaise: 6900,
+  expressShippingFeePaise: 4900,
+};
+
+/**
+ * Calculates delivery fee based on cart subtotal and active rules.
+ */
+export function calculateShippingFee(
+  subtotalInPaise: number,
+  isExpress: boolean = false,
+  customRules?: Partial<ShippingRules>
+): { shippingFeeInPaise: number; isFreeShipping: boolean } {
+  const rules = { ...DEFAULT_SHIPPING_RULES, ...customRules };
+  const isFree = subtotalInPaise >= rules.freeShippingThresholdPaise;
+  let fee = isFree ? 0 : rules.standardShippingFeePaise;
+  if (isExpress) {
+    fee += rules.expressShippingFeePaise;
+  }
+  return {
+    shippingFeeInPaise: fee,
+    isFreeShipping: isFree,
+  };
+}
+

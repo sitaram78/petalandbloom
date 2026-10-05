@@ -1,14 +1,24 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
+import { checkRateLimit } from '../lib/authMiddleware';
 
 /**
  * Server-side customer registration endpoint.
- * Bypasses Supabase SMTP email rate limits by creating and auto-confirming
- * the customer account with full profile, welcome points, and order linking.
+ * Protected by sliding window IP rate limiting against bot attacks.
+ * Creates and auto-confirms customer account with full profile, welcome points, and order linking.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
+  }
+
+  // Rate limit: max 5 registrations per minute per IP address
+  const rateCheck = checkRateLimit(req, 5, 60000);
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      success: false,
+      message: 'Too many registration requests. Please wait a minute before trying again.',
+    });
   }
 
   try {

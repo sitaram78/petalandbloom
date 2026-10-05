@@ -21,6 +21,7 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
+import { authFetch } from '@/lib/apiClient';
 import {
   useAdminView,
   AdminViewHeader,
@@ -168,7 +169,7 @@ export default function AdminAuditLogs() {
       if (entityFilterTab && entityFilterTab !== 'ALL') params.append('entity', entityFilterTab);
       if (searchQuery) params.append('search', searchQuery);
 
-      const res = await fetch(`/api/audit/list?${params.toString()}`);
+      const res = await authFetch(`/api/audit/list?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setLogs(data.logs || []);
@@ -265,7 +266,11 @@ export default function AdminAuditLogs() {
             },
             {
               label: 'Common Action',
-              value: stats.most_common_action.replace(/_/g, ' '),
+              value: stats.most_common_action === 'ORDER_STATUS_TRANSITION'
+                ? 'Status Transition'
+                : stats.most_common_action === 'SETTINGS_UPDATED'
+                ? 'Settings Update'
+                : stats.most_common_action.replace(/_/g, ' '),
               icon: <Activity size={18} className="text-amber-700" />,
               subtext: 'Highest frequency event',
             },

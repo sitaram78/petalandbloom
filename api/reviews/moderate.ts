@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
+import { requireAuth } from '../lib/authMiddleware';
 import { localReviewsCache } from './submit';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -8,6 +9,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
   }
+
+  // Enforce staff/admin authentication
+  const authUser = await requireAuth(req, res, { allowedRoles: ['super_admin', 'admin', 'support'] });
+  if (!authUser) return;
 
   try {
     const { reviewId, action } = req.body || {};

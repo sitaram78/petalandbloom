@@ -123,6 +123,24 @@
     display: none;
   }
 
+  .atelier-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #CBBE9C transparent;
+  }
+  .atelier-scrollbar::-webkit-scrollbar {
+    width: 5px;
+  }
+  .atelier-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .atelier-scrollbar::-webkit-scrollbar-thumb {
+    background: #CBBE9C;
+    border-radius: 9999px;
+  }
+  .atelier-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #A8465A;
+  }
+
   .animate-delay-100 { animation-delay: 0.1s; opacity: 0; }
   .animate-delay-200 { animation-delay: 0.2s; opacity: 0; }
   .animate-delay-300 { animation-delay: 0.3s; opacity: 0; }

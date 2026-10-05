@@ -4,6 +4,7 @@ import { InvoiceOrderData } from './InvoiceModal';
 import { CarrierType } from '@/services/shippingService';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { useNotification } from '@/context/NotificationContext';
+import { authFetch } from '@/lib/apiClient';
 
 interface CourierBookingModalProps {
   order: InvoiceOrderData;
@@ -58,9 +59,8 @@ export default function CourierBookingModal({
     setIsAutomating(true);
     setError('');
     try {
-      const res = await fetch('/api/shipping/book-shipment', {
+      const res = await authFetch('/api/shipping/book-shipment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: order.id,
           carrier,

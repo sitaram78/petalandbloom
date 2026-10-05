@@ -27,6 +27,14 @@ export default {
           DEFAULT: '#2A241C',
           light: '#6B6250',
         },
+        parchment: {
+          DEFAULT: '#FAF8F5',
+          50: '#FAF8F5',
+          100: '#F5F0E8',
+          200: '#EFE8D8',
+          400: '#D5CBB5',
+        },
+        silk: '#E5DFD3',
       },
       animation: {
         'fade-in': 'fadeIn 0.8s ease-out forwards',

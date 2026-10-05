@@ -10,6 +10,11 @@ import {
   ExternalLink,
   ChevronDown,
   CheckCheck,
+  Clock,
+  ShieldCheck,
+  Heart,
+  ArrowLeft,
+  Sparkle,
 } from 'lucide-react';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { useAuth } from '@/context/AuthContext';
@@ -58,6 +63,17 @@ export default function AtelierConciergeWidget() {
     }
   }, [messages, isChatOpen]);
 
+  // Escape key listener to close chat
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isChatOpen) {
+        setIsChatOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isChatOpen, setIsChatOpen]);
+
   // Pre-fill profile info if logged in
   useEffect(() => {
     if (profile) {
@@ -83,7 +99,7 @@ export default function AtelierConciergeWidget() {
           sender_type: 'BOT',
           sender_name: 'Atelier Concierge',
           message_text:
-            'Welcome to The Petal & Bloom Atelier! How can we assist you with our handcrafted crochet florals or custom gifts today?',
+            'Namaste! Welcome to The Petal & Bloom Atelier. How can we assist you with our handcrafted crochet florals, custom bouquets, or bespoke gift orders today?',
           created_at: new Date().toISOString(),
         },
       ]);
@@ -125,14 +141,37 @@ export default function AtelierConciergeWidget() {
 
     loadMessages();
 
-    // Active real-time polling every 2s while chat drawer is open
-    const pollTimer = setInterval(() => {
+    // Supabase Realtime channel for instant live concierge response delivery
+    const msgChannel = supabase
+      .channel(`realtime:concierge_messages:${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'assistance_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          if (!isMounted) return;
+          const newMsg = payload.new as ChatMessage;
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+          setHasStartedConversation(true);
+        }
+      )
+      .subscribe();
+
+    // Passive fallback sync every 30s while chat is open
+    const fallbackTimer = setInterval(() => {
       if (isChatOpen) {
         loadMessages();
       }
-    }, 2000);
+    }, 30000);
 
-    // Subscribe to new messages via BroadcastChannel (local & cross-tab in same browser)
+    // Subscribe to new messages via BroadcastChannel
     let bc: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
@@ -155,7 +194,8 @@ export default function AtelierConciergeWidget() {
 
     return () => {
       isMounted = false;
-      clearInterval(pollTimer);
+      supabase.removeChannel(msgChannel);
+      clearInterval(fallbackTimer);
       if (bc) bc.close();
     };
   }, [conversationId, isChatOpen]);
@@ -239,9 +279,13 @@ export default function AtelierConciergeWidget() {
     setInputText(question);
   };
 
+  // Feature flag check: If In-System live chat is disabled, automatically fall back to WhatsApp
+  const isLiveChatEnabled = settings.featureFlags?.enableLiveChat !== false;
+  const effectiveMode = isLiveChatEnabled ? settings.conciergeChannelMode : 'WHATSAPP';
+
   // If in WHATSAPP mode and chat is closed, floating bubble triggers WhatsApp directly
   const handleBubbleClick = () => {
-    if (settings.conciergeChannelMode === 'WHATSAPP') {
+    if (effectiveMode === 'WHATSAPP') {
       const url = buildWhatsAppUrl('Hi The Petal & Bloom! I have a question about your handcrafted blooms.');
       window.open(url, '_blank');
     } else {
@@ -249,197 +293,306 @@ export default function AtelierConciergeWidget() {
     }
   };
 
+  // Group consecutive messages from the same sender to eliminate repetitive boxy headers
+  const groupedMessages = messages.map((msg, index) => {
+    const isMe = msg.sender_type === 'CUSTOMER';
+    const prevMsg = index > 0 ? messages[index - 1] : null;
+    const isSameSenderAsPrev = prevMsg && prevMsg.sender_type === msg.sender_type;
+
+    const prevTime = prevMsg ? new Date(prevMsg.created_at).getTime() : 0;
+    const currTime = new Date(msg.created_at).getTime();
+    const isCloseInTime = currTime - prevTime < 4 * 60 * 1000; // 4 mins
+
+    const isFollowUp = isSameSenderAsPrev && isCloseInTime;
+
+    const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
+    const isSameSenderAsNext = nextMsg && nextMsg.sender_type === msg.sender_type;
+    const nextTime = nextMsg ? new Date(nextMsg.created_at).getTime() : 0;
+    const isCloseToNext = nextTime - currTime < 4 * 60 * 1000;
+    const isLastInGroup = !(isSameSenderAsNext && isCloseToNext);
+
+    return {
+      ...msg,
+      isMe,
+      isFollowUp,
+      isFirstInGroup: !isFollowUp,
+      isLastInGroup,
+    };
+  });
+
   return (
     <>
-      {/* Responsive Floating Action Bubble */}
-      <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-50 print:hidden flex flex-col items-end">
-        {!isChatOpen && (
+      {/* Floating Action Launcher (when chat is closed) */}
+      {!isChatOpen && (
+        <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 print:hidden flex flex-col items-end">
           <button
             onClick={handleBubbleClick}
-            className={`group flex items-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 border ${
-              settings.conciergeChannelMode === 'WHATSAPP'
+            className={`group flex items-center gap-2.5 px-4 py-3 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 border ${
+              effectiveMode === 'WHATSAPP'
                 ? 'bg-[#25D366] text-white hover:bg-[#20bd5a] border-emerald-300/40 shadow-emerald-950/20'
-                : 'bg-bark text-linen hover:bg-rose-deep border-canvas-line shadow-bark/30'
+                : 'bg-bark text-parchment-50 hover:bg-bark-dark border-canvas-line/80 shadow-bark/30'
             }`}
-            aria-label={settings.conciergeChannelMode === 'WHATSAPP' ? 'Chat on WhatsApp' : 'Studio Assistance'}
+            aria-label={effectiveMode === 'WHATSAPP' ? 'Chat on WhatsApp' : 'Studio Assistance'}
           >
             <div className="relative flex items-center justify-center">
-              {settings.conciergeChannelMode === 'WHATSAPP' ? (
-                <Phone size={18} className="text-white fill-current sm:w-5 sm:h-5" />
+              {effectiveMode === 'WHATSAPP' ? (
+                <Phone size={19} className="text-white fill-current" />
               ) : (
-                <MessageCircle size={18} className="text-linen sm:w-5 sm:h-5" />
+                <MessageCircle size={19} className="text-rose-200" />
               )}
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-bark animate-pulse" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-bark animate-pulse" />
             </div>
-            <div className="flex flex-col text-left leading-tight pr-1">
-              {settings.conciergeChannelMode === 'WHATSAPP' ? (
+
+            <div className="flex flex-col text-left leading-tight pr-0.5">
+              {effectiveMode === 'WHATSAPP' ? (
                 <>
-                  <span className="text-[11px] sm:text-xs font-semibold tracking-wide uppercase sm:hidden">WhatsApp</span>
-                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline">Chat on WhatsApp</span>
+                  <span className="text-[11px] font-semibold tracking-wide uppercase sm:hidden">WhatsApp</span>
+                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline">WhatsApp Studio</span>
                 </>
               ) : (
                 <>
-                  <span className="text-[11px] sm:text-xs font-semibold tracking-wide uppercase sm:hidden">Live Chat</span>
-                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline">Studio Assistance</span>
+                  <span className="text-[11px] font-serif font-medium tracking-wide sm:hidden">Artisan Chat</span>
+                  <div className="hidden sm:block">
+                    <span className="text-xs font-serif font-medium text-parchment-50 block leading-tight">Atelier Concierge</span>
+                    <span className="text-[9px] uppercase tracking-wider text-rose-200 font-mono">Live in Studio</span>
+                  </div>
                 </>
               )}
             </div>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* In-System Chat Drawer / Window */}
-      {isChatOpen && settings.conciergeChannelMode === 'IN_SYSTEM' && (
-        <div className="fixed inset-x-3 bottom-20 sm:inset-x-auto sm:bottom-6 sm:right-6 w-auto sm:w-[400px] h-[520px] max-h-[75vh] sm:max-h-[85vh] bg-white rounded-atelier-card shadow-2xl border border-canvas-line flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-300 z-50">
-          {/* Header */}
-          <div className="p-4 bg-bark text-linen flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-rose/20 flex items-center justify-center text-linen font-serif">
-                🌸
-              </div>
-              <div>
-                <h4 className="font-serif font-medium text-sm text-linen">The Petal &amp; Bloom</h4>
-                <div className="flex items-center gap-1.5 text-[10px] text-white/70">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Artisan Assistance · Live in Studio</span>
-                </div>
-              </div>
+      {/* In-System Chat Window / Responsive Bottom Sheet */}
+      {isChatOpen && effectiveMode === 'IN_SYSTEM' && (
+        <>
+          {/* Mobile Backdrop Overlay */}
+          <div
+            className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-50 animate-fade-in"
+            onClick={() => setIsChatOpen(false)}
+          />
+
+          {/* Chat Container */}
+          <div className="fixed inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 w-full sm:w-[410px] h-[86vh] sm:h-[620px] max-h-[92vh] sm:max-h-[85vh] bg-parchment-50 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-canvas-line/80 flex flex-col overflow-hidden animate-slide-up z-50">
+            {/* Mobile Sheet Drag Indicator */}
+            <div
+              className="sm:hidden pt-2 pb-1 bg-bark flex justify-center cursor-pointer"
+              onClick={() => setIsChatOpen(false)}
+            >
+              <div className="w-10 h-1 bg-white/30 rounded-full" />
             </div>
 
-            <div className="flex items-center gap-1">
-              <a
-                href={buildWhatsAppUrl('Hi! I am switching over from the site chat to WhatsApp.')}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1.5 text-white/70 hover:text-white rounded hover:bg-white/10 text-[10px] flex items-center gap-1"
-                title="Switch to WhatsApp"
-              >
-                <Phone size={12} />
-                <span className="hidden sm:inline">WhatsApp</span>
-              </a>
-              <button
-                onClick={() => setIsChatOpen(false)}
-                className="p-1.5 text-white/70 hover:text-white rounded hover:bg-white/10"
-                aria-label="Close assistance window"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Guidance Strip */}
-          <div className="bg-linen px-3.5 py-2 border-b border-canvas-line flex items-center justify-between text-[11px] text-ink-light">
-            <span className="italic">Questions on floral customization or orders?</span>
-            <span className="font-mono text-[10px] text-rose font-medium">Bespoke MTO</span>
-          </div>
-
-          {/* Messages Area */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-canvas/20">
-            {messages.map((msg) => {
-              const isMe = msg.sender_type === 'CUSTOMER';
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                >
-                  <div
-                    className={`max-w-[82%] px-3.5 py-2.5 rounded-sm text-xs leading-relaxed ${
-                      isMe
-                        ? 'bg-bark text-linen rounded-br-none shadow-sm'
-                        : 'bg-white text-ink border border-canvas-line rounded-bl-none shadow-sm'
-                    }`}
-                  >
-                    {!isMe && (
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-rose mb-1">
-                        {msg.sender_name}
-                      </p>
-                    )}
-                    <p className="whitespace-pre-wrap">{msg.message_text}</p>
-                    <p
-                      className={`text-[9px] mt-1 text-right ${
-                        isMe ? 'text-white/60' : 'text-ink-light/60'
-                      }`}
-                    >
-                      {new Date(msg.created_at).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
+            {/* Header */}
+            <div className="px-4 py-3 bg-bark text-parchment-50 flex items-center justify-between border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-rose/20 border border-rose/30 flex items-center justify-center text-rose-200 font-serif text-sm font-semibold shadow-inner">
+                    PB
                   </div>
+                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-bark animate-pulse" />
                 </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
-          </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-serif font-medium text-sm text-parchment-50 tracking-tight">The Petal &amp; Bloom</h4>
+                    <span className="text-[9px] uppercase tracking-widest font-mono text-rose-200 px-1.5 py-0.2 rounded bg-rose/20">Studio</span>
+                  </div>
+                  <p className="text-[11px] text-parchment-50/70 flex items-center gap-1.5 mt-0.5">
+                    <span>Artisan Concierge</span>
+                    <span>•</span>
+                    <span className="text-emerald-400 font-medium">Replies in ~2 min</span>
+                  </p>
+                </div>
+              </div>
 
-          {/* Guest Identity Form (only shown if not logged in and starting fresh) */}
-          {!user && !hasStartedConversation && (
-            <div className="p-3 bg-linen border-t border-canvas-line space-y-2 text-xs">
-              <p className="text-[10px] uppercase font-bold text-bark tracking-wider">
-                Your Contact (So our studio can get back to you)
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Your Name"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  className="px-2.5 py-1.5 bg-white border border-canvas-line rounded text-xs"
-                />
-                <input
-                  type="tel"
-                  placeholder="Mobile Number"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  className="px-2.5 py-1.5 bg-white border border-canvas-line rounded text-xs"
-                />
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={buildWhatsAppUrl('Hi! I am switching over from the site concierge to WhatsApp.')}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 bg-[#25D366]/20 hover:bg-[#25D366] text-emerald-200 hover:text-white rounded-full text-[11px] font-medium flex items-center gap-1.5 transition-all border border-[#25D366]/30"
+                  title="Switch to WhatsApp"
+                >
+                  <Phone size={11} className="fill-current" />
+                  <span className="hidden xs:inline">WhatsApp</span>
+                </a>
+                <button
+                  onClick={() => setIsChatOpen(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-parchment-50/70 hover:text-parchment-50 hover:bg-white/10 transition-colors"
+                  aria-label="Close concierge window"
+                >
+                  <X size={17} />
+                </button>
               </div>
             </div>
-          )}
 
-          {/* Quick Suggestion Pills */}
-          {messages.length <= 2 && (
-            <div className="px-3 py-2 bg-white border-t border-canvas-line flex gap-1.5 overflow-x-auto no-scrollbar">
+            {/* Quick Topics Ribbon */}
+            <div className="px-3.5 py-2 bg-linen/60 border-b border-canvas-line/60 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
               {[
-                'Custom color request',
-                'Track my order',
-                'Delivery timeline',
-                'Flower care advice',
-              ].map((pill) => (
+                { label: 'Custom Palette', icon: '🎨', prompt: 'I want to ask about custom colorways and bespoke yarn options.' },
+                { label: 'Track Order', icon: '📦', prompt: 'Can you help me check the crafting or shipping status of my order?' },
+                { label: 'Gift Wrap & Card', icon: '🎁', prompt: 'Do you offer hand-lettered wax-sealed notes and gift packaging?' },
+                { label: 'Care & Longevity', icon: '✨', prompt: 'How do I care for my handmade crochet flowers for lifelong display?' },
+              ].map((item) => (
                 <button
-                  key={pill}
+                  key={item.label}
                   type="button"
-                  onClick={() => handleQuickQuestion(pill)}
-                  className="px-2.5 py-1 bg-canvas/40 hover:bg-rose/10 border border-canvas-line rounded-full text-[10px] text-ink-light hover:text-rose whitespace-nowrap transition-colors"
+                  onClick={() => handleQuickQuestion(item.prompt)}
+                  className="px-2.5 py-1 bg-white hover:bg-rose/10 border border-canvas-line hover:border-rose/40 rounded-full text-[11px] text-bark hover:text-rose-deep whitespace-nowrap transition-all shadow-2xs flex items-center gap-1.5 flex-shrink-0"
                 >
-                  {pill}
+                  <span className="text-xs">{item.icon}</span>
+                  <span>{item.label}</span>
                 </button>
               ))}
             </div>
-          )}
 
-          {/* Input Composer */}
-          <form
-            onSubmit={handleSendMessage}
-            className="p-3 bg-white border-t border-canvas-line flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Ask our studio artisans..."
-              className="flex-1 px-3 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-            />
-            <button
-              type="submit"
-              disabled={isSending || !inputText.trim()}
-              className="p-2.5 bg-bark text-linen hover:bg-rose-deep rounded-sm transition-all disabled:opacity-40"
-              aria-label="Send message"
-            >
-              {isSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            </button>
-          </form>
-        </div>
+            {/* Messages Scroll Area */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-2 atelier-scrollbar bg-parchment/60">
+              {groupedMessages.map((msg) => {
+                const timeString = new Date(msg.created_at).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
+
+                if (msg.sender_type === 'BOT') {
+                  return (
+                    <div key={msg.id} className="pt-1 pb-2">
+                      <div className="bg-linen/80 border border-canvas-line/80 rounded-2xl p-3.5 shadow-2xs space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-rose text-xs font-medium">
+                          <Sparkles size={13} />
+                          <span className="font-serif">The Atelier Welcome</span>
+                        </div>
+                        <p className="text-xs text-bark leading-relaxed">{msg.message_text}</p>
+                        <p className="text-[9px] text-ink-light/60 font-mono text-right">{timeString}</p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (msg.isMe) {
+                  // Customer message bubble
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col items-end ${msg.isFirstInGroup ? 'pt-2' : 'pt-0.5'}`}
+                    >
+                      <div
+                        className={`max-w-[85%] sm:max-w-[78%] px-3.5 py-2.5 text-xs sm:text-[13px] leading-relaxed shadow-xs transition-all bg-bark text-parchment-50 ${
+                          msg.isFirstInGroup && msg.isLastInGroup
+                            ? 'rounded-2xl rounded-tr-xs'
+                            : msg.isFirstInGroup
+                            ? 'rounded-2xl rounded-tr-xs rounded-br-md'
+                            : msg.isLastInGroup
+                            ? 'rounded-2xl rounded-tr-md rounded-br-xs'
+                            : 'rounded-2xl rounded-r-md'
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap">{msg.message_text}</p>
+                        <div className="text-[9px] text-parchment-50/70 font-mono mt-1 flex items-center justify-end gap-1">
+                          <span>{timeString}</span>
+                          <CheckCheck size={11} className="text-emerald-400" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Studio Artisan message bubble
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col items-start ${msg.isFirstInGroup ? 'pt-2' : 'pt-0.5'}`}
+                  >
+                    {msg.isFirstInGroup && (
+                      <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] font-bold uppercase tracking-wider text-rose">
+                        <Sparkles size={11} />
+                        <span>Master Artisan Studio</span>
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[85%] sm:max-w-[78%] px-3.5 py-2.5 text-xs sm:text-[13px] leading-relaxed shadow-xs transition-all bg-white text-bark border border-canvas-line/80 ${
+                        msg.isFirstInGroup && msg.isLastInGroup
+                          ? 'rounded-2xl rounded-tl-xs'
+                          : msg.isFirstInGroup
+                          ? 'rounded-2xl rounded-tl-xs rounded-bl-md'
+                          : msg.isLastInGroup
+                          ? 'rounded-2xl rounded-tl-md rounded-bl-xs'
+                          : 'rounded-2xl rounded-l-md'
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap">{msg.message_text}</p>
+                      {msg.isLastInGroup && (
+                        <p className="text-[9px] text-ink-light/60 font-mono mt-1 text-right">{timeString}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Guest Identity Form (only if guest and starting conversation) */}
+            {!user && !hasStartedConversation && (
+              <div className="mx-3 my-2 p-3 bg-linen/90 rounded-xl border border-canvas-line space-y-2 text-xs shadow-2xs">
+                <div className="flex items-center gap-1.5 text-bark font-medium">
+                  <Sparkles size={12} className="text-rose" />
+                  <span>Receive Live Crafting Photos &amp; Order Updates</span>
+                </div>
+                <p className="text-[11px] text-ink-light leading-snug">
+                  Provide your name and contact so our studio can notify you as your custom blooms are crafted:
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  <input
+                    type="text"
+                    placeholder="Your Name"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="px-2.5 py-1.5 bg-white border border-canvas-line rounded-md text-xs text-bark placeholder:text-ink-light/50 focus:outline-none focus:border-bark"
+                  />
+                  <input
+                    type="tel"
+                    placeholder="Phone / WhatsApp"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    className="px-2.5 py-1.5 bg-white border border-canvas-line rounded-md text-xs text-bark placeholder:text-ink-light/50 focus:outline-none focus:border-bark"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Input Composer */}
+            <div className="p-3 bg-white border-t border-canvas-line">
+              <form
+                onSubmit={handleSendMessage}
+                className="flex items-center gap-2 bg-parchment-50 border border-canvas-line rounded-full p-1 pl-3.5 focus-within:border-bark focus-within:ring-2 focus-within:ring-rose/15 transition-all shadow-2xs"
+              >
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="Ask our master florists anything..."
+                  className="flex-1 bg-transparent text-xs sm:text-sm text-bark placeholder:text-ink-light/50 focus:outline-none py-1.5"
+                />
+
+                <button
+                  type="submit"
+                  disabled={isSending || !inputText.trim()}
+                  className="w-8 h-8 rounded-full bg-bark hover:bg-rose-deep text-parchment-50 transition-all duration-200 flex items-center justify-center flex-shrink-0 shadow-xs active:scale-95 disabled:opacity-30 disabled:scale-95 cursor-pointer"
+                  aria-label="Send message"
+                >
+                  {isSending ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Send size={13} className="translate-x-0.5" />
+                  )}
+                </button>
+              </form>
+              <div className="mt-1.5 flex items-center justify-between px-2 text-[10px] text-ink-light/60">
+                <span>Handcrafted with love in Jaipur</span>
+                <span className="font-mono text-[9px]">End-to-End Concierge</span>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </>
   );

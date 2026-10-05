@@ -86,49 +86,100 @@ export default function AdminInfluencers() {
     notes: '',
   });
 
+  // Payout recording state
+  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
+  const [recordingPayout, setRecordingPayout] = useState(false);
+  const [payoutForm, setPayoutForm] = useState({
+    amount: 0,
+    reference: '',
+    payment_method: 'UPI',
+    notes: '',
+  });
+  const [payoutHistory, setPayoutHistory] = useState<any[]>([]);
+  const [loadingPayoutHistory, setLoadingPayoutHistory] = useState(false);
+
+  const loadPayoutHistory = async (couponId: string) => {
+    setLoadingPayoutHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('influencer_payouts')
+        .select('*')
+        .eq('coupon_id', couponId)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setPayoutHistory(data);
+      } else {
+        setPayoutHistory([]);
+      }
+    } catch (e) {
+      console.warn('Could not load payout history', e);
+      setPayoutHistory([]);
+    } finally {
+      setLoadingPayoutHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedAffiliate?.id) {
+      loadPayoutHistory(selectedAffiliate.id);
+    }
+  }, [selectedAffiliate?.id]);
+
   const loadAffiliatesData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch coupons that have recipient names or are marked as affiliates
+      // 1. Fetch coupons that are strictly marked as creator/influencer affiliates
       const { data: couponsData, error: coupErr } = await supabase
         .from('coupons')
         .select('*')
+        .eq('is_influencer', true)
         .order('created_at', { ascending: false });
 
-      // 2. Fetch orders with applied coupon codes
+      // 2. Fetch orders with applied coupon codes (optimized query)
       const { data: ordersData, error: ordErr } = await supabase
         .from('orders')
-        .select('order_number, applied_coupon_code, total_in_paise, payment_status, created_at')
-        .eq('payment_status', 'SUCCESS');
+        .select('order_number, applied_coupon_code, total_in_paise, payment_status, order_status, created_at')
+        .not('applied_coupon_code', 'is', null);
 
-      const couponsList = couponsData || [];
+      const couponsList = (couponsData || []).filter((coup: any) => coup.is_influencer === true);
       const ordersList = ordersData || [];
 
+      // Include all orders that are verified paid or confirmed in fulfillment pipeline
+      const paidOrders = ordersList.filter((o: any) =>
+        o.payment_status === 'SUCCESS' ||
+        ['PAYMENT_CONFIRMED', 'ORDER_CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(o.order_status)
+      );
+
       // Aggregate metrics per coupon
-      const mappedAffiliates: InfluencerAffiliate[] = couponsList.map((coup) => {
-        const matchingOrders = ordersList.filter(
-          (o) => o.applied_coupon_code?.toUpperCase() === coup.code?.toUpperCase()
+      const mappedAffiliates: InfluencerAffiliate[] = couponsList.map((coup: any) => {
+        const matchingOrders = paidOrders.filter(
+          (o) => o.applied_coupon_code?.trim().toUpperCase() === coup.code?.trim().toUpperCase()
         );
 
         const totalRevenuePaise = matchingOrders.reduce((sum, o) => sum + (o.total_in_paise || 0), 0);
         const grossRevenueInr = Math.round(totalRevenuePaise / 100);
-        const commissionPercent = 10; // default 10% commission
+        const commissionPercent = Number(coup.commission_percent) || 10;
         const commissionEarned = Math.round((grossRevenueInr * commissionPercent) / 100);
+        const commissionPaidInr = Number(coup.commission_paid_inr) || 0;
 
         return {
           id: coup.id,
-          name: coup.recipient_name || 'Atelier Partner',
-          instagram_handle: coup.recipient_name ? `@${coup.recipient_name.toLowerCase().replace(/\s+/g, '')}` : '@petalbloom',
+          name: coup.recipient_name || coup.influencer_name || 'Atelier Partner',
+          instagram_handle: coup.recipient_name
+            ? `@${coup.recipient_name.toLowerCase().replace(/\s+/g, '')}`
+            : '@petalbloom',
           coupon_code: coup.code,
           discount_percent: coup.discount_percent || coup.discount_value || 10,
           commission_percent: commissionPercent,
+          payout_upi_or_bank: coup.payout_upi_or_bank || '',
           notes: coup.recipient_name ? `Affiliate partner discount code for ${coup.recipient_name}` : 'General promo coupon',
           active: coup.active ?? true,
           created_at: coup.created_at || new Date().toISOString(),
-          redemption_count: coup.usage_count || matchingOrders.length,
+          redemption_count: Math.max(coup.usage_count || 0, matchingOrders.length),
           gross_revenue_inr: grossRevenueInr,
           commission_earned_inr: commissionEarned,
-          commission_paid_inr: 0,
+          commission_paid_inr: commissionPaidInr,
         };
       });
 
@@ -159,6 +210,83 @@ export default function AdminInfluencers() {
     setIsModalOpen(true);
   };
 
+  const handleOpenPayout = () => {
+    if (!selectedAffiliate) return;
+    const due = Math.max(0, selectedAffiliate.commission_earned_inr - selectedAffiliate.commission_paid_inr);
+    setPayoutForm({
+      amount: due,
+      reference: '',
+      payment_method: 'UPI',
+      notes: '',
+    });
+    setIsPayoutModalOpen(true);
+  };
+
+  const handleRecordPayout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAffiliate) return;
+    setRecordingPayout(true);
+    try {
+      const amount = Number(payoutForm.amount);
+      if (isNaN(amount) || amount <= 0) {
+        throw new Error('Please enter a valid payout amount.');
+      }
+
+      // 1. Insert into influencer_payouts
+      const { error: insertErr } = await supabase.from('influencer_payouts').insert({
+        coupon_id: selectedAffiliate.id,
+        amount_inr: amount,
+        payout_reference: payoutForm.reference.trim() || null,
+        payment_method: payoutForm.payment_method,
+        notes: payoutForm.notes.trim() || null,
+      });
+
+      if (insertErr) throw insertErr;
+
+      // 2. Update coupon commission_paid_inr
+      const newPaidTotal = (selectedAffiliate.commission_paid_inr || 0) + amount;
+      const { error: updateErr } = await supabase
+        .from('coupons')
+        .update({ commission_paid_inr: newPaidTotal })
+        .eq('id', selectedAffiliate.id);
+
+      if (updateErr) throw updateErr;
+
+      // 3. Central Audit Log
+      logAudit({
+        action: AUDIT_ACTIONS.INFLUENCER_PAYOUT_RECORDED,
+        entity: 'influencer_payouts',
+        entity_id: selectedAffiliate.id,
+        new_values: {
+          creator_name: selectedAffiliate.name,
+          coupon_code: selectedAffiliate.coupon_code,
+          payout_amount_inr: amount,
+          reference: payoutForm.reference,
+          method: payoutForm.payment_method,
+          new_total_paid_inr: newPaidTotal,
+        },
+        reason: `Recorded commission payout of ₹${amount} to ${selectedAffiliate.name}`,
+      });
+
+      showNotification(`Successfully recorded ₹${amount} payout for ${selectedAffiliate.name}!`, 'success');
+      setIsPayoutModalOpen(false);
+      setPayoutForm({ amount: 0, reference: '', payment_method: 'UPI', notes: '' });
+
+      // Immediate local state update for drawer
+      setSelectedAffiliate({
+        ...selectedAffiliate,
+        commission_paid_inr: newPaidTotal,
+      });
+
+      // Reload lists and history
+      await Promise.all([loadAffiliatesData(), loadPayoutHistory(selectedAffiliate.id)]);
+    } catch (err: any) {
+      showNotification('Failed to record payout: ' + err.message, 'error');
+    } finally {
+      setRecordingPayout(false);
+    }
+  };
+
   const handleSaveAffiliate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -166,13 +294,16 @@ export default function AdminInfluencers() {
       const code = form.coupon_code.trim().toUpperCase();
       if (!code) throw new Error('Coupon code is required.');
 
-      // Insert or update coupon
+      // Insert or update coupon with full creator attributes
       const { error: coupError } = await supabase.from('coupons').insert({
         code,
         recipient_name: form.name.trim(),
+        influencer_name: form.name.trim(),
+        is_influencer: true,
         discount_type: 'PERCENT',
         discount_value: form.discount_percent,
-        discount_percent: form.discount_percent,
+        commission_percent: form.commission_percent,
+        payout_upi_or_bank: form.payout_upi_or_bank.trim() || null,
         min_order_in_paise: 0,
         active: true,
       });
@@ -189,6 +320,7 @@ export default function AdminInfluencers() {
           ambassador_name: form.name.trim(),
           discount_percent: form.discount_percent,
           commission_percent: form.commission_percent,
+          payout_upi_or_bank: form.payout_upi_or_bank.trim() || null,
         },
         reason: `New influencer affiliate partner registered: ${form.name}`,
       });
@@ -586,18 +718,86 @@ export default function AdminInfluencers() {
                 </div>
               </div>
 
-              {/* Outstanding Commission */}
-              <div className="p-4 bg-rose/5 border border-rose/20 rounded-sm flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-ink-light font-semibold">Commission Due</p>
-                  <p className="font-serif text-2xl font-bold text-rose-deep mt-0.5">
-                    {formatPrice(selectedAffiliate.commission_earned_inr - selectedAffiliate.commission_paid_inr)}
-                  </p>
+              {/* Outstanding Commission & Payout Tracking */}
+              <div className="p-4 bg-rose/5 border border-rose/20 rounded-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-ink-light font-semibold">Net Commission Due</p>
+                    <p className="font-serif text-2xl font-bold text-rose-deep mt-0.5">
+                      {formatPrice(selectedAffiliate.commission_earned_inr - selectedAffiliate.commission_paid_inr)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleOpenPayout}
+                    className="px-3.5 py-1.5 bg-bark hover:bg-ink text-white text-xs font-medium rounded-sm flex items-center gap-1.5 shadow-soft transition-all"
+                  >
+                    <CreditCard size={13} className="text-rose" />
+                    Record Payout
+                  </button>
                 </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-rose/20 text-xs">
+                  <div>
+                    <span className="text-[10px] uppercase text-ink-light">Total Accrued</span>
+                    <p className="font-semibold text-bark">{formatPrice(selectedAffiliate.commission_earned_inr)}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase text-ink-light">Already Paid</span>
+                    <p className="font-semibold text-emerald-800">{formatPrice(selectedAffiliate.commission_paid_inr)}</p>
+                  </div>
+                </div>
+
                 {selectedAffiliate.payout_upi_or_bank && (
-                  <div className="text-right text-xs">
-                    <span className="text-ink-light block">Payout Route</span>
+                  <div className="pt-2 border-t border-rose/20 text-xs flex justify-between items-center">
+                    <span className="text-ink-light">Payout Route</span>
                     <span className="font-mono text-bark font-medium">{selectedAffiliate.payout_upi_or_bank}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Payout History Ledger */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-serif text-sm font-semibold text-bark">Disbursement History</h4>
+                  <span className="text-[11px] text-ink-light">{payoutHistory.length} recorded payouts</span>
+                </div>
+
+                {loadingPayoutHistory ? (
+                  <div className="py-4 text-center text-xs text-ink-light">
+                    <Loader2 size={16} className="animate-spin text-rose mx-auto mb-1" />
+                    Loading payout ledger...
+                  </div>
+                ) : payoutHistory.length === 0 ? (
+                  <p className="text-xs text-ink-light italic bg-canvas/30 p-3 rounded-sm border border-canvas-line text-center">
+                    No payouts recorded yet for this creator.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {payoutHistory.map((p) => (
+                      <div
+                        key={p.id}
+                        className="bg-white p-3 rounded-sm border border-canvas-line text-xs flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="font-serif font-bold text-emerald-800">{formatPrice(p.amount_inr)}</p>
+                          <p className="text-[10px] text-ink-light">
+                            {new Date(p.created_at).toLocaleDateString('en-IN', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}{' '}
+                            • {p.payment_method || 'UPI'}
+                          </p>
+                        </div>
+                        {p.payout_reference && (
+                          <div className="text-right">
+                            <span className="font-mono text-[10px] text-bark bg-canvas px-1.5 py-0.5 rounded border border-canvas-line">
+                              {p.payout_reference}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -721,6 +921,100 @@ export default function AdminInfluencers() {
                   >
                     {saving ? <Loader2 size={14} className="animate-spin text-rose" /> : <CheckCircle2 size={14} className="text-rose" />}
                     Save Creator Partner
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Record Commission Payout Modal */}
+        {isPayoutModalOpen && selectedAffiliate && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-linen w-full max-w-md rounded-sm border border-canvas-line shadow-2xl overflow-hidden animate-fadeIn">
+              <header className="p-5 border-b border-canvas-line bg-canvas/40 flex items-center justify-between">
+                <div>
+                  <h3 className="heading-serif text-lg text-bark">Record Commission Payout</h3>
+                  <p className="text-xs text-ink-light">Disbursement for {selectedAffiliate.name}</p>
+                </div>
+                <button
+                  onClick={() => setIsPayoutModalOpen(false)}
+                  className="text-bark/60 hover:text-ink text-sm p-1"
+                >
+                  ✕
+                </button>
+              </header>
+
+              <form onSubmit={handleRecordPayout} className="p-6 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-bark">Payout Amount (₹)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    required
+                    value={payoutForm.amount}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, amount: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-sm font-semibold text-bark focus:outline-none focus:border-bark"
+                  />
+                  <p className="text-[10px] text-ink-light">
+                    Current outstanding due: {formatPrice(selectedAffiliate.commission_earned_inr - selectedAffiliate.commission_paid_inr)}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-bark">Payment Method</label>
+                  <select
+                    value={payoutForm.payment_method}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, payment_method: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                  >
+                    <option value="UPI">UPI / GPay / PhonePe</option>
+                    <option value="IMPS_NEFT">Bank Transfer (IMPS / NEFT)</option>
+                    <option value="MANUAL">Cash / Other Studio Disbursement</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-bark">UTR / Transaction Reference</label>
+                  <input
+                    type="text"
+                    value={payoutForm.reference}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, reference: e.target.value })}
+                    placeholder="e.g. UTR38491823901 or UPI-Ref"
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs font-mono text-ink focus:outline-none focus:border-bark"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-bark">Notes (Optional)</label>
+                  <input
+                    type="text"
+                    value={payoutForm.notes}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, notes: e.target.value })}
+                    placeholder="e.g. October milestone commission"
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                  />
+                </div>
+
+                <div className="pt-4 flex items-center justify-end gap-3 border-t border-canvas-line">
+                  <button
+                    type="button"
+                    onClick={() => setIsPayoutModalOpen(false)}
+                    className="px-4 py-2 text-xs text-ink-light hover:text-ink"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={recordingPayout}
+                    className="px-6 py-2 bg-bark hover:bg-ink text-white text-xs font-medium uppercase tracking-wider rounded-sm flex items-center gap-2 shadow-soft disabled:opacity-50"
+                  >
+                    {recordingPayout ? (
+                      <Loader2 size={14} className="animate-spin text-rose" />
+                    ) : (
+                      <CheckCircle2 size={14} className="text-rose" />
+                    )}
+                    Confirm Disbursement
                   </button>
                 </div>
               </form>

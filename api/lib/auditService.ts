@@ -27,27 +27,52 @@ export const AUDIT_ACTIONS = {
   STAFF_ROLE_MODIFIED: 'STAFF_ROLE_MODIFIED',
   REVIEW_MODERATED: 'REVIEW_MODERATED',
   SETTINGS_UPDATED: 'SETTINGS_UPDATED',
+  INFLUENCER_PAYOUT_RECORDED: 'INFLUENCER_PAYOUT_RECORDED',
 } as const;
 
-export const localAuditCache: (AuditLogEntry & { created_at: string, id: string })[] = [];
+export const localAuditCache: (AuditLogEntry & { created_at: string; id: string })[] = [];
 
 export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
+  const cachedItem = {
+    ...entry,
+    created_at: new Date().toISOString(),
+    id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+  };
+  
+  // Always keep in-memory cache populated for instantaneous retrieval
+  localAuditCache.unshift(cachedItem);
+  if (localAuditCache.length > 500) {
+    localAuditCache.pop();
+  }
+
   try {
+    // 1. First attempt: Direct insert with all fields
     const { error } = await supabaseAdmin.from('audit_logs').insert([entry]);
     if (error) {
-      console.warn('Failed to insert audit log to db, falling back to local cache', error);
-      localAuditCache.push({
-        ...entry,
-        created_at: new Date().toISOString(),
-        id: Math.random().toString(36).substring(2, 15),
-      });
+      // 2. Second attempt: Schema compatibility fallback using details JSONB column
+      const fallbackPayload = {
+        actor_id: entry.actor_id || null,
+        actor_role: entry.actor_role || 'admin',
+        action: entry.action,
+        entity: entry.entity,
+        entity_id: entry.entity_id,
+        details: {
+          actor_email: entry.actor_email,
+          old_values: entry.old_values,
+          new_values: entry.new_values,
+          reason: entry.reason,
+          user_agent: entry.user_agent,
+          ip_address: entry.ip_address,
+        },
+        ip_address: entry.ip_address || null,
+      };
+
+      const { error: fallbackError } = await supabaseAdmin.from('audit_logs').insert([fallbackPayload]);
+      if (fallbackError) {
+        console.warn('[Audit] Fallback insertion to audit_logs failed:', fallbackError.message);
+      }
     }
-  } catch (error) {
-    console.warn('Exception while inserting audit log to db, falling back to local cache', error);
-    localAuditCache.push({
-      ...entry,
-      created_at: new Date().toISOString(),
-      id: Math.random().toString(36).substring(2, 15),
-    });
+  } catch (error: any) {
+    console.warn('[Audit] Exception while inserting audit log:', error?.message || error);
   }
 }

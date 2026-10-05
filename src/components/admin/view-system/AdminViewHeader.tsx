@@ -102,7 +102,14 @@ export default function AdminViewHeader({
                 </span>
                 {stat.icon && <div className="text-rose flex-shrink-0">{stat.icon}</div>}
               </div>
-              <p className="font-serif text-2xl sm:text-3xl text-bark mt-2 truncate">
+              <p
+                className={`font-serif text-bark mt-2 truncate ${
+                  typeof stat.value === 'string' && stat.value.length > 12
+                    ? 'text-lg sm:text-xl font-medium'
+                    : 'text-2xl sm:text-3xl'
+                }`}
+                title={typeof stat.value === 'string' ? stat.value : undefined}
+              >
                 {stat.value}
               </p>
               {stat.subtext && (

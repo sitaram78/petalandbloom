@@ -1,10 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
+import { requireAuth } from '../lib/authMiddleware';
+import { reverseOrderLoyalty } from '../lib/loyaltyReversalService';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
   }
+
+  // Enforce authentication
+  const authUser = await requireAuth(req, res);
+  if (!authUser) return;
 
   try {
     const { orderId, reason } = req.body || {};
@@ -16,12 +22,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 1. Fetch order
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, order_number, order_status, customer_id, loyalty_points_redeemed')
+      .select('id, order_number, order_status, payment_status, customer_id, loyalty_points_redeemed')
       .eq('id', orderId)
       .maybeSingle();
 
     if (orderErr || !order) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    // Ownership & privilege check: only staff or the customer who placed this order can cancel
+    const isStaff = authUser.role === 'super_admin' || authUser.role === 'admin' || authUser.role === 'operations';
+    if (!isStaff && order.customer_id !== authUser.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: You do not have permission to cancel this order.',
+      });
     }
 
     if (order.order_status === 'CANCELLED') {
@@ -37,56 +52,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 2. Restore Inventory for each item
-    const { data: items } = await supabaseAdmin
-      .from('order_items')
-      .select('product_id, quantity')
-      .eq('order_id', order.id);
+    // 2. Restore Inventory ONLY if it was previously decremented upon successful payment
+    // Unpaid checkouts in PENDING_PAYMENT never decremented inventory, so restoring them would create phantom stock
+    const wasInventoryDecremented = order.payment_status === 'SUCCESS' || order.order_status === 'PAYMENT_CONFIRMED';
+    if (wasInventoryDecremented) {
+      const { data: items } = await supabaseAdmin
+        .from('order_items')
+        .select('product_id, quantity')
+        .eq('order_id', order.id);
 
-    if (items && items.length > 0) {
-      for (const item of items) {
-        if (item.product_id) {
-          const { data: prod } = await supabaseAdmin
-            .from('products')
-            .select('inventory_count')
-            .eq('id', item.product_id)
-            .maybeSingle();
-
-          if (prod) {
-            await supabaseAdmin
+      if (items && items.length > 0) {
+        for (const item of items) {
+          if (item.product_id) {
+            const { data: prod } = await supabaseAdmin
               .from('products')
-              .update({ inventory_count: (prod.inventory_count || 0) + item.quantity })
-              .eq('id', item.product_id);
+              .select('inventory_count, is_made_to_order')
+              .eq('id', item.product_id)
+              .maybeSingle();
+
+            if (prod && !prod.is_made_to_order) {
+              await supabaseAdmin
+                .from('products')
+                .update({ inventory_count: (prod.inventory_count || 0) + item.quantity })
+                .eq('id', item.product_id);
+            }
           }
         }
       }
     }
 
-    // 3. Restore redeemed Petal Points to customer if any
-    if (order.customer_id && (order.loyalty_points_redeemed || 0) > 0) {
-      const pointsToRestore = order.loyalty_points_redeemed;
-
-      await supabaseAdmin.from('loyalty_transactions').insert({
-        customer_id: order.customer_id,
-        order_id: order.id,
-        type: 'REFUND_RESTORE',
-        points: pointsToRestore,
-        description: `Restored ${pointsToRestore} Petal Points from cancelled Order ${order.order_number}`,
-      });
-
-      const { data: acc } = await supabaseAdmin
-        .from('loyalty_accounts')
-        .select('points_balance')
-        .eq('customer_id', order.customer_id)
-        .maybeSingle();
-
-      if (acc) {
-        await supabaseAdmin
-          .from('loyalty_accounts')
-          .update({ points_balance: (acc.points_balance || 0) + pointsToRestore })
-          .eq('customer_id', order.customer_id);
-      }
-    }
+    // 3. Automated Bidirectional Loyalty Points Reversal (restores redeemed + revokes earned)
+    const loyaltyReversal = await reverseOrderLoyalty(order.id, reason || 'Order cancelled', false);
 
     // 4. Update order status
     await supabaseAdmin
@@ -100,7 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       previous_status: order.order_status,
       new_status: 'CANCELLED',
       note: reason || 'Order cancelled; stock and points restored.',
-      created_by: 'admin_or_customer',
+      created_by: authUser.email,
     });
 
     return res.status(200).json({

@@ -24,6 +24,7 @@ import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
 import { formatPrice } from '@/data/products';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import { authFetch } from '@/lib/apiClient';
 import {
   useAdminView,
   AdminViewHeader,
@@ -181,58 +182,25 @@ export default function AdminCustomers() {
     e.preventDefault();
     if (!selectedCustomer) return;
 
-    const delta = pointsType === 'ADD' ? Math.abs(pointsDelta) : -Math.abs(pointsDelta);
     setIsAdjustingPoints(true);
 
     try {
-      // 1. Insert transaction
-      await supabase.from('loyalty_transactions').insert({
-        customer_id: selectedCustomer.id,
-        type: pointsType === 'ADD' ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
-        points: delta,
-        description: adjustmentReason || 'Atelier administrative points adjustment',
+      const res = await authFetch('/api/admin/customers/adjust-points', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: selectedCustomer.id,
+          pointsDelta,
+          pointsType,
+          reason: adjustmentReason || 'Atelier administrative points adjustment',
+        }),
       });
 
-      // 2. Fetch current balance
-      const { data: acc } = await supabase
-        .from('loyalty_accounts')
-        .select('points_balance, lifetime_points_earned')
-        .eq('customer_id', selectedCustomer.id)
-        .maybeSingle();
-
-      const currentBalance = acc?.points_balance || 0;
-      const newBalance = Math.max(0, currentBalance + delta);
-
-      if (acc) {
-        await supabase
-          .from('loyalty_accounts')
-          .update({
-            points_balance: newBalance,
-            lifetime_points_earned: pointsType === 'ADD'
-              ? (acc.lifetime_points_earned || 0) + delta
-              : acc.lifetime_points_earned,
-          })
-          .eq('customer_id', selectedCustomer.id);
-      } else {
-        await supabase.from('loyalty_accounts').insert({
-          customer_id: selectedCustomer.id,
-          points_balance: newBalance,
-          lifetime_points_earned: Math.max(0, delta),
-          tier: 'FLORET',
-        });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to adjust points.');
       }
 
-      // Central Audit Logging
-      logAudit({
-        action: AUDIT_ACTIONS.POINTS_ADJUSTED,
-        entity: 'loyalty_accounts',
-        entity_id: selectedCustomer.id,
-        old_values: { points_balance: currentBalance },
-        new_values: { points_balance: newBalance, delta, type: pointsType },
-        reason: adjustmentReason || 'Atelier administrative points adjustment',
-      });
-
-      alert(`Petal points updated! New balance: ${newBalance} points.`);
+      alert(`Petal points updated! New balance: ${data.pointsBalance} points (${data.tier} tier).`);
       await fetchCustomers();
       if (selectedCustomer) {
         await openCustomerDetails(selectedCustomer);

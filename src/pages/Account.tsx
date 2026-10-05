@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   User,
@@ -27,16 +27,59 @@ import {
   Truck,
   ShieldAlert,
   Edit2,
+  FileText,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useNotification } from '@/context/NotificationContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { supabase } from '@/lib/supabaseClient';
-import { formatPrice } from '@/data/products';
+import { formatPrice, type Product } from '@/data/products';
 import { buildWhatsAppLink } from '@/utils/whatsapp';
 import Reveal from '@/components/Reveal';
 import SEO from '@/components/SEO';
+import InvoiceModal, { InvoiceOrderData } from '@/components/admin/InvoiceModal';
+import { useProducts } from '@/context/ProductContext';
+
+export const INDIAN_STATES: string[] = [
+  'Andaman and Nicobar Islands',
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chandigarh',
+  'Chhattisgarh',
+  'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jammu and Kashmir',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Ladakh',
+  'Lakshadweep',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Puducherry',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+];
 
 interface CustomerOrder {
   id: string;
@@ -52,6 +95,25 @@ interface CustomerOrder {
   applied_coupon_code?: string;
   customer_note?: string;
   created_at: string;
+  guest_name?: string;
+  guest_phone?: string;
+  guest_email?: string;
+  shipping_address_snapshot?: {
+    recipientName: string;
+    phone: string;
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    pincode: string;
+  };
+  shipments?: Array<{
+    id: string;
+    carrier: string;
+    awb_number: string;
+    tracking_url?: string | null;
+    status: string;
+  }>;
   order_items?: Array<{
     id: string;
     product_name: string;
@@ -91,11 +153,15 @@ type TabType = 'orders' | 'loyalty' | 'referrals' | 'addresses' | 'profile';
 export default function Account() {
   const { user, profile, loyalty, loading: authLoading, signInWithEmail, signUpWithEmail, signOut, updateProfile, refreshProfile } = useAuth();
   const { showNotification } = useNotification();
-  const { triggerAssistance } = useStoreSettings();
+  const { settings, triggerAssistance } = useStoreSettings();
+  const { getBestsellers, products: allProducts } = useProducts();
   const navigate = useNavigate();
   const location = useLocation();
-  const { openCart } = useCart();
+  const { openCart, addItem } = useCart();
   const returnToCheckout = Boolean((location.state as any)?.returnToCheckout);
+
+  const isLoyaltyEnabled = settings.featureFlags?.enableLoyalty !== false;
+  const isInfluencerEnabled = settings.featureFlags?.enableInfluencerProgram !== false;
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<TabType>('orders');
@@ -117,6 +183,8 @@ export default function Account() {
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [loyaltyTransactions, setLoyaltyTransactions] = useState<LoyaltyLedgerEntry[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<InvoiceOrderData | null>(null);
+  const [copiedAwb, setCopiedAwb] = useState<string | null>(null);
 
   // Address Form State
   const [showAddressModal, setShowAddressModal] = useState(false);
@@ -130,6 +198,16 @@ export default function Account() {
   const [newPincode, setNewPincode] = useState('');
   const [isDefaultAddress, setIsDefaultAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false);
+  const [pincodeLookupSuccess, setPincodeLookupSuccess] = useState(false);
+  const pincodeSuccessTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (pincodeSuccessTimerRef.current) clearTimeout(pincodeSuccessTimerRef.current);
+    };
+  }, []);
 
   // Profile Edit State
   const [editName, setEditName] = useState('');
@@ -166,6 +244,17 @@ export default function Account() {
           applied_coupon_code,
           customer_note,
           created_at,
+          guest_name,
+          guest_phone,
+          guest_email,
+          shipping_address_snapshot,
+          shipments (
+            id,
+            carrier,
+            awb_number,
+            tracking_url,
+            status
+          ),
           order_items (
             id,
             product_name,
@@ -308,6 +397,7 @@ export default function Account() {
   };
 
   const handleOpenAddAddress = () => {
+    if (pincodeSuccessTimerRef.current) clearTimeout(pincodeSuccessTimerRef.current);
     setEditingAddressId(null);
     setNewRecipient(profile?.full_name || '');
     setNewPhone(profile?.phone || '');
@@ -316,11 +406,14 @@ export default function Account() {
     setNewCity('');
     setNewState('');
     setNewPincode('');
+    setPincodeLookupLoading(false);
+    setPincodeLookupSuccess(false);
     setIsDefaultAddress(addresses.length === 0);
     setShowAddressModal(true);
   };
 
   const handleOpenEditAddress = (addr: SavedAddress) => {
+    if (pincodeSuccessTimerRef.current) clearTimeout(pincodeSuccessTimerRef.current);
     setEditingAddressId(addr.id);
     setNewRecipient(addr.recipient_name);
     setNewPhone(addr.phone);
@@ -329,8 +422,81 @@ export default function Account() {
     setNewCity(addr.city);
     setNewState(addr.state);
     setNewPincode(addr.pincode);
+    setPincodeLookupLoading(false);
+    setPincodeLookupSuccess(false);
     setIsDefaultAddress(addr.is_default);
     setShowAddressModal(true);
+  };
+
+  // Indian PIN Code Auto-Lookup & District Mapping
+  const handlePincodeChange = async (val: string) => {
+    const cleanPin = val.replace(/\D/g, '').slice(0, 6);
+    setNewPincode(cleanPin);
+    if (pincodeSuccessTimerRef.current) clearTimeout(pincodeSuccessTimerRef.current);
+    setPincodeLookupSuccess(false);
+
+    if (cleanPin.length === 6) {
+      setPincodeLookupLoading(true);
+
+      // 1. Instant heuristic postal zone state mapping
+      const prefix2 = cleanPin.slice(0, 2);
+      let guessedState = '';
+      if (prefix2 === '11') guessedState = 'Delhi';
+      else if (['12', '13'].includes(prefix2)) guessedState = 'Haryana';
+      else if (['14', '15'].includes(prefix2)) guessedState = 'Punjab';
+      else if (prefix2 === '16') guessedState = 'Chandigarh';
+      else if (prefix2 === '17') guessedState = 'Himachal Pradesh';
+      else if (['18', '19'].includes(prefix2)) guessedState = 'Jammu and Kashmir';
+      else if (['20', '21', '22', '23', '24', '25', '26', '27', '28'].includes(prefix2)) guessedState = 'Uttar Pradesh';
+      else if (['30', '31', '32', '33', '34'].includes(prefix2)) guessedState = 'Rajasthan';
+      else if (['36', '37', '38', '39'].includes(prefix2)) guessedState = 'Gujarat';
+      else if (['40', '41', '42', '43', '44'].includes(prefix2)) guessedState = 'Maharashtra';
+      else if (['45', '46', '47', '48', '49'].includes(prefix2)) guessedState = 'Madhya Pradesh';
+      else if (['50', '51', '52', '53'].includes(prefix2)) guessedState = 'Telangana';
+      else if (['56', '57', '58', '59'].includes(prefix2)) guessedState = 'Karnataka';
+      else if (['60', '61', '62', '63', '64'].includes(prefix2)) guessedState = 'Tamil Nadu';
+      else if (['67', '68', '69'].includes(prefix2)) guessedState = 'Kerala';
+      else if (['70', '71', '72', '73', '74'].includes(prefix2)) guessedState = 'West Bengal';
+      else if (['75', '76', '77'].includes(prefix2)) guessedState = 'Odisha';
+      else if (prefix2 === '78') guessedState = 'Assam';
+      else if (['80', '81', '82', '83', '84', '85'].includes(prefix2)) guessedState = 'Bihar';
+
+      if (guessedState && !newState) {
+        setNewState(guessedState);
+      }
+
+      // 2. Query live official Indian Postal API with timeout
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(`https://api.postalpincode.in/pincode/${cleanPin}`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data[0]?.Status === 'Success' && data[0]?.PostOffice?.length > 0) {
+            const po = data[0].PostOffice[0];
+            if (po.District) setNewCity(po.District);
+            if (po.State) {
+              const matched = INDIAN_STATES.find(
+                (s) => s.toLowerCase() === po.State.toLowerCase()
+              ) || po.State;
+              setNewState(matched);
+            }
+            setPincodeLookupSuccess(true);
+            if (pincodeSuccessTimerRef.current) clearTimeout(pincodeSuccessTimerRef.current);
+            pincodeSuccessTimerRef.current = setTimeout(() => {
+              setPincodeLookupSuccess(false);
+            }, 2500);
+          }
+        }
+      } catch (err) {
+        // Fallback remains active
+      } finally {
+        setPincodeLookupLoading(false);
+      }
+    }
   };
 
   const handleSetDefaultAddress = async (addressId: string) => {
@@ -484,6 +650,71 @@ export default function Account() {
 
   const referralWhatsAppText = `Hey! I love these handcrafted, everlasting crochet florals from The Petal & Bloom Atelier. Use my code ${profile?.referral_code || ''} for an exclusive gift: ${referralShareUrl}`;
 
+  // Helper to copy courier AWB number
+  const handleCopyAwb = (awb: string) => {
+    navigator.clipboard.writeText(awb);
+    setCopiedAwb(awb);
+    showNotification(`AWB ${awb} copied to clipboard!`, 'success');
+    setTimeout(() => setCopiedAwb(null), 2500);
+  };
+
+  // 1-Click Buy Again / Re-Order Handler
+  const handleBuyAgain = (item: NonNullable<CustomerOrder['order_items']>[number]) => {
+    const productForCart: Product = {
+      code: item.product_code,
+      name: item.product_name,
+      category: 'bouquets',
+      price: (item.unit_price_in_paise || 0) / 100,
+      description: '',
+      images: item.item_image ? [item.item_image] : [],
+    };
+    addItem(productForCart, {
+      color: item.selected_color,
+      giftWrap: item.gift_wrap,
+      message: item.personal_message,
+      quantity: 1,
+    });
+    showNotification(`Added "${item.product_name}" to your bag.`, 'success');
+  };
+
+  // Open Official Tax Invoice Modal
+  const handleOpenInvoice = (order: CustomerOrder) => {
+    const invoiceData: InvoiceOrderData = {
+      order_number: order.order_number,
+      created_at: order.created_at,
+      guest_name: order.guest_name || profile?.full_name || user.email?.split('@')[0] || 'Valued Patron',
+      guest_phone: order.guest_phone || profile?.phone || '',
+      guest_email: order.guest_email || user.email || '',
+      shipping_address_snapshot: order.shipping_address_snapshot || {
+        recipientName: order.guest_name || profile?.full_name || 'Valued Patron',
+        phone: order.guest_phone || profile?.phone || '',
+        addressLine1: 'Atelier Address on File',
+        city: 'India',
+        state: 'India',
+        pincode: '000000',
+      },
+      subtotal_in_paise: order.subtotal_in_paise || order.total_in_paise,
+      discount_in_paise: order.discount_in_paise || 0,
+      loyalty_discount_in_paise: order.loyalty_discount_in_paise || 0,
+      loyalty_points_redeemed: order.loyalty_points_redeemed || 0,
+      shipping_fee_in_paise: order.shipping_fee_in_paise || 0,
+      total_in_paise: order.total_in_paise,
+      payment_status: order.payment_status,
+      applied_coupon_code: order.applied_coupon_code,
+      order_items: (order.order_items || []).map((i) => ({
+        id: i.id,
+        product_name: i.product_name,
+        product_code: i.product_code,
+        quantity: i.quantity,
+        unit_price_in_paise: i.unit_price_in_paise,
+        selected_color: i.selected_color,
+        gift_wrap: i.gift_wrap,
+        personal_message: i.personal_message,
+      })),
+    };
+    setSelectedInvoiceOrder(invoiceData);
+  };
+
   // Helper for Order Status Badge
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -526,9 +757,9 @@ export default function Account() {
         );
       case 'PENDING_PAYMENT':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-stone-100 text-stone-700 border border-stone-300">
-            <Clock size={12} className="text-stone-500" />
-            Awaiting Payment
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300">
+            <Clock size={12} className="text-amber-600 animate-pulse" />
+            Awaiting UPI Payment
           </span>
         );
       case 'CANCELLED':
@@ -795,28 +1026,33 @@ export default function Account() {
             <div className="space-y-8">
               {/* Studio Admin Alert Banner (if logged in with administrator privileges) */}
               {profile && (profile.role === 'admin' || profile.role === 'super_admin') && (
-                <div className="p-4 sm:p-5 bg-bark text-linen rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md border-l-4 border-amber-400">
-                  <div className="flex items-center gap-3">
-                    <ShieldAlert size={24} className="text-amber-400 shrink-0" />
-                    <div>
-                      <h4 className="font-serif text-base sm:text-lg font-medium text-linen">
-                        Administrator Session Active
-                      </h4>
-                      <p className="text-xs text-parchment-200">
-                        You are currently signed in as a Studio Administrator ({user.email}). Atelier orders and catalog settings are managed via the Admin Portal.
+                <div className="p-3 sm:p-4 bg-bark text-linen rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md border-l-4 border-amber-400">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <ShieldAlert size={20} className="text-amber-400 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-serif text-sm sm:text-base font-medium text-linen truncate">
+                          Administrator Session
+                        </h4>
+                        <span className="hidden sm:inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono">
+                          Staff
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-parchment-200 line-clamp-1 sm:line-clamp-none">
+                        Signed in as {user.email}. Atelier orders & catalog are managed in the portal.
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                     <Link
                       to="/admin/dashboard"
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-bark font-medium text-xs uppercase tracking-wider rounded-sm transition-colors"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-bark font-medium text-xs uppercase tracking-wider rounded-sm transition-colors"
                     >
                       Admin Portal →
                     </Link>
                     <button
                       onClick={signOut}
-                      className="px-3 py-2 border border-parchment-400 text-linen hover:bg-white/10 text-xs uppercase tracking-wider rounded-sm transition-colors"
+                      className="px-2.5 py-1.5 border border-parchment-400 text-linen hover:bg-white/10 text-xs uppercase tracking-wider rounded-sm transition-colors"
                     >
                       Sign Out
                     </button>
@@ -825,25 +1061,35 @@ export default function Account() {
               )}
 
               {/* Atelier Member Hero Card */}
-              <div className="bg-linen rounded-sm border border-canvas-line p-6 sm:p-8 shadow-soft">
+              <div className="bg-linen rounded-sm border border-canvas-line p-5 sm:p-8 shadow-soft">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2.5">
-                      <span className="px-3 py-1 rounded-full text-[11px] font-medium uppercase tracking-wider bg-rose/10 text-rose-deep border border-rose/20 flex items-center gap-1.5">
-                        <Sparkles size={12} className="text-rose" />
-                        {tierName} Atelier Circle
-                      </span>
-                      {profile?.role === 'admin' && (
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wider bg-bark text-linen">
-                          Staff
+                    <div className="flex items-center justify-between sm:justify-start gap-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="px-3 py-1 rounded-full text-[11px] font-medium uppercase tracking-wider bg-rose/10 text-rose-deep border border-rose/20 flex items-center gap-1.5">
+                          <Sparkles size={12} className="text-rose" />
+                          {tierName} Atelier Circle
                         </span>
-                      )}
+                        {profile?.role === 'admin' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wider bg-bark text-linen">
+                            Staff
+                          </span>
+                        )}
+                      </div>
+                      {/* Mobile quick sign out */}
+                      <button
+                        onClick={signOut}
+                        className="sm:hidden flex items-center gap-1 text-[11px] text-red-600 hover:text-red-700 font-medium py-1 px-2 rounded hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut size={13} />
+                        Sign Out
+                      </button>
                     </div>
-                    <h1 className="heading-serif text-3xl sm:text-4xl text-bark">
+                    <h1 className="heading-serif text-2xl sm:text-4xl text-bark">
                       Welcome to the Atelier, {profile?.full_name || user.email?.split('@')[0]}
                     </h1>
-                    <p className="text-xs sm:text-sm text-ink-light flex flex-wrap items-center gap-3">
-                      <span>{user.email}</span>
+                    <p className="text-xs sm:text-sm text-ink-light flex flex-wrap items-center gap-2 sm:gap-3">
+                      <span className="truncate max-w-[220px] sm:max-w-none">{user.email}</span>
                       {profile?.phone && <span>• +91 {profile.phone}</span>}
                       <span>• Member Since {new Date(profile?.created_at || user.created_at || Date.now()).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</span>
                     </p>
@@ -851,22 +1097,24 @@ export default function Account() {
 
                   {/* Loyalty & Quick Stat Badges */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 self-stretch lg:self-auto">
-                    {/* Stat 1: Points Balance */}
-                    <div className="bg-parchment-50/80 p-3.5 rounded-sm border border-canvas-line">
-                      <div className="flex items-center gap-2 text-rose mb-1">
-                        <Award size={16} />
-                        <span className="text-[10px] uppercase tracking-wider text-ink-light font-medium">Petals</span>
+                    {/* Stat 1: Points Balance (Conditional via Feature Flag) */}
+                    {isLoyaltyEnabled && (
+                      <div className="bg-parchment-50/80 p-3 sm:p-3.5 rounded-sm border border-canvas-line">
+                        <div className="flex items-center gap-2 text-rose mb-1">
+                          <Award size={16} />
+                          <span className="text-[10px] uppercase tracking-wider text-ink-light font-medium">Petals</span>
+                        </div>
+                        <p className="text-xl font-serif text-bark font-semibold">
+                          {loyalty?.points_balance || 0}
+                        </p>
+                        <p className="text-[10px] text-rose font-medium mt-0.5">
+                          {formatPrice((loyalty?.points_balance || 0) * 0.5)} Store Credit
+                        </p>
                       </div>
-                      <p className="text-xl font-serif text-bark font-semibold">
-                        {loyalty?.points_balance || 0}
-                      </p>
-                      <p className="text-[10px] text-rose font-medium mt-0.5">
-                        ₹{loyalty?.points_balance || 0} Store Credit
-                      </p>
-                    </div>
+                    )}
 
                     {/* Stat 2: Orders Count */}
-                    <div className="bg-parchment-50/80 p-3.5 rounded-sm border border-canvas-line">
+                    <div className="bg-parchment-50/80 p-3 sm:p-3.5 rounded-sm border border-canvas-line">
                       <div className="flex items-center gap-2 text-bark mb-1">
                         <ShoppingBag size={16} />
                         <span className="text-[10px] uppercase tracking-wider text-ink-light font-medium">Orders</span>
@@ -879,95 +1127,105 @@ export default function Account() {
                       </p>
                     </div>
 
-                    {/* Stat 3: Referral Code */}
-                    <div
-                      onClick={copyReferralCode}
-                      className="col-span-2 sm:col-span-1 bg-parchment-50/80 p-3.5 rounded-sm border border-canvas-line cursor-pointer hover:border-bark transition-colors group"
-                      title="Click to copy your code"
-                    >
-                      <div className="flex items-center justify-between text-bark mb-1">
-                        <span className="text-[10px] uppercase tracking-wider text-ink-light font-medium">Invite Code</span>
-                        {copiedCode ? <Check size={14} className="text-emerald-600" /> : <Copy size={13} className="text-ink-light group-hover:text-bark" />}
+                    {/* Stat 3: Referral Code (Conditional via Feature Flag) */}
+                    {isInfluencerEnabled && (
+                      <div
+                        onClick={copyReferralCode}
+                        className="col-span-2 sm:col-span-1 bg-parchment-50/80 p-3 sm:p-3.5 rounded-sm border border-canvas-line cursor-pointer hover:border-bark transition-colors group"
+                        title="Click to copy your code"
+                      >
+                        <div className="flex items-center justify-between text-bark mb-1">
+                          <span className="text-[10px] uppercase tracking-wider text-ink-light font-medium">Invite Code</span>
+                          {copiedCode ? <Check size={14} className="text-emerald-600" /> : <Copy size={13} className="text-ink-light group-hover:text-bark" />}
+                        </div>
+                        <p className="text-sm font-mono font-bold text-bark tracking-wide truncate">
+                          {profile?.referral_code || 'PB-MEMBER'}
+                        </p>
+                        <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                          {copiedCode ? 'Copied!' : 'Give 10%, Earn 50 Petals'}
+                        </p>
                       </div>
-                      <p className="text-sm font-mono font-bold text-bark tracking-wide truncate">
-                        {profile?.referral_code || 'PB-MEMBER'}
-                      </p>
-                      <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
-                        {copiedCode ? 'Copied!' : 'Give 10%, Earn ₹100'}
-                      </p>
-                    </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Dashboard Tabs */}
-                <div className="flex overflow-x-auto gap-2 border-b border-canvas-line mt-8 -mb-2 pb-2 scrollbar-none">
-                  <button
-                    onClick={() => setActiveTab('orders')}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
-                      activeTab === 'orders'
-                        ? 'bg-bark text-linen shadow-sm'
-                        : 'text-ink-light hover:text-bark hover:bg-canvas/50'
-                    }`}
-                  >
-                    <ShoppingBag size={15} />
-                    My Orders ({orders.length})
-                  </button>
+                {/* Dashboard Tabs Container with subtle horizontal scroll fade on mobile */}
+                <div className="relative mt-7 -mb-2">
+                  <div className="flex overflow-x-auto gap-2 border-b border-canvas-line pb-2 scrollbar-none scroll-smooth">
+                    <button
+                      onClick={() => setActiveTab('orders')}
+                      className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
+                        activeTab === 'orders'
+                          ? 'bg-bark text-linen shadow-sm'
+                          : 'text-ink-light hover:text-bark hover:bg-canvas/50'
+                      }`}
+                    >
+                      <ShoppingBag size={15} />
+                      My Orders ({orders.length})
+                    </button>
 
-                  <button
-                    onClick={() => setActiveTab('loyalty')}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
-                      activeTab === 'loyalty'
-                        ? 'bg-bark text-linen shadow-sm'
-                        : 'text-ink-light hover:text-bark hover:bg-canvas/50'
-                    }`}
-                  >
-                    <Award size={15} />
-                    Atelier Circle & Points
-                  </button>
+                    {isLoyaltyEnabled && (
+                      <button
+                        onClick={() => setActiveTab('loyalty')}
+                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
+                          activeTab === 'loyalty'
+                            ? 'bg-bark text-linen shadow-sm'
+                            : 'text-ink-light hover:text-bark hover:bg-canvas/50'
+                        }`}
+                      >
+                        <Award size={15} />
+                        Atelier Circle &amp; Points
+                      </button>
+                    )}
 
-                  <button
-                    onClick={() => setActiveTab('referrals')}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
-                      activeTab === 'referrals'
-                        ? 'bg-bark text-linen shadow-sm'
-                        : 'text-ink-light hover:text-bark hover:bg-canvas/50'
-                    }`}
-                  >
-                    <Gift size={15} />
-                    Refer & Earn
-                  </button>
+                    {isInfluencerEnabled && (
+                      <button
+                        onClick={() => setActiveTab('referrals')}
+                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
+                          activeTab === 'referrals'
+                            ? 'bg-bark text-linen shadow-sm'
+                            : 'text-ink-light hover:text-bark hover:bg-canvas/50'
+                        }`}
+                      >
+                        <Gift size={15} />
+                        Refer &amp; Earn
+                      </button>
+                    )}
 
-                  <button
-                    onClick={() => setActiveTab('addresses')}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
-                      activeTab === 'addresses'
-                        ? 'bg-bark text-linen shadow-sm'
-                        : 'text-ink-light hover:text-bark hover:bg-canvas/50'
-                    }`}
-                  >
-                    <MapPin size={15} />
-                    Saved Addresses ({addresses.length})
-                  </button>
+                    <button
+                      onClick={() => setActiveTab('addresses')}
+                      className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
+                        activeTab === 'addresses'
+                          ? 'bg-bark text-linen shadow-sm'
+                          : 'text-ink-light hover:text-bark hover:bg-canvas/50'
+                      }`}
+                    >
+                      <MapPin size={15} />
+                      Saved Addresses ({addresses.length})
+                    </button>
 
-                  <button
-                    onClick={() => setActiveTab('profile')}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
-                      activeTab === 'profile'
-                        ? 'bg-bark text-linen shadow-sm'
-                        : 'text-ink-light hover:text-bark hover:bg-canvas/50'
-                    }`}
-                  >
-                    <User size={15} />
-                    Profile Details
-                  </button>
+                    <button
+                      onClick={() => setActiveTab('profile')}
+                      className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm transition-all whitespace-nowrap ${
+                        activeTab === 'profile'
+                          ? 'bg-bark text-linen shadow-sm'
+                          : 'text-ink-light hover:text-bark hover:bg-canvas/50'
+                      }`}
+                    >
+                      <User size={15} />
+                      Profile Details
+                    </button>
 
-                  <button
-                    onClick={signOut}
-                    className="flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm text-red-600 hover:bg-red-50 transition-all ml-auto whitespace-nowrap"
-                  >
-                    <LogOut size={15} />
-                    Sign Out
-                  </button>
+                    <button
+                      onClick={signOut}
+                      className="hidden sm:flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wider font-medium rounded-sm text-red-600 hover:bg-red-50 transition-all ml-auto whitespace-nowrap"
+                    >
+                      <LogOut size={15} />
+                      Sign Out
+                    </button>
+                  </div>
+                  {/* Subtle right-edge scroll hint gradient on mobile */}
+                  <div className="pointer-events-none absolute right-0 top-0 bottom-2 w-10 bg-gradient-to-l from-linen via-linen/80 to-transparent sm:hidden" />
                 </div>
               </div>
 
@@ -982,13 +1240,13 @@ export default function Account() {
                       <p className="text-xs text-ink-light">Fetching your orders from the atelier...</p>
                     </div>
                   ) : orders.length === 0 ? (
-                    <div className="bg-linen p-12 text-center rounded-sm border border-canvas-line shadow-soft">
+                    <div className="bg-linen p-8 sm:p-12 text-center rounded-sm border border-canvas-line shadow-soft">
                       <div className="w-16 h-16 rounded-full bg-rose/10 text-rose flex items-center justify-center mx-auto mb-4">
                         <Package size={28} />
                       </div>
                       <h3 className="heading-serif text-2xl text-bark mb-2">No Atelier Orders Yet</h3>
                       <p className="text-xs sm:text-sm text-ink-light max-w-md mx-auto mb-6">
-                        Each Petal & Bloom arrangement is patiently crocheted with archival combed cotton yarns to remain vibrant forever. Your future heirloom bouquets will appear here.
+                        Each Petal &amp; Bloom arrangement is patiently crocheted with archival combed cotton yarns to remain vibrant forever. Your future heirloom bouquets will appear here.
                       </p>
                       <Link
                         to="/shop"
@@ -997,6 +1255,75 @@ export default function Account() {
                         Explore Floral Collection
                         <ArrowRight size={14} />
                       </Link>
+
+                      {/* Curated Atelier Bestsellers Showcase */}
+                      {(() => {
+                        const bestsellers = getBestsellers().slice(0, 3);
+                        const displayProducts = bestsellers.length > 0 ? bestsellers : allProducts.slice(0, 3);
+                        if (displayProducts.length === 0) return null;
+
+                        return (
+                          <div className="mt-10 pt-8 border-t border-canvas-line text-left">
+                            <div className="flex items-center justify-between mb-4">
+                              <div>
+                                <h4 className="font-serif text-base sm:text-lg text-bark font-medium">
+                                  Curated Atelier Bestsellers
+                                </h4>
+                                <p className="text-[11px] text-ink-light mt-0.5">
+                                  Patron favorites handcrafted with everlasting botanical yarns
+                                </p>
+                              </div>
+                              <Link
+                                to="/shop"
+                                className="text-xs text-rose hover:text-rose-deep font-medium flex items-center gap-1 shrink-0"
+                              >
+                                View All <ChevronRight size={13} />
+                              </Link>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                              {displayProducts.map((product) => (
+                                <div
+                                  key={product.code}
+                                  className="bg-parchment-50/70 border border-canvas-line rounded-sm p-3.5 flex flex-col justify-between hover:border-bark/40 transition-all group shadow-2xs"
+                                >
+                                  <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-14 h-16 rounded-sm bg-canvas overflow-hidden shrink-0 border border-canvas-line flex items-center justify-center">
+                                      {product.images?.[0] ? (
+                                        <img
+                                          src={product.images[0]}
+                                          alt={product.name}
+                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                        />
+                                      ) : (
+                                        <Package size={20} className="text-ink-light/40" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <h5 className="font-serif text-sm font-medium text-bark truncate">
+                                        {product.name}
+                                      </h5>
+                                      <p className="text-xs font-serif font-semibold text-rose-deep mt-0.5">
+                                        {formatPrice(product.price)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      addItem(product, { quantity: 1 });
+                                      showNotification(`Added "${product.name}" to your bag.`, 'success');
+                                    }}
+                                    className="w-full py-1.5 rounded-sm bg-linen hover:bg-bark hover:text-linen text-bark text-xs font-medium border border-canvas-line transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer group"
+                                  >
+                                    <ShoppingBag size={12} className="text-rose group-hover:text-linen transition-colors" />
+                                    <span>Add to Bag</span>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : (
                     orders.map((order) => (
@@ -1024,13 +1351,36 @@ export default function Account() {
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-3 self-end sm:self-auto">
-                            <span className="font-serif text-lg font-semibold text-bark">
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 self-end sm:self-auto">
+                            <span className="font-serif text-lg font-semibold text-bark mr-1">
                               {formatPrice(order.total_in_paise / 100)}
                             </span>
+                            {order.order_status === 'PENDING_PAYMENT' && (
+                              <a
+                                href={buildWhatsAppLink(
+                                  `Hi The Petal & Bloom! Regarding my order #${order.order_number} for ${formatPrice(order.total_in_paise / 100)}. Please share your studio UPI QR code or UPI ID so I can complete payment.`
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3.5 py-1.5 rounded-sm bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-medium transition-all flex items-center gap-1.5 shadow-2xs"
+                                title="Pay via WhatsApp UPI"
+                              >
+                                <MessageCircle size={13} />
+                                <span>Pay via WhatsApp</span>
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenInvoice(order)}
+                              className="px-3 py-1.5 rounded-sm border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                              title="View & Print Official Tax Invoice"
+                            >
+                              <FileText size={12} className="text-ink-light" />
+                              <span>Invoice</span>
+                            </button>
                             <Link
                               to={`/order-confirmation?order_id=${encodeURIComponent(order.order_number)}`}
-                              className="px-3.5 py-1.5 rounded-sm border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/30 transition-all flex items-center gap-1.5"
+                              className="px-3 py-1.5 rounded-sm border border-canvas-line text-xs font-medium text-bark hover:border-bark hover:bg-canvas/30 transition-all flex items-center gap-1.5"
                             >
                               Receipt
                               <ExternalLink size={12} />
@@ -1045,10 +1395,139 @@ export default function Account() {
                           </div>
                         </div>
 
+                        {/* Awaiting UPI Payment Settlement Banner */}
+                        {order.order_status === 'PENDING_PAYMENT' && (
+                          <div className="mt-3 p-3.5 rounded-sm bg-amber-50/90 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                            <div className="flex items-start sm:items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0 text-amber-800">
+                                <Clock size={16} />
+                              </div>
+                              <div>
+                                <p className="font-semibold text-amber-950">
+                                  Order Placed · Awaiting UPI Payment of {formatPrice(order.total_in_paise / 100)}
+                                </p>
+                                <p className="text-amber-800/90 text-[11px] mt-0.5">
+                                  Send us a message on WhatsApp to get our studio UPI QR / ID. Share your payment screenshot to confirm your order and begin crafting.
+                                </p>
+                              </div>
+                            </div>
+                            <a
+                              href={buildWhatsAppLink(
+                                `Hi The Petal & Bloom! Regarding my order #${order.order_number} for ${formatPrice(order.total_in_paise / 100)}. Please share your studio UPI QR code or UPI ID so I can complete payment.`
+                              )}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-sm bg-[#25D366] hover:bg-[#20bd5a] text-white font-medium text-xs transition-colors shrink-0 shadow-2xs"
+                            >
+                              <MessageCircle size={13} />
+                              <span>Settle via WhatsApp</span>
+                            </a>
+                          </div>
+                        )}
+
+                        {/* Courier Dispatch & Tracking Number Waybill Banner */}
+                        {order.shipments && order.shipments.length > 0 && order.shipments[0].awb_number && (
+                          <div className="mt-3 px-3.5 py-2 rounded-sm bg-canvas/40 border border-canvas-line flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="flex items-center gap-1.5 text-emerald-800 font-medium">
+                                <Truck size={14} className="text-emerald-700 shrink-0" />
+                                Courier: <strong className="text-bark font-semibold">{order.shipments[0].carrier || 'Standard Courier'}</strong>
+                              </span>
+                              <span className="text-ink-light hidden sm:inline">•</span>
+                              <span className="text-ink-light font-medium">
+                                AWB / Waybill:
+                              </span>
+                              <span className="font-mono font-bold text-bark bg-linen px-2 py-0.5 rounded border border-canvas-line text-[11px] select-all">
+                                {order.shipments[0].awb_number}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyAwb(order.shipments![0].awb_number)}
+                                className="p-1 hover:text-bark text-ink-light transition-colors rounded hover:bg-canvas cursor-pointer"
+                                title="Copy AWB Number"
+                              >
+                                {copiedAwb === order.shipments[0].awb_number ? (
+                                  <Check size={13} className="text-emerald-600" />
+                                ) : (
+                                  <Copy size={13} />
+                                )}
+                              </button>
+                            </div>
+
+                            {order.shipments[0].tracking_url && (
+                              <a
+                                href={order.shipments[0].tracking_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-rose hover:text-rose-deep font-medium flex items-center gap-1 hover:underline ml-auto sm:ml-0"
+                              >
+                                Live Courier Tracking ↗
+                              </a>
+                            )}
+                          </div>
+                        )}
+
                         {/* Crafting & Delivery 4-Step Timeline */}
                         {order.order_status !== 'CANCELLED' && (
-                          <div className="py-5 my-2 border-b border-canvas-line/60">
-                            <div className="relative flex items-center justify-between max-w-xl mx-auto px-4">
+                          <div className="py-4 sm:py-5 my-2 border-b border-canvas-line/60">
+                            {/* Mobile Compact Segmented Tracker (< sm) */}
+                            <div className="sm:hidden px-1">
+                              <div className="flex items-center justify-between text-xs mb-2">
+                                <span className="text-[11px] uppercase tracking-wider text-ink-light font-medium">
+                                  Stage {getOrderStep(order.order_status)} of 4
+                                </span>
+                                <span className="text-xs text-emerald-800 font-medium font-serif flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                                  {order.order_status === 'DELIVERED'
+                                    ? 'Delivered'
+                                    : order.order_status === 'SHIPPED' || order.order_status === 'OUT_FOR_DELIVERY' || order.order_status === 'PACKED'
+                                    ? (order.order_status === 'PACKED' ? 'Packed & Inspected' : 'Dispatched')
+                                    : order.order_status === 'PROCESSING'
+                                    ? 'Handcrafting'
+                                    : order.order_status === 'PENDING_PAYMENT'
+                                    ? 'Awaiting UPI'
+                                    : 'Confirmed'}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {[
+                                  { step: 1, label: 'Confirmed' },
+                                  { step: 2, label: 'Crafting' },
+                                  { step: 3, label: 'Dispatched' },
+                                  { step: 4, label: 'Delivered' },
+                                ].map((s) => {
+                                  const currentStep = getOrderStep(order.order_status);
+                                  const isCompleted = currentStep >= s.step;
+                                  const isCurrent = currentStep === s.step;
+
+                                  return (
+                                    <div key={s.step} className="flex flex-col gap-1">
+                                      <div
+                                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                                          isCompleted
+                                            ? 'bg-emerald-600'
+                                            : 'bg-canvas-line'
+                                        } ${isCurrent ? 'ring-1 ring-emerald-500/60' : ''}`}
+                                      />
+                                      <span
+                                        className={`text-[9px] uppercase tracking-tight text-center truncate ${
+                                          isCurrent
+                                            ? 'text-bark font-semibold'
+                                            : isCompleted
+                                            ? 'text-emerald-800'
+                                            : 'text-ink-light/60'
+                                        }`}
+                                      >
+                                        {s.label}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Desktop / Tablet Timeline (>= sm) */}
+                            <div className="hidden sm:flex relative items-center justify-between max-w-xl mx-auto px-4">
                               {/* Background Line */}
                               <div className="absolute top-1/2 left-8 right-8 -translate-y-1/2 h-0.5 bg-canvas-line z-0" />
                               {/* Active Colored Line */}
@@ -1152,9 +1631,20 @@ export default function Account() {
                                 </div>
                               </div>
 
-                              <span className="text-sm font-medium text-bark shrink-0 font-serif">
-                                {formatPrice(((item.unit_price_in_paise || 0) * item.quantity) / 100)}
-                              </span>
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 shrink-0 self-end sm:self-center">
+                                <span className="text-sm font-medium text-bark font-serif text-right sm:text-left">
+                                  {formatPrice(((item.unit_price_in_paise || 0) * item.quantity) / 100)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleBuyAgain(item)}
+                                  className="px-2.5 py-1 rounded-sm bg-linen hover:bg-bark hover:text-linen text-bark text-[11px] font-medium border border-canvas-line transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer group whitespace-nowrap"
+                                  title="Add this bouquet to your bag"
+                                >
+                                  <RotateCcw size={11} className="text-rose group-hover:text-linen transition-colors" />
+                                  <span>Buy Again</span>
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1474,24 +1964,30 @@ export default function Account() {
                       {addresses.map((addr) => (
                         <div
                           key={addr.id}
-                          className={`bg-linen p-5 rounded-sm border shadow-soft relative transition-all ${
-                            addr.is_default ? 'border-bark ring-1 ring-bark' : 'border-canvas-line hover:border-canvas-line-hover'
+                          className={`p-5 rounded-sm border shadow-soft relative transition-all ${
+                            addr.is_default
+                              ? 'bg-parchment-50/70 border-rose/40 ring-1 ring-rose/30 shadow-md'
+                              : 'bg-linen border-canvas-line hover:border-canvas-line-hover'
                           }`}
                         >
                           {addr.is_default && (
-                            <span className="absolute top-4 right-4 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose/10 text-rose-deep border border-rose/20">
-                              Default Address
+                            <span className="absolute top-4 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose/10 text-rose-deep border border-rose/30 flex items-center gap-1 shadow-2xs">
+                              <Sparkles size={10} className="text-rose" />
+                              Primary Delivery
                             </span>
                           )}
-                          <p className="font-serif font-semibold text-bark text-base mb-1">
-                            {addr.recipient_name}
-                          </p>
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <MapPin size={15} className={addr.is_default ? 'text-rose' : 'text-ink-light'} />
+                            <p className="font-serif font-semibold text-bark text-base">
+                              {addr.recipient_name}
+                            </p>
+                          </div>
                           <p className="text-xs text-ink-light mb-2">Phone: +91 {addr.phone}</p>
                           <p className="text-xs text-ink leading-relaxed">
                             {addr.address_line1}
                             {addr.address_line2 && `, ${addr.address_line2}`}
                             <br />
-                            {addr.city}, {addr.state} — <span className="font-mono">{addr.pincode}</span>
+                            {addr.city}, {addr.state} — <span className="font-mono font-bold text-bark">{addr.pincode}</span>
                           </p>
 
                           <div className="mt-4 pt-3 border-t border-canvas-line flex items-center justify-between">
@@ -1499,19 +1995,21 @@ export default function Account() {
                               <button
                                 type="button"
                                 onClick={() => handleSetDefaultAddress(addr.id)}
-                                className="text-xs text-rose hover:text-rose-deep font-medium underline underline-offset-2"
+                                className="text-xs text-rose hover:text-rose-deep font-medium underline underline-offset-2 cursor-pointer"
                               >
                                 Set as Default
                               </button>
                             ) : (
-                              <span className="text-[11px] text-ink-light italic">Primary delivery address</span>
+                              <span className="text-[11px] text-emerald-800 font-medium flex items-center gap-1">
+                                <Check size={12} className="text-emerald-600" /> Primary destination
+                              </span>
                             )}
 
                             <div className="flex items-center gap-3">
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditAddress(addr)}
-                                className="text-xs text-ink-light hover:text-bark flex items-center gap-1 font-medium transition-colors"
+                                className="text-xs text-ink-light hover:text-bark flex items-center gap-1 font-medium transition-colors cursor-pointer"
                               >
                                 <Edit2 size={13} />
                                 Edit
@@ -1519,7 +2017,7 @@ export default function Account() {
                               <button
                                 type="button"
                                 onClick={() => handleDeleteAddress(addr.id)}
-                                className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors"
+                                className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors cursor-pointer"
                               >
                                 <Trash2 size={13} />
                                 Remove
@@ -1553,7 +2051,7 @@ export default function Account() {
                         <form onSubmit={handleSaveAddress} className="space-y-4">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
                                 Recipient Name *
                               </label>
                               <input
@@ -1562,12 +2060,12 @@ export default function Account() {
                                 value={newRecipient}
                                 onChange={(e) => setNewRecipient(e.target.value)}
                                 placeholder="Recipient name"
-                                className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                                className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                               />
                             </div>
 
                             <div>
-                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
                                 Phone Number *
                               </label>
                               <input
@@ -1577,13 +2075,13 @@ export default function Account() {
                                 value={newPhone}
                                 onChange={(e) => setNewPhone(e.target.value.replace(/\D/g, ''))}
                                 placeholder="10-digit mobile"
-                                className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                                className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                               />
                             </div>
                           </div>
 
                           <div>
-                            <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                            <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
                               Flat / House / Apartment / Street *
                             </label>
                             <input
@@ -1592,12 +2090,12 @@ export default function Account() {
                               value={newLine1}
                               onChange={(e) => setNewLine1(e.target.value)}
                               placeholder="House no, Street name"
-                              className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                              className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                             />
                           </div>
 
                           <div>
-                            <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                            <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
                               Landmark / Area (Optional)
                             </label>
                             <input
@@ -1605,14 +2103,43 @@ export default function Account() {
                               value={newLine2}
                               onChange={(e) => setNewLine2(e.target.value)}
                               placeholder="Near Central Park"
-                              className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                              className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                             />
                           </div>
 
-                          <div className="grid grid-cols-3 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div>
-                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
-                                City *
+                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
+                                PIN Code *
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  required
+                                  maxLength={6}
+                                  value={newPincode}
+                                  onChange={(e) => handlePincodeChange(e.target.value)}
+                                  placeholder="6-digit PIN"
+                                  className="w-full h-10 pl-3 pr-20 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark font-mono"
+                                />
+                                {pincodeLookupLoading && (
+                                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-rose pointer-events-none flex items-center gap-1 text-[10px] font-sans">
+                                    <Loader2 size={12} className="animate-spin" />
+                                    <span className="hidden sm:inline">Checking</span>
+                                  </div>
+                                )}
+                                {pincodeLookupSuccess && (
+                                  <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-emerald-800 bg-emerald-100/90 border border-emerald-300/80 font-medium px-1.5 py-0.5 rounded flex items-center gap-1 shadow-xs pointer-events-none animate-in fade-in zoom-in-95 duration-200">
+                                    <Check size={11} className="stroke-[2.5]" />
+                                    <span>Auto-filled</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
+                                City / District *
                               </label>
                               <input
                                 type="text"
@@ -1620,37 +2147,27 @@ export default function Account() {
                                 value={newCity}
                                 onChange={(e) => setNewCity(e.target.value)}
                                 placeholder="City"
-                                className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                                className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                               />
                             </div>
 
                             <div>
-                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
                                 State *
                               </label>
-                              <input
-                                type="text"
+                              <select
                                 required
                                 value={newState}
                                 onChange={(e) => setNewState(e.target.value)}
-                                placeholder="State"
-                                className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
-                                PIN Code *
-                              </label>
-                              <input
-                                type="text"
-                                required
-                                maxLength={6}
-                                value={newPincode}
-                                onChange={(e) => setNewPincode(e.target.value.replace(/\D/g, ''))}
-                                placeholder="Pincode"
-                                className="w-full px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-                              />
+                                className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                              >
+                                <option value="">Select State</option>
+                                {INDIAN_STATES.map((st) => (
+                                  <option key={st} value={st}>
+                                    {st}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </div>
 
@@ -1762,6 +2279,14 @@ export default function Account() {
           )}
         </div>
       </div>
+
+      {/* Official Tax Invoice Modal */}
+      {selectedInvoiceOrder && (
+        <InvoiceModal
+          order={selectedInvoiceOrder}
+          onClose={() => setSelectedInvoiceOrder(null)}
+        />
+      )}
     </>
   );
 }

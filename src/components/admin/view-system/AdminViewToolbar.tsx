@@ -73,7 +73,7 @@ export default function AdminViewToolbar({
         </div>
 
         {/* View Mode Toggle & Custom Actions */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
           {filterControls}
 
           {/* View Mode Switcher */}
@@ -155,32 +155,36 @@ export default function AdminViewToolbar({
 
       {/* Lower Toolbar: Segment / Presets Tab Navigation */}
       {tabs && tabs.length > 0 && onTabChange && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-2 border-t border-canvas-line/60 scrollbar-none">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onTabChange(tab.id)}
-                className={`px-3 py-1.5 rounded-sm text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                  isActive
-                    ? 'bg-bark text-white shadow-soft'
-                    : 'bg-canvas/40 hover:bg-canvas text-bark/80 hover:text-ink border border-transparent hover:border-canvas-line'
-                }`}
-              >
-                <span>{tab.label}</span>
-                {tab.count !== undefined && (
-                  <span
-                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-                      isActive ? 'bg-white/20 text-white' : 'bg-canvas-line text-ink-light'
-                    }`}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        <div className="relative pt-2 border-t border-canvas-line/60">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 scroll-smooth pr-6 sm:pr-0">
+            {tabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => onTabChange(tab.id)}
+                  className={`px-3 py-1.5 rounded-sm text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 flex-shrink-0 ${
+                    isActive
+                      ? 'bg-bark text-white shadow-soft'
+                      : 'bg-canvas/40 hover:bg-canvas text-bark/80 hover:text-ink border border-transparent hover:border-canvas-line'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.count !== undefined && (
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                        isActive ? 'bg-white/20 text-white' : 'bg-canvas-line text-ink-light'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {/* Subtle mobile edge fade indicator showing more tabs exist */}
+          <div className="sm:hidden pointer-events-none absolute right-0 top-2 bottom-0 w-8 bg-gradient-to-l from-linen to-transparent" />
         </div>
       )}
     </div>

@@ -1,16 +1,18 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { logAuditEvent, AuditLogEntry, AUDIT_ACTIONS } from '../lib/auditService';
+import { requireAuth } from '../lib/authMiddleware';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Enforce staff/admin authentication
+  const authUser = await requireAuth(req, res, { allowedRoles: ['super_admin', 'admin', 'operations', 'support'] });
+  if (!authUser) return;
+
   try {
     const {
-      actor_id,
-      actor_role,
-      actor_email,
       action,
       entity,
       entity_id,
@@ -31,9 +33,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     await logAuditEvent({
-      actor_id: actor_id || undefined,
-      actor_role: actor_role || 'admin',
-      actor_email: actor_email || undefined,
+      actor_id: authUser.id,
+      actor_role: authUser.role,
+      actor_email: authUser.email,
       action,
       entity,
       entity_id,

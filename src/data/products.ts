@@ -48,8 +48,21 @@ export function getFeatured(): Product[] {
   return products.filter((p) => p.featured);
 }
 
-export function formatPrice(price: any): string {
+export function formatPrice(price: any, options?: { showDecimals?: boolean; roundWhole?: boolean }): string {
   const numPrice = typeof price === 'number' ? price : parseFloat(price);
   if (isNaN(numPrice)) return '₹0';
-  return `₹${numPrice.toLocaleString('en-IN')}`;
+
+  if (options?.roundWhole) {
+    return `₹${Math.round(numPrice).toLocaleString('en-IN')}`;
+  }
+
+  // Format with 2 decimals if price has a fractional component, or if explicitly requested
+  const hasFraction = Math.abs(numPrice % 1) > 0.001;
+  const minimumFractionDigits = options?.showDecimals ? 2 : hasFraction ? 2 : 0;
+  const maximumFractionDigits = hasFraction || options?.showDecimals ? 2 : 0;
+
+  return `₹${numPrice.toLocaleString('en-IN', {
+    minimumFractionDigits,
+    maximumFractionDigits,
+  })}`;
 }

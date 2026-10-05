@@ -1,8 +1,47 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { brandInfo } from '@/data/site';
+import { authFetch } from '@/lib/apiClient';
 
 export type ConciergeChannelMode = 'WHATSAPP' | 'IN_SYSTEM';
+
+export interface StoreFeatureFlags {
+  enableLoyalty: boolean;
+  enableCoupons: boolean;
+  enableInfluencerProgram: boolean;
+  enableReviews: boolean;
+  enableLiveChat: boolean;
+  storeMaintenanceMode: boolean;
+}
+
+export interface StoreBusinessRules {
+  freeShippingThresholdPaise: number;
+  standardShippingFeePaise: number;
+  expressShippingFeePaise: number;
+  giftWrapFeePaise: number;
+  loyaltySpendPerPointPaise: number;
+  loyaltyPointRedemptionPaise: number;
+  minLoyaltyOrderPaise: number;
+}
+
+export const DEFAULT_FEATURE_FLAGS: StoreFeatureFlags = {
+  enableLoyalty: true,
+  enableCoupons: true,
+  enableInfluencerProgram: true,
+  enableReviews: true,
+  enableLiveChat: true,
+  storeMaintenanceMode: false,
+};
+
+export const DEFAULT_BUSINESS_RULES: StoreBusinessRules = {
+  freeShippingThresholdPaise: 120000,
+  standardShippingFeePaise: 6900,
+  expressShippingFeePaise: 4900,
+  giftWrapFeePaise: 7900,
+  loyaltySpendPerPointPaise: 2000,
+  loyaltyPointRedemptionPaise: 50,
+  minLoyaltyOrderPaise: 29900,
+};
 
 export interface StoreSettings {
   whatsappNumber: string;
@@ -15,6 +54,9 @@ export interface StoreSettings {
   legalBusinessName: string;
   studioAddress: string;
   gstin: string;
+  // Manual UPI Payment Settlement Details
+  upiId: string;
+  upiPhone: string;
   // Decision 5: Logistics & Courier Automation Configuration
   shiprocketEmail: string;
   shiprocketPassword: string;
@@ -25,6 +67,9 @@ export interface StoreSettings {
   pickupContactName: string;
   pickupContactPhone: string;
   pickupPincode: string;
+  // 4-Drawer Architecture
+  featureFlags: StoreFeatureFlags;
+  businessRules: StoreBusinessRules;
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {
@@ -38,6 +83,8 @@ const DEFAULT_SETTINGS: StoreSettings = {
   legalBusinessName: 'The Petal & Bloom Studio',
   studioAddress: 'Handmade Floral Craft Studio, India',
   gstin: 'GSTIN-PENDING-UNREGISTERED',
+  upiId: '9931657805@ptsbi',
+  upiPhone: '9931657805',
   // Decision 5 defaults
   shiprocketEmail: '',
   shiprocketPassword: '',
@@ -48,6 +95,8 @@ const DEFAULT_SETTINGS: StoreSettings = {
   pickupContactName: 'The Petal & Bloom Atelier',
   pickupContactPhone: '9931653303',
   pickupPincode: '560001',
+  featureFlags: DEFAULT_FEATURE_FLAGS,
+  businessRules: DEFAULT_BUSINESS_RULES,
 };
 
 const STORAGE_KEY = 'tpb_store_settings_cache';
@@ -70,7 +119,13 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
     try {
       const cached = localStorage.getItem(STORAGE_KEY);
       if (cached) {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(cached) };
+        const parsed = JSON.parse(cached);
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          featureFlags: { ...DEFAULT_FEATURE_FLAGS, ...(parsed.featureFlags || {}) },
+          businessRules: { ...DEFAULT_BUSINESS_RULES, ...(parsed.businessRules || {}) },
+        };
       }
     } catch {
       // Fallback
@@ -167,9 +222,8 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
     }
 
     try {
-      await fetch('/api/settings/store', {
+      await authFetch('/api/settings/store', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nextSettings),
       });
       return { success: true };

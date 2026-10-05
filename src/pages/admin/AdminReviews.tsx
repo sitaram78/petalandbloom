@@ -18,6 +18,7 @@ import {
 import AdminLayout from '@/components/AdminLayout';
 import { useNotification } from '@/context/NotificationContext';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import { authFetch } from '@/lib/apiClient';
 import {
   useAdminView,
   AdminViewHeader,
@@ -93,9 +94,8 @@ export default function AdminReviews() {
 
     setActionLoadingId(reviewId);
     try {
-      const res = await fetch('/api/reviews/moderate', {
+      const res = await authFetch('/api/reviews/moderate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reviewId, action }),
       });
 

@@ -55,13 +55,14 @@ interface CartContextValue {
   totalPrice: number;
   appliedCoupon: AppliedCoupon | null;
   discountAmount: number;
-  applyCoupon: (code: string) => Promise<{ success: boolean; message: string }>;
+  applyCoupon: (code: string, customerPhone?: string) => Promise<{ success: boolean; message: string }>;
   removeCoupon: () => void;
   initiateCheckout: (orderData: {
     customer: CheckoutCustomerInput;
     shippingAddress: CheckoutAddressInput;
     customerNote?: string;
     redeemPoints?: number;
+    isExpress?: boolean;
   }) => Promise<{ success: boolean; message?: string; orderNumber?: string }>;
   checkoutWhatsApp: (details: { name: string; pinCode: string; shipping: number }) => void;
 }
@@ -176,17 +177,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // Server-side coupon validation
   const applyCoupon = useCallback(
-    async (code: string) => {
+    async (code: string, customerPhone?: string) => {
       const normalizedCode = code.trim().toUpperCase();
       if (!normalizedCode) return { success: false, message: 'Enter a coupon code.' };
 
       try {
+        const cleanPhone = customerPhone ? customerPhone.replace(/\D/g, '').slice(-10) : undefined;
         const res = await fetch('/api/coupons/validate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code: normalizedCode,
             cartSubtotalInPaise: Math.round(totalPrice * 100),
+            customerPhone: cleanPhone || undefined,
           }),
         });
 
@@ -222,6 +225,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       shippingAddress: CheckoutAddressInput;
       customerNote?: string;
       redeemPoints?: number;
+      isExpress?: boolean;
     }) => {
       try {
         const res = await fetch('/api/checkout/create-order', {
@@ -240,6 +244,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
             couponCode: appliedCoupon?.code,
             redeemPoints: orderData.redeemPoints,
             customerNote: orderData.customerNote,
+            isExpress: orderData.isExpress,
           }),
         });
 
@@ -252,6 +257,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
         clearCart();
         removeCoupon();
         closeCart();
+
+        // If Manual UPI / WhatsApp settlement, redirect straight to confirmation page
+        if (result.paymentMethod === 'MANUAL_UPI' || !result.paymentSessionId) {
+          window.location.href = `/order-confirmation?order_id=${encodeURIComponent(result.orderNumber)}`;
+          return { success: true, orderNumber: result.orderNumber };
+        }
 
         // Launch Cashfree PG checkout
         await launchCashfreeCheckout({

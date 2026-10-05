@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Star, CheckCircle2, ShieldCheck, Camera, Sparkles, Loader2, X, MessageSquare, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useNotification } from '@/context/NotificationContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { useNavigate } from 'react-router-dom';
 import Reveal from '@/components/Reveal';
 
@@ -23,6 +24,11 @@ interface ReviewsSectionProps {
 }
 
 export default function ReviewsSection({ productCode = 'rose-elegance', productName = 'Floral Bouquet' }: ReviewsSectionProps) {
+  const { settings } = useStoreSettings();
+  if (settings.featureFlags?.enableReviews === false) {
+    return null;
+  }
+
   const { user, profile } = useAuth();
   const { showNotification } = useNotification();
   const navigate = useNavigate();

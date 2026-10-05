@@ -12,6 +12,7 @@ import {
   Users,
   ChevronRight,
   TrendingUp,
+  Edit2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import AdminLayout from '@/components/AdminLayout';
@@ -33,6 +34,7 @@ interface Coupon {
   usage_limit: number | null;
   usage_count: number;
   active: boolean;
+  is_influencer?: boolean;
   created_at?: string;
 }
 
@@ -68,14 +70,32 @@ export default function AdminCoupons() {
     viewParamKey: 'view',
   });
 
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [editForm, setEditForm] = useState({
+    code: '',
+    recipientName: '',
+    discountPercent: 10,
+    expiresAt: '',
+    usageLimit: '',
+  });
+
   const loadCoupons = async () => {
     setLoading(true);
     const { data, error: fetchError } = await supabase
       .from('coupons')
       .select('*')
       .order('created_at', { ascending: false });
-    if (fetchError) setError(fetchError.message);
-    else setCoupons(data || []);
+    if (fetchError) {
+      setError(fetchError.message);
+    } else {
+      // Exclude creator/influencer coupons (is_influencer === true) from promotional coupons list
+      const promotionalOnly = (data || []).filter((c: any) => !c.is_influencer);
+      const mapped = promotionalOnly.map((c: any) => ({
+        ...c,
+        discount_percent: c.discount_percent ?? c.discount_value ?? 0,
+      }));
+      setCoupons(mapped);
+    }
     setLoading(false);
   };
 
@@ -93,7 +113,7 @@ export default function AdminCoupons() {
       recipient_name: form.recipientName.trim(),
       discount_type: 'PERCENT',
       discount_value: form.discountPercent,
-      discount_percent: form.discountPercent,
+      is_influencer: false,
       min_order_in_paise: 0,
       active: true,
       expires_at: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
@@ -117,6 +137,57 @@ export default function AdminCoupons() {
       });
       setForm({ code: '', recipientName: '', discountPercent: 10, expiresAt: '', usageLimit: '' });
       setIsCreateDrawerOpen(false);
+      await loadCoupons();
+    }
+    setSaving(false);
+  };
+
+  const handleOpenEdit = (coupon: Coupon) => {
+    setEditingCoupon(coupon);
+    setEditForm({
+      code: coupon.code,
+      recipientName: coupon.recipient_name,
+      discountPercent: coupon.discount_percent || (coupon as any).discount_value || 10,
+      expiresAt: coupon.expires_at ? coupon.expires_at.slice(0, 10) : '',
+      usageLimit: coupon.usage_limit ? String(coupon.usage_limit) : '',
+    });
+    setSelectedCoupon(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCoupon) return;
+    setSaving(true);
+    setError('');
+
+    const newCode = editForm.code.trim().toUpperCase();
+    const { error: updateError } = await supabase
+      .from('coupons')
+      .update({
+        code: newCode,
+        recipient_name: editForm.recipientName.trim(),
+        discount_value: editForm.discountPercent,
+        expires_at: editForm.expiresAt ? new Date(`${editForm.expiresAt}T23:59:59`).toISOString() : null,
+        usage_limit: editForm.usageLimit ? Number(editForm.usageLimit) : null,
+      })
+      .eq('id', editingCoupon.id);
+
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      logAudit({
+        action: AUDIT_ACTIONS.COUPON_RATE_MODIFIED,
+        entity: 'coupons',
+        entity_id: newCode,
+        old_values: editingCoupon,
+        new_values: {
+          code: newCode,
+          recipient_name: editForm.recipientName.trim(),
+          discount_value: editForm.discountPercent,
+        },
+        reason: `Promotional coupon updated from ${editingCoupon.code} to ${newCode}`,
+      });
+      setEditingCoupon(null);
       await loadCoupons();
     }
     setSaving(false);
@@ -316,6 +387,14 @@ export default function AdminCoupons() {
                     </button>
 
                     <button
+                      onClick={() => handleOpenEdit(coupon)}
+                      className="px-2.5 py-1.5 bg-canvas hover:bg-canvas-line text-bark text-xs font-medium rounded-sm border border-canvas-line transition-all flex items-center gap-1"
+                      title="Edit coupon"
+                    >
+                      <Edit2 size={12} />
+                      Edit
+                    </button>
+                    <button
                       onClick={() => setSelectedCoupon(coupon)}
                       className="px-3 py-1.5 bg-canvas hover:bg-bark hover:text-linen text-bark text-xs font-medium rounded-sm border border-canvas-line transition-all flex items-center gap-1"
                     >
@@ -377,6 +456,14 @@ export default function AdminCoupons() {
                         </td>
                         <td className="p-4 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleOpenEdit(coupon)}
+                              className="px-2.5 py-1 bg-canvas hover:bg-canvas-line text-bark text-xs font-medium rounded-sm transition-colors flex items-center gap-1"
+                              title="Edit coupon"
+                            >
+                              <Edit2 size={11} />
+                              Edit
+                            </button>
                             <button
                               onClick={() => setSelectedCoupon(coupon)}
                               className="px-2.5 py-1 bg-canvas hover:bg-canvas-line text-bark text-xs font-medium rounded-sm transition-colors"
@@ -532,13 +619,22 @@ export default function AdminCoupons() {
                 >
                   <Trash2 size={14} /> Delete Coupon
                 </button>
-                <button
-                  type="button"
-                  onClick={() => toggleCoupon(selectedCoupon)}
-                  className="px-4 py-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-semibold rounded-sm transition-colors"
-                >
-                  {selectedCoupon.active ? 'Deactivate Coupon' : 'Activate Coupon'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(selectedCoupon)}
+                    className="px-3.5 py-2 text-xs font-semibold text-bark hover:bg-canvas-line/50 border border-canvas-line rounded-sm transition-colors flex items-center gap-1.5"
+                  >
+                    <Edit2 size={13} /> Edit Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleCoupon(selectedCoupon)}
+                    className="px-4 py-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-semibold rounded-sm transition-colors"
+                  >
+                    {selectedCoupon.active ? 'Deactivate' : 'Activate'}
+                  </button>
+                </div>
               </div>
             )
           }
@@ -575,6 +671,106 @@ export default function AdminCoupons() {
               </div>
             </div>
           )}
+        </AdminEntityDrawer>
+
+        {/* Edit Coupon Drawer */}
+        <AdminEntityDrawer
+          isOpen={!!editingCoupon}
+          onClose={() => setEditingCoupon(null)}
+          title={`Edit Coupon: ${editingCoupon?.code || ''}`}
+          subtitle="Update discount code parameters and rules"
+          widthClass="max-w-xl"
+        >
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-bark">
+                Coupon Code *
+              </label>
+              <input
+                required
+                value={editForm.code}
+                onChange={(e) => setEditForm({ ...editForm, code: e.target.value.toUpperCase() })}
+                placeholder="e.g. FLAT10"
+                className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs font-mono font-bold tracking-wider text-bark focus:outline-none focus:border-bark"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-bark">
+                Recipient / Promotion Name *
+              </label>
+              <input
+                required
+                value={editForm.recipientName}
+                onChange={(e) => setEditForm({ ...editForm, recipientName: e.target.value })}
+                placeholder="e.g. Welcome promo for new collectors"
+                className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-bark">
+                  Discount Percentage (%) *
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  required
+                  value={editForm.discountPercent}
+                  onChange={(e) => setEditForm({ ...editForm, discountPercent: Number(e.target.value) })}
+                  className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-bark">
+                  Usage Limit (Optional)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editForm.usageLimit}
+                  onChange={(e) => setEditForm({ ...editForm, usageLimit: e.target.value })}
+                  placeholder="Unlimited"
+                  className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-bark">
+                Expiry Date (Optional)
+              </label>
+              <input
+                type="date"
+                value={editForm.expiresAt}
+                onChange={(e) => setEditForm({ ...editForm, expiresAt: e.target.value })}
+                className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+              />
+            </div>
+
+            {error && <p className="text-xs text-rose">{error}</p>}
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-canvas-line">
+              <button
+                type="button"
+                onClick={() => setEditingCoupon(null)}
+                className="px-4 py-2 border border-canvas-line text-xs font-medium text-bark rounded-sm hover:bg-canvas/30"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-6 py-2 bg-bark text-linen hover:bg-rose-deep text-xs font-medium uppercase tracking-wider rounded-sm flex items-center gap-2 shadow-soft disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                Update Coupon
+              </button>
+            </div>
+          </form>
         </AdminEntityDrawer>
       </main>
     </AdminLayout>

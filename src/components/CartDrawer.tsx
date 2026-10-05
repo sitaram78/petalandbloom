@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin } from 'lucide-react';
+import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, CheckCircle2, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin, Zap } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
@@ -32,6 +32,7 @@ export default function CartDrawer() {
   const [couponCode, setCouponCode] = useState('');
   const [couponMessage, setCouponMessage] = useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+  const [isExpressCourier, setIsExpressCourier] = useState(false);
 
   // Guest discount popup state
   const [showGuestDiscountModal, setShowGuestDiscountModal] = useState(false);
@@ -173,17 +174,30 @@ export default function CartDrawer() {
     }
   }, [isOpen, totalItems]);
 
-  const giftWrapTotal = items.reduce((sum, i) => sum + (i.giftWrap ? 79 * i.quantity : 0), 0);
-  const baseShippingCost = totalPrice >= 1200 ? 0 : totalPrice >= 799 ? 49 : 69;
-  const shippingCost = baseShippingCost;
+  const giftWrapFee = (settings.businessRules?.giftWrapFeePaise ?? 7900) / 100;
+  const freeThreshold = (settings.businessRules?.freeShippingThresholdPaise ?? 120000) / 100;
+  const standardShipping = (settings.businessRules?.standardShippingFeePaise ?? 6900) / 100;
+  const expressShipping = (settings.businessRules?.expressShippingFeePaise ?? 4900) / 100;
 
-  // Decision 1: 1 Petal Point = ₹0.50 (2 pts = ₹1), redeemable ONLY on orders > ₹299
-  const isPointsEligible = totalPrice >= 299;
+  const giftWrapTotal = items.reduce((sum, i) => sum + (i.giftWrap ? giftWrapFee * i.quantity : 0), 0);
+  const baseShippingCost = totalPrice >= freeThreshold ? 0 : standardShipping;
+  const expressSurcharge = isExpressCourier ? expressShipping : 0;
+  const shippingCost = baseShippingCost + expressSurcharge;
+
+  const freeShippingProgress = Math.min(100, Math.max(0, Math.round((totalPrice / freeThreshold) * 100)));
+  const freeShippingRemaining = Math.max(0, Math.round(freeThreshold - totalPrice));
+
+  // Dynamic 4-Drawer Settings for Loyalty
+  const isLoyaltyEnabled = settings.featureFlags?.enableLoyalty ?? true;
+  const minPointsThreshold = (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100;
+  const pointValue = (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100;
+
+  const isPointsEligible = isLoyaltyEnabled && totalPrice >= minPointsThreshold;
   const pointsBalance = loyalty?.points_balance || 0;
   const maxDiscountAmount = Math.max(0, totalPrice - discountAmount);
-  const maxPointsRedeemable = Math.min(pointsBalance, Math.floor(maxDiscountAmount * 2));
+  const maxPointsRedeemable = Math.min(pointsBalance, Math.floor(maxDiscountAmount / (pointValue || 0.5)));
   const pointsToRedeem = isPointsEligible && redeemPoints ? maxPointsRedeemable : 0;
-  const loyaltyDiscount = pointsToRedeem * 0.5;
+  const loyaltyDiscount = pointsToRedeem * pointValue;
   const grandTotal = Math.max(0, totalPrice - discountAmount - loyaltyDiscount + shippingCost + giftWrapTotal);
 
   const openCheckout = () => {
@@ -199,7 +213,8 @@ export default function CartDrawer() {
     if (!couponCode.trim()) return;
     setIsApplyingCoupon(true);
     setCouponMessage('');
-    const result = await applyCoupon(couponCode);
+    const effectivePhone = customerPhone || profile?.phone || user?.phone;
+    const result = await applyCoupon(couponCode, effectivePhone);
     setCouponMessage(result.message);
     if (result.success) setCouponCode('');
     setIsApplyingCoupon(false);
@@ -252,6 +267,7 @@ export default function CartDrawer() {
       },
       redeemPoints: pointsToRedeem > 0 ? pointsToRedeem : undefined,
       customerNote: customerNote.trim() || undefined,
+      isExpress: isExpressCourier,
     });
 
     if (!result.success) {
@@ -320,6 +336,41 @@ export default function CartDrawer() {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* Complimentary Studio Shipping Progress Bar */}
+                  <div className="bg-linen-light border border-canvas-line rounded-atelier-panel p-3.5 shadow-xs">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        {freeShippingProgress >= 100 ? (
+                          <>
+                            <CheckCircle2 size={14} className="text-sage-dark shrink-0" />
+                            <span className="font-serif italic text-sage-dark font-medium">Complimentary Studio Shipping Unlocked!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={14} className="text-rose shrink-0" />
+                            <span className="text-bark">
+                              Add <strong className="text-rose font-semibold">₹{freeShippingRemaining}</strong> more for Complimentary Shipping
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <span className={`text-[11px] font-mono font-medium ${freeShippingProgress >= 100 ? 'text-sage-dark' : 'text-ink-light'}`}>
+                        {freeShippingProgress}%
+                      </span>
+                    </div>
+                    {/* Visual Progress Bar Track & Fill */}
+                    <div className="h-1.5 w-full bg-silk/40 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ease-out rounded-full ${
+                          freeShippingProgress >= 100
+                            ? 'bg-sage-dark'
+                            : 'bg-gradient-to-r from-rose to-sage'
+                        }`}
+                        style={{ width: `${freeShippingProgress}%` }}
+                      />
+                    </div>
+                  </div>
+
                   {items.map((item) => (
                     <div key={item.code + (item.color || '')} className="flex gap-4 pb-6 border-b border-silk/50">
                       <div className="w-16 h-20 flex-shrink-0 overflow-hidden rounded-sm bg-silk/30">
@@ -382,34 +433,81 @@ export default function CartDrawer() {
             {/* Footer with totals & action */}
             {items.length > 0 && (
               <div className="border-t border-silk px-5 py-4 space-y-3">
-                {/* Coupon Input */}
-                <div className="space-y-2 text-sm">
-                  <div className="flex gap-2">
-                    <input
-                      value={couponCode}
-                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                      placeholder="Coupon code"
-                      className="input-field flex-1 text-sm py-2"
-                      aria-label="Coupon code"
-                    />
+                {/* Coupon Input (Toggled via Feature Flag) */}
+                {settings.featureFlags?.enableCoupons !== false && (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex gap-2">
+                      <input
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        placeholder="Coupon code"
+                        className="input-field flex-1 text-sm py-2"
+                        aria-label="Coupon code"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyCoupon}
+                        disabled={isApplyingCoupon}
+                        className="btn-secondary px-3 text-xs"
+                      >
+                        {isApplyingCoupon ? 'Checking...' : 'Apply'}
+                      </button>
+                    </div>
+                    {couponMessage && <p className="text-xs text-rose">{couponMessage}</p>}
+                    {appliedCoupon && (
+                      <div className="flex justify-between text-xs text-sage-dark bg-sage/10 p-2 rounded-sm">
+                        <span>{appliedCoupon.code} applied (-₹{appliedCoupon.discountInRupees})</span>
+                        <button type="button" onClick={removeCoupon} className="underline hover:text-rose">Remove</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Priority Express Courier Toggle */}
+                <div className={`p-3 rounded-atelier-panel border transition-all ${
+                  isExpressCourier
+                    ? 'bg-rose/5 border-rose/30 shadow-xs'
+                    : 'bg-canvas/30 border-canvas-line'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                        isExpressCourier ? 'bg-rose/15 text-rose' : 'bg-canvas text-ink-light'
+                      }`}>
+                        <Zap size={15} className={isExpressCourier ? 'text-rose' : 'text-ink-light'} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-medium text-bark">Priority Express Courier</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose/10 text-rose font-medium">
+                            +₹{Math.round(expressShipping)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-ink-light/70">
+                          Expedited 1–2 day air dispatch with priority studio handling
+                        </p>
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      onClick={handleApplyCoupon}
-                      disabled={isApplyingCoupon}
-                      className="btn-secondary px-3 text-xs"
+                      role="switch"
+                      aria-checked={isExpressCourier}
+                      onClick={() => setIsExpressCourier(!isExpressCourier)}
+                      className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        isExpressCourier ? 'bg-rose' : 'bg-silk'
+                      }`}
                     >
-                      {isApplyingCoupon ? 'Checking...' : 'Apply'}
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          isExpressCourier ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
                     </button>
                   </div>
-                  {couponMessage && <p className="text-xs text-rose">{couponMessage}</p>}
-                  {appliedCoupon && (
-                    <div className="flex justify-between text-xs text-sage-dark bg-sage/10 p-2 rounded-sm">
-                      <span>{appliedCoupon.code} applied (-₹{appliedCoupon.discountInRupees})</span>
-                      <button type="button" onClick={removeCoupon} className="underline hover:text-rose">Remove</button>
-                    </div>
-                  )}
+                </div>
 
-                  {/* Pricing Breakdown */}
+                {/* Pricing Breakdown */}
+                <div className="space-y-2 text-sm">
                   <div className="flex justify-between pt-2">
                     <span className="text-ink-light">Subtotal</span>
                     <span className="text-ink">{formatPrice(totalPrice)}</span>
@@ -429,19 +527,23 @@ export default function CartDrawer() {
                   <div className="flex justify-between">
                     <span className="text-ink-light flex items-center gap-1">
                       <Truck size={12} strokeWidth={1.5} /> Shipping
+                      {isExpressCourier && (
+                        <span className="text-[10px] text-rose font-medium ml-1">(Express Air)</span>
+                      )}
                     </span>
                     <span className={shippingCost === 0 ? 'text-sage-dark font-medium' : 'text-ink'}>
                       {shippingCost === 0 ? 'COMPLIMENTARY' : formatPrice(shippingCost)}
                     </span>
                   </div>
 
-                  {shippingCost > 0 && (
+                  {shippingCost > 0 && !isExpressCourier && totalPrice < freeThreshold && (
                     <p className="text-[11px] text-ink-light/60">
-                      {totalPrice >= 799 && totalPrice < 1200
-                        ? `Add ₹${1200 - totalPrice} more for complimentary shipping`
-                        : totalPrice < 799
-                        ? `Add ₹${799 - totalPrice} more for reduced shipping`
-                        : ''}
+                      Add ₹{Math.max(0, Math.round(freeThreshold - totalPrice))} more for complimentary shipping
+                    </p>
+                  )}
+                  {isExpressCourier && (
+                    <p className="text-[11px] text-rose font-medium">
+                      Priority Express courier surcharge active (+₹{Math.round(expressShipping)})
                     </p>
                   )}
                   <div className="flex justify-between pt-3 border-t border-silk">
@@ -455,7 +557,7 @@ export default function CartDrawer() {
                   onClick={openCheckout}
                   className="btn-primary w-full py-4 text-sm flex items-center justify-center gap-2 shadow-soft"
                 >
-                  <Lock size={16} /> Proceed to Checkout
+                  <Lock size={16} /> Place Order · Settle via UPI
                 </button>
 
                 {/* Secondary concierge assistance button */}
@@ -834,8 +936,8 @@ export default function CartDrawer() {
                 />
               </div>
 
-              {/* Loyalty Points Redemption (if logged-in customer has points) */}
-              {user && pointsBalance > 0 && (
+              {/* Loyalty Points Redemption (Toggled via Feature Flag) */}
+              {settings.featureFlags?.enableLoyalty !== false && user && pointsBalance > 0 && (
                 <div className="p-3 bg-parchment-50 border border-canvas-line rounded-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
@@ -846,8 +948,8 @@ export default function CartDrawer() {
                         </p>
                         <p className="text-[11px] text-ink-light">
                           {isPointsEligible
-                            ? `Available: ${pointsBalance} pts (Save up to ₹${Math.floor(maxPointsRedeemable * 0.5)} · 2 pts = ₹1)`
-                            : `Available: ${pointsBalance} pts (Redeemable on orders above ₹299)`}
+                            ? `Available: ${pointsBalance} pts (Save up to ₹${Math.floor(maxPointsRedeemable * pointValue)} · 1 pt = ₹${pointValue.toFixed(2)})`
+                            : `Available: ${pointsBalance} pts (Redeemable on orders above ₹${minPointsThreshold})`}
                         </p>
                       </div>
                     </div>
@@ -864,7 +966,7 @@ export default function CartDrawer() {
                         </span>
                       </label>
                     ) : (
-                      <span className="text-[11px] text-rose font-medium">Min ₹299 order</span>
+                      <span className="text-[11px] text-rose font-medium">Min ₹{minPointsThreshold} order</span>
                     )}
                   </div>
                 </div>
@@ -886,7 +988,7 @@ export default function CartDrawer() {
 
               {/* Summary Strip */}
               <div className="pt-3 border-t border-canvas-line flex justify-between items-center text-sm">
-                <span className="text-ink-light">Total to Pay (Prepaid)</span>
+                <span className="text-ink-light">Total (Payable via UPI)</span>
                 <span className="font-serif text-2xl text-rose font-medium">{formatPrice(grandTotal)}</span>
               </div>
 
@@ -898,14 +1000,24 @@ export default function CartDrawer() {
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> Securing Order...
+                    <Loader2 size={18} className="animate-spin" /> Reserving Your Blooms...
                   </>
                 ) : (
                   <>
-                    <ShieldCheck size={18} /> Pay {formatPrice(grandTotal)} via Cashfree
+                    <Lock size={18} /> Place Order · Pay {formatPrice(grandTotal)} via UPI
                   </>
                 )}
               </button>
+
+              <div className="pt-2 text-center space-y-1">
+                <p className="text-[11px] text-ink-light flex items-center justify-center gap-1.5 font-light">
+                  <ShieldCheck size={14} className="text-emerald-700" />
+                  <span>No card needed · Settle securely via GPay / PhonePe / Paytm / QR</span>
+                </p>
+                <p className="text-[10px] text-ink-light/70">
+                  Our concierge will connect with you via WhatsApp to complete payment and begin crafting.
+                </p>
+              </div>
 
               {/* WhatsApp Alternative */}
               <div className="pt-2 text-center">

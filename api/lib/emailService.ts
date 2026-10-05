@@ -298,3 +298,58 @@ export async function sendDispatchEmail(params: DispatchEmailParams): Promise<bo
 
   return sendEmailViaResend(params.to, `Dispatch Notice: Order ${params.orderNumber} is on its way!`, html);
 }
+
+export interface ReferralRewardEmailParams {
+  to: string;
+  name: string;
+  pointsEarned: number;
+  totalPointsBalance: number;
+  refereeName?: string;
+  accountUrl: string;
+}
+
+export async function sendReferralRewardEmail(params: ReferralRewardEmailParams): Promise<boolean> {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head><meta charset="utf-8"/><title>Petal Points Credited!</title></head>
+      <body style="${BRAND_STYLES}">
+        <div style="${CONTAINER_STYLES}">
+          <div style="${HEADER_STYLES}">
+            <p style="margin: 0; font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: #E5DFD5;">Atelier Circle Milestone</p>
+            <h1 style="margin: 8px 0 0 0; font-family: Georgia, serif; font-size: 26px; font-weight: normal; color: #FAF6EF;">Your circle has bloomed.</h1>
+          </div>
+          <div style="${CONTENT_STYLES}">
+            <h2 style="font-family: Georgia, serif; font-size: 20px; color: #4A4238; margin-top: 0;">Wonderful news, ${params.name}!</h2>
+            <p style="font-size: 14px; line-height: 1.6; color: #6E6457;">
+              Your friend${params.refereeName ? ` <strong>${params.refereeName}</strong>` : ''} has just completed their first bespoke floral arrangement order with us. As our gratitude for spreading the art of everlasting crochet botanicals, we have credited your Atelier account.
+            </p>
+
+            <div style="background-color: #FAF6EF; padding: 24px; border-radius: 6px; margin: 24px 0; border: 1px solid #E5DFD5; text-align: center;">
+              <p style="margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: #8C8275;">Points Credited</p>
+              <p style="margin: 8px 0; font-family: Georgia, serif; font-size: 36px; font-weight: bold; color: #A36B67;">+${params.pointsEarned} Petals</p>
+              <p style="margin: 0; font-size: 13px; color: #6E6457;">
+                Your new balance: <strong>${params.totalPointsBalance} Petal Points</strong> (worth ₹${(params.totalPointsBalance * 0.5).toFixed(0)} toward your next arrangement).
+              </p>
+            </div>
+
+            <p style="font-size: 13px; line-height: 1.5; color: #6E6457;">
+              You can redeem your Petal Points during checkout on any handcrafted bouquet, stem collection, or custom bridal keepsake.
+            </p>
+
+            <div style="text-align: center; margin: 30px 0 10px 0;">
+              <a href="${params.accountUrl}" style="${BUTTON_STYLES}">View Your Atelier Account</a>
+            </div>
+          </div>
+          <div style="${FOOTER_STYLES}">
+            <p style="margin: 0 0 8px 0;">The Petal & Bloom • Handcrafted Floral Atelier • India</p>
+            <p style="margin: 0;">Questions? WhatsApp our Studio Concierge: +91 9931653303</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return sendEmailViaResend(params.to, `You earned ${params.pointsEarned} Petal Points! — The Petal & Bloom`, html);
+}
+

@@ -103,6 +103,13 @@ export default function Navbar() {
             : 'bg-parchment-50/40 backdrop-blur-sm')
         }`}
       >
+        {settings.featureFlags?.storeMaintenanceMode && (
+          <div className="bg-amber-700 text-linen text-[11px] sm:text-xs py-1.5 px-4 text-center font-medium tracking-wide flex items-center justify-center gap-2 shadow-sm">
+            <span className="text-amber-200">✦</span>
+            <span>Atelier Notice: Studio checkout is temporarily paused for scheduled maintenance. You may browse our collection; ordering will resume shortly.</span>
+          </div>
+        )}
+
         <nav className="container-lux flex items-center justify-between h-16 lg:h-20">
           {/* Logo */}
           <Link to="/" className="flex-shrink-0 flex items-center gap-3" aria-label="The Petal & Bloom home">

@@ -1,31 +1,35 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { supabaseServer } from '../lib/supabaseServer';
+import { supabaseAdmin } from '../lib/supabaseServer';
+import { requireAuth } from '../lib/authMiddleware';
 
 /**
- * Associates prior guest orders placed with the user's phone or email to their registered user account.
+ * Securely associates prior guest orders placed with the user's phone or email
+ * to their verified registered user account.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  try {
-    const { userId, email, phone } = req.body;
+  // Enforce customer authentication - user can ONLY link orders to their own verified account
+  const authUser = await requireAuth(req, res);
+  if (!authUser) return;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'Missing userId parameter' });
-    }
+  try {
+    const { email, phone } = req.body || {};
+    const userId = authUser.id; // Strictly bound to authenticated session
 
     let linkedCount = 0;
+    const lookupEmail = email?.trim().toLowerCase() || authUser.email;
+    const lookupPhone = phone?.trim().replace(/\D/g, '').slice(-10) || (authUser.phone ? authUser.phone.replace(/\D/g, '').slice(-10) : null);
 
     // Link by email
-    if (email && email.trim()) {
-      const cleanEmail = email.trim().toLowerCase();
-      const { data, error } = await supabaseServer
+    if (lookupEmail) {
+      const { data, error } = await supabaseAdmin
         .from('orders')
         .update({ customer_id: userId })
         .eq('customer_id', null)
-        .ilike('guest_email', cleanEmail)
+        .ilike('guest_email', lookupEmail)
         .select('id');
 
       if (!error && data) {
@@ -34,13 +38,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Link by phone
-    if (phone && phone.trim()) {
-      const cleanPhone = phone.trim().replace(/\D/g, '').slice(-10);
-      const { data, error } = await supabaseServer
+    if (lookupPhone) {
+      const { data, error } = await supabaseAdmin
         .from('orders')
         .update({ customer_id: userId })
         .eq('customer_id', null)
-        .ilike('guest_phone', `%${cleanPhone}%`)
+        .ilike('guest_phone', `%${lookupPhone}%`)
         .select('id');
 
       if (!error && data) {

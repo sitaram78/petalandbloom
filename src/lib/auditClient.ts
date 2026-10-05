@@ -1,3 +1,5 @@
+import { authFetch } from './apiClient';
+
 /**
  * Client-side audit logging helper.
  * Fire-and-forget: never throws, never blocks UI.
@@ -16,6 +18,7 @@ export const AUDIT_ACTIONS = {
   STAFF_ROLE_MODIFIED: 'STAFF_ROLE_MODIFIED',
   REVIEW_MODERATED: 'REVIEW_MODERATED',
   SETTINGS_UPDATED: 'SETTINGS_UPDATED',
+  INFLUENCER_PAYOUT_RECORDED: 'INFLUENCER_PAYOUT_RECORDED',
 } as const;
 
 export type AuditAction = typeof AUDIT_ACTIONS[keyof typeof AUDIT_ACTIONS];
@@ -37,9 +40,8 @@ interface AuditPayload {
  * it will never throw or block the calling function.
  */
 export function logAudit(payload: AuditPayload): void {
-  fetch('/api/audit/log', {
+  authFetch('/api/audit/log', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }).catch((err) => {
     console.warn('[Audit] Failed to log event:', err);

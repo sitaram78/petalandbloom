@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
+import { fetchCashfreeOrder, fetchCashfreePayments } from '../lib/cashfreeServer';
+import { confirmOrderPayment } from '../lib/orderPaymentService';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -38,6 +40,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (orderErr || !order) {
       return res.status(404).json({ success: false, message: 'Order not found. Please check your order reference.' });
+    }
+
+    // Self-healing check: If order is still PENDING_PAYMENT, verify directly with Cashfree
+    if (order.payment_status !== 'SUCCESS' && order.order_status === 'PENDING_PAYMENT') {
+      try {
+        const [cfOrder, cfPayments] = await Promise.all([
+          fetchCashfreeOrder(order.order_number),
+          fetchCashfreePayments(order.order_number),
+        ]);
+
+        const successfulPayment = Array.isArray(cfPayments)
+          ? cfPayments.find((p: any) => p.payment_status === 'SUCCESS')
+          : null;
+
+        const isPaid =
+          cfOrder?.order_status === 'PAID' ||
+          Boolean(successfulPayment);
+
+        if (isPaid) {
+          const cfPaymentId = successfulPayment?.cf_payment_id
+            ? String(successfulPayment.cf_payment_id)
+            : (cfOrder?.cf_order_id ? String(cfOrder.cf_order_id) : `cf_sync_${Date.now()}`);
+          const paymentMethod = successfulPayment?.payment_group || 'ONLINE';
+
+          const syncResult = await confirmOrderPayment(
+            order.order_number,
+            { cfPaymentId, paymentMethod, paymentDetails: successfulPayment || cfOrder },
+            'cashfree_track_sync'
+          );
+
+          if (syncResult.order) {
+            order.order_status = syncResult.order.order_status;
+            order.payment_status = syncResult.order.payment_status;
+          }
+        }
+      } catch (syncErr) {
+        console.warn('[Track Order Cashfree Sync Warning]:', syncErr);
+      }
     }
 
     // Security check: Phone verification for guest or customer lookup

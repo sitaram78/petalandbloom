@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
 import { createCashfreePGOrder } from '../lib/cashfreeServer';
+import { getCachedStoreSettings } from '../settings/store';
 
 interface CheckoutItemRequest {
   code: string;
@@ -29,6 +30,9 @@ interface CreateOrderRequestBody {
   };
   couponCode?: string;
   customerNote?: string;
+  paymentMethod?: 'MANUAL_UPI' | 'CASHFREE';
+  isExpress?: boolean;
+  redeemPoints?: number;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -37,6 +41,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const storeConfig = getCachedStoreSettings();
+    if (storeConfig.featureFlags?.storeMaintenanceMode) {
+      return res.status(503).json({
+        success: false,
+        message: 'The studio checkout is temporarily undergoing scheduled maintenance. Please check back shortly.',
+      });
+    }
+
     const body = req.body as CreateOrderRequestBody;
     const { items, customer, shippingAddress, couponCode, customerNote } = body;
 
@@ -126,12 +138,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const qty = Math.max(1, Math.min(20, Math.floor(Number(item.quantity) || 1)));
+
+      // Strictly check inventory for ready-to-ship pieces (bypass for Made to Order)
+      if (!prod.is_made_to_order && (prod.inventory_count !== null && prod.inventory_count !== undefined) && prod.inventory_count < qty) {
+        return res.status(400).json({
+          success: false,
+          message: `Only ${prod.inventory_count} piece(s) of "${prod.name}" remain in stock. Please adjust your cart quantity.`,
+        });
+      }
+
       const unitPriceInPaise = prod.price_in_paise;
       const itemSubtotal = unitPriceInPaise * qty;
       subtotalInPaise += itemSubtotal;
 
+      const giftWrapFee = storeConfig.businessRules?.giftWrapFeePaise ?? 7900;
       if (item.giftWrap) {
-        giftWrapTotalInPaise += 7900 * qty; // ₹79 per gift wrapped item
+        giftWrapTotalInPaise += giftWrapFee * qty;
       }
 
       resolvedOrderItems.push({
@@ -177,19 +199,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (couponCode && couponCode.trim()) {
       const normalizedCode = couponCode.trim().toUpperCase();
-      const { data: coupon, error: couponErr } = await supabaseAdmin
+      let { data: coupon, error: couponErr } = await supabaseAdmin
         .from('coupons')
         .select('*')
         .eq('code', normalizedCode)
         .eq('active', true)
         .maybeSingle();
 
+      if (!coupon && (normalizedCode === 'FLAT' || normalizedCode === 'FLAT10' || normalizedCode === 'FALT')) {
+        const { data: fallbackCoupons } = await supabaseAdmin
+          .from('coupons')
+          .select('*')
+          .in('code', ['FLAT', 'FLAT10', 'FALT'])
+          .eq('active', true)
+          .limit(1);
+        if (fallbackCoupons && fallbackCoupons.length > 0) {
+          coupon = fallbackCoupons[0];
+        }
+      }
+
       if (!couponErr && coupon) {
         const isNotExpired = !coupon.expires_at || new Date(coupon.expires_at) > new Date();
         const underLimit = coupon.usage_limit === null || coupon.usage_count < coupon.usage_limit;
         const meetsMinOrder = subtotalInPaise >= (coupon.min_order_in_paise || 0);
 
-        if (isNotExpired && underLimit && meetsMinOrder) {
+        let underPerCustomerLimit = true;
+        if (coupon.per_customer_limit && coupon.per_customer_limit > 0 && cleanPhone) {
+          const { count, error: countErr } = await supabaseAdmin
+            .from('coupon_redemptions')
+            .select('id', { count: 'exact', head: true })
+            .eq('coupon_id', coupon.id)
+            .ilike('customer_phone', `%${cleanPhone}%`);
+
+          if (!countErr && count !== null && count >= coupon.per_customer_limit) {
+            underPerCustomerLimit = false;
+          }
+        }
+
+        if (isNotExpired && underLimit && underPerCustomerLimit && meetsMinOrder) {
           validatedCouponId = coupon.id;
           validatedCouponCode = coupon.code;
 
@@ -206,13 +253,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 4. Loyalty Points Redemption (if authenticated customer)
-    // Business Rule (Decision 1): 1 Petal Point = ₹0.50 (50 paise), redeemable ONLY on orders > ₹299 (subtotal >= 29900 paise)
     let loyaltyPointsRedeemed = 0;
     let loyaltyDiscountInPaise = 0;
 
-    const meetsPointsMinThreshold = subtotalInPaise >= 29900;
+    const isLoyaltyEnabled = storeConfig.featureFlags?.enableLoyalty ?? true;
+    const minPointsOrder = storeConfig.businessRules?.minLoyaltyOrderPaise ?? 29900;
+    const pointValuePaise = storeConfig.businessRules?.loyaltyPointRedemptionPaise ?? 50;
 
-    if (meetsPointsMinThreshold && customer.customerId && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
+    const meetsPointsMinThreshold = subtotalInPaise >= minPointsOrder;
+
+    if (isLoyaltyEnabled && meetsPointsMinThreshold && customer.customerId && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
       const { data: loyaltyAcc } = await supabaseAdmin
         .from('loyalty_accounts')
         .select('points_balance')
@@ -222,18 +272,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (loyaltyAcc && (loyaltyAcc.points_balance || 0) > 0) {
         loyaltyPointsRedeemed = Math.min(loyaltyAcc.points_balance, Math.floor(Number(req.body.redeemPoints)));
         const maxRedeemablePaise = Math.max(0, subtotalInPaise - discountInPaise);
-        // 1 Petal Point = 50 paise (₹0.50)
-        loyaltyDiscountInPaise = Math.min(loyaltyPointsRedeemed * 50, maxRedeemablePaise);
+        loyaltyDiscountInPaise = Math.min(loyaltyPointsRedeemed * pointValuePaise, maxRedeemablePaise);
       }
     }
 
-    // 5. Shipping Calculation (Store rule: >= ₹1200 complimentary, >= ₹799: ₹49, else ₹69)
-    let shippingFeeInPaise = 6900;
-    if (subtotalInPaise >= 120000) {
-      shippingFeeInPaise = 0;
-    } else if (subtotalInPaise >= 79900) {
-      shippingFeeInPaise = 4900;
-    }
+    // 5. Dynamic Shipping Calculation from Store Settings
+    const freeShippingThreshold = storeConfig.businessRules?.freeShippingThresholdPaise ?? 120000;
+    const standardShippingFee = storeConfig.businessRules?.standardShippingFeePaise ?? 6900;
+    const expressShippingFee = storeConfig.businessRules?.expressShippingFeePaise ?? 4900;
+    const isExpress = Boolean(req.body.isExpress);
+
+    const baseShippingFee = subtotalInPaise >= freeShippingThreshold ? 0 : standardShippingFee;
+    const shippingFeeInPaise = baseShippingFee + (isExpress ? expressShippingFee : 0);
 
     const totalInPaise = Math.max(0, subtotalInPaise - discountInPaise - loyaltyDiscountInPaise + shippingFeeInPaise + giftWrapTotalInPaise);
 
@@ -357,32 +407,65 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 9. Call Cashfree to generate PG Session
-    const origin = req.headers.origin || 'https://thepetalandbloom.vercel.app';
-    const returnUrl = `${origin}/order-confirmation?order_id=${newOrder.order_number}`;
+    // 9. Payment Session Handling (Default to MANUAL_UPI for offline / WhatsApp concierge settlement)
+    const requestedPaymentMethod = body.paymentMethod || 'MANUAL_UPI';
 
-    const cfOrder = await createCashfreePGOrder({
-      orderId: newOrder.order_number,
-      orderAmount: totalInPaise / 100,
-      customerDetails: {
-        customerId: customer.customerId || `cust_${cleanPhone}`,
-        customerName: customer.name.trim(),
-        customerPhone: cleanPhone,
-        customerEmail: customer.email?.trim(),
-      },
-      returnUrl,
-    });
+    if (requestedPaymentMethod === 'CASHFREE') {
+      try {
+        const origin = req.headers.origin || 'https://thepetalandbloom.vercel.app';
+        const returnUrl = `${origin}/order-confirmation?order_id=${newOrder.order_number}`;
 
-    // 10. Record Payment Session
-    await supabaseAdmin.from('payments').insert({
+        const cfOrder = await createCashfreePGOrder({
+          orderId: newOrder.order_number,
+          orderAmount: totalInPaise / 100,
+          customerDetails: {
+            customerId: customer.customerId || `cust_${cleanPhone}`,
+            customerName: customer.name.trim(),
+            customerPhone: cleanPhone,
+            customerEmail: customer.email?.trim(),
+          },
+          returnUrl,
+        });
+
+        await supabaseAdmin.from('payments').insert({
+          order_id: newOrder.id,
+          provider: 'CASHFREE',
+          cf_order_id: cfOrder.cfOrderId,
+          cf_payment_session_id: cfOrder.paymentSessionId,
+          amount_in_paise: totalInPaise,
+          currency: 'INR',
+          status: 'PENDING',
+        });
+
+        return res.status(200).json({
+          success: true,
+          orderId: newOrder.id,
+          orderNumber: newOrder.order_number,
+          totalInPaise,
+          totalInRupees: totalInPaise / 100,
+          paymentMethod: 'CASHFREE',
+          paymentSessionId: cfOrder.paymentSessionId,
+          isSimulated: cfOrder.isSimulated,
+        });
+      } catch (cfErr) {
+        console.warn('[Cashfree PG Session Warning, falling back to MANUAL_UPI]:', cfErr);
+      }
+    }
+
+    // Default: Record as Manual UPI / WhatsApp settlement
+    const { error: payErr } = await supabaseAdmin.from('payments').insert({
       order_id: newOrder.id,
-      provider: 'CASHFREE',
-      cf_order_id: cfOrder.cfOrderId,
-      cf_payment_session_id: cfOrder.paymentSessionId,
+      provider: 'MANUAL_UPI',
+      cf_order_id: `manual_${newOrder.order_number}`,
+      cf_payment_session_id: `manual_session_${newOrder.order_number}`,
       amount_in_paise: totalInPaise,
       currency: 'INR',
       status: 'PENDING',
     });
+
+    if (payErr) {
+      console.warn('[Manual UPI Payment Record Warning]:', payErr);
+    }
 
     return res.status(200).json({
       success: true,
@@ -390,8 +473,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       orderNumber: newOrder.order_number,
       totalInPaise,
       totalInRupees: totalInPaise / 100,
-      paymentSessionId: cfOrder.paymentSessionId,
-      isSimulated: cfOrder.isSimulated,
+      paymentMethod: 'MANUAL_UPI',
+      paymentStatus: 'PENDING',
+      orderStatus: 'PENDING_PAYMENT',
     });
   } catch (err: any) {
     console.error('[Create Order Error]', err);

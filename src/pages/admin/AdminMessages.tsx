@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MessageCircle,
   Search,
@@ -15,11 +16,18 @@ import {
   Sparkles,
   ToggleLeft,
   ToggleRight,
+  ChevronLeft,
+  Package,
+  X,
+  Copy,
+  Check,
+  ChevronRight,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { supabase } from '@/lib/supabaseClient';
 import { useNotification } from '@/context/NotificationContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
+import { formatPrice } from '@/data/products';
 
 interface Conversation {
   id: string;
@@ -43,7 +51,36 @@ interface MessageItem {
   created_at: string;
 }
 
+const CANNED_REPLIES = [
+  {
+    label: 'Custom Palette',
+    icon: '🎨',
+    text: 'Namaste! We dye our 100% combed cotton yarn to order and can craft this in any bespoke colorway or palette you wish. Would you like to see our seasonal shade card?',
+  },
+  {
+    label: 'In Crafting Queue',
+    icon: '⏳',
+    text: 'Your order is currently with our master florists in the crafting queue. Each petal is delicately hand-crocheted and inspected before careful boxing.',
+  },
+  {
+    label: 'Courier Dispatched',
+    icon: '🚚',
+    text: 'Your bespoke parcel has been securely packed and dispatched with our courier partner. You will receive live SMS and tracking updates on your phone shortly.',
+  },
+  {
+    label: 'Gift Packaging',
+    icon: '🎁',
+    text: 'All bespoke bouquets arrive in our signature kraft floral box, nestled in tissue, and accompanied by a botanical parchment card with our wax seal.',
+  },
+  {
+    label: 'Care & Display',
+    icon: '🌿',
+    text: 'Crochet blooms are everlasting! Simply keep them away from direct prolonged water or dampness. For occasional dusting, use a soft bristle makeup brush or cool gentle hairdryer.',
+  },
+];
+
 export default function AdminMessages() {
+  const navigate = useNavigate();
   const { settings, updateSettings } = useStoreSettings();
   const { showNotification } = useNotification();
 
@@ -52,12 +89,20 @@ export default function AdminMessages() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING_ADMIN' | 'OPEN' | 'RESOLVED'>('ALL');
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
+  const [mobileActiveView, setMobileActiveView] = useState<'list' | 'chat'>('list');
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [isSending, setIsSending] = useState(false);
 
+  // Patron Context & Order History Drawer State
+  const [patronOrders, setPatronOrders] = useState<any[]>([]);
+  const [patronProfile, setPatronProfile] = useState<any>(null);
+  const [loadingContext, setLoadingContext] = useState(false);
+  const [showContextDrawer, setShowContextDrawer] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -106,15 +151,30 @@ export default function AdminMessages() {
   useEffect(() => {
     fetchConversations(false);
 
-    // Active real-time polling every 2 seconds
+    // Supabase Realtime channel for live conversation updates
+    const channel = supabase
+      .channel('realtime:assistance_conversations')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assistance_conversations' },
+        () => {
+          fetchConversations(true);
+        }
+      )
+      .subscribe();
+
+    // Intelligent background fallback polling every 30 seconds
     const interval = setInterval(() => {
       fetchConversations(true);
-    }, 2000);
+    }, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, []);
 
-  // Fetch messages when selected conversation changes with active polling
+  // Fetch messages when selected conversation changes with realtime push + passive fallback
   useEffect(() => {
     if (!selectedConv?.id) return;
     let isMounted = true;
@@ -155,10 +215,33 @@ export default function AdminMessages() {
 
     loadMessages(false);
 
-    // Active real-time polling every 2 seconds for active thread
+    // Supabase Realtime channel for active thread instant message delivery
+    const msgChannel = supabase
+      .channel(`realtime:assistance_messages:${selectedConv.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'assistance_messages',
+          filter: `conversation_id=eq.${selectedConv.id}`,
+        },
+        (payload) => {
+          if (!isMounted) return;
+          const newMsg = payload.new as MessageItem;
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+          fetchConversations(true);
+        }
+      )
+      .subscribe();
+
+    // Passive fallback interval (30 seconds)
     const messagePollInterval = setInterval(() => {
       loadMessages(true);
-    }, 2000);
+    }, 30000);
 
     // Subscribe to new incoming messages via BroadcastChannel (0ms delivery in same browser)
     let bc: BroadcastChannel | null = null;
@@ -182,14 +265,80 @@ export default function AdminMessages() {
 
     return () => {
       isMounted = false;
+      supabase.removeChannel(msgChannel);
       clearInterval(messagePollInterval);
       if (bc) bc.close();
     };
   }, [selectedConv?.id]);
 
+  // Load Patron Context & Order History
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!selectedConv) {
+      setPatronOrders([]);
+      setPatronProfile(null);
+      return;
+    }
+
+    let isMounted = true;
+    async function loadPatronContext() {
+      setLoadingContext(true);
+      try {
+        const conditions: string[] = [];
+        if (selectedConv?.customer_id) conditions.push(`customer_id.eq.${selectedConv.customer_id}`);
+        if (selectedConv?.customer_phone) conditions.push(`guest_phone.eq.${selectedConv.customer_phone}`);
+        if (selectedConv?.customer_email) conditions.push(`guest_email.eq.${selectedConv.customer_email}`);
+
+        if (conditions.length > 0) {
+          const { data: ords } = await supabase
+            .from('orders')
+            .select('id, order_number, order_status, total_in_paise, created_at, order_items')
+            .or(conditions.join(','))
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          if (ords && isMounted) setPatronOrders(ords);
+        } else {
+          if (isMounted) setPatronOrders([]);
+        }
+
+        if (selectedConv?.customer_id) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, phone, role, created_at')
+            .eq('id', selectedConv.customer_id)
+            .maybeSingle();
+
+          if (prof && isMounted) setPatronProfile(prof);
+        } else {
+          if (isMounted) setPatronProfile(null);
+        }
+      } catch (e) {
+        console.warn('Error loading patron context:', e);
+      } finally {
+        if (isMounted) setLoadingContext(false);
+      }
+    }
+
+    loadPatronContext();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedConv]);
+
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   }, [messages]);
+
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [selectedConv?.id]);
 
   const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -256,19 +405,6 @@ export default function AdminMessages() {
     }
   };
 
-  const handleToggleChannelMode = async () => {
-    const nextMode = settings.conciergeChannelMode === 'WHATSAPP' ? 'IN_SYSTEM' : 'WHATSAPP';
-    const result = await updateSettings({ conciergeChannelMode: nextMode });
-    if (result.success) {
-      showNotification(
-        `Concierge Mode switched to: ${
-          nextMode === 'IN_SYSTEM' ? 'In-System Live Assistant' : 'Direct WhatsApp'
-        }!`,
-        'success'
-      );
-    }
-  };
-
   // Open direct WhatsApp chat with this customer
   const openWhatsAppForCustomer = (conv: Conversation) => {
     const cleanPhone = (conv.customer_phone || '').replace(/\D/g, '').slice(-10);
@@ -295,56 +431,33 @@ export default function AdminMessages() {
   });
 
   return (
-    <AdminLayout activePage="settings">
-      <main className="p-6 lg:p-10 max-w-7xl mx-auto">
-        {/* Header & Mode Switcher */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+    <AdminLayout activePage="messages">
+      <div className="p-3 sm:p-5 lg:p-6 max-w-7xl mx-auto h-[calc(100dvh-4rem)] md:h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden w-full">
+        {/* Header */}
+        <header className="flex-shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-1.5 sm:gap-4 mb-3 sm:mb-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-rose font-medium mb-1">
+            <p className="text-[10px] sm:text-xs uppercase tracking-[0.25em] text-rose font-medium">
               Customer Support &amp; Concierge
             </p>
-            <h1 className="heading-serif text-4xl text-bark">Live Assistance Inbox</h1>
-            <p className="text-xs text-ink-light mt-1">
+            <h1 className="heading-serif text-2xl sm:text-3xl text-bark">Live Assistance Inbox</h1>
+            <p className="text-xs text-ink-light mt-0.5 hidden sm:block">
               Manage in-system live customer chats and seamlessly coordinate via WhatsApp.
             </p>
           </div>
-
-          {/* Concierge Mode Quick Toggle Button */}
-          <div className="flex items-center gap-3 bg-linen p-3 rounded-sm border border-canvas-line">
-            <div className="text-right">
-              <p className="text-[10px] uppercase font-bold text-bark tracking-wider">
-                Storefront Concierge Mode
-              </p>
-              <p className="text-xs text-rose font-semibold">
-                {settings.conciergeChannelMode === 'IN_SYSTEM'
-                  ? 'In-System Live Assistant'
-                  : 'Direct WhatsApp'}
-              </p>
-            </div>
-            <button
-              onClick={handleToggleChannelMode}
-              className={`p-2 rounded-full transition-all ${
-                settings.conciergeChannelMode === 'IN_SYSTEM'
-                  ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
-                  : 'text-bark bg-canvas/40 hover:bg-canvas/60'
-              }`}
-              title="Click to toggle between Direct WhatsApp and In-System Assistant"
-            >
-              {settings.conciergeChannelMode === 'IN_SYSTEM' ? (
-                <ToggleRight size={32} />
-              ) : (
-                <ToggleLeft size={32} />
-              )}
-            </button>
+          <div className="hidden sm:flex items-center gap-2 text-xs text-ink-light">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Real-time Concierge Active</span>
           </div>
         </header>
 
         {/* Workspace Layout: Left Sidebar List, Right Chat Pane */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 flex-1 min-h-0">
           {/* Conversation List Column (4 cols) */}
-          <div className="lg:col-span-4 bg-white rounded-sm border border-canvas-line shadow-soft flex flex-col overflow-hidden">
-            {/* Search & Filter */}
-            <div className="p-4 border-b border-canvas-line space-y-3 bg-linen/50">
+          <div className={`lg:col-span-4 h-full bg-white rounded-sm border border-canvas-line shadow-soft flex flex-col min-h-0 overflow-hidden ${
+            mobileActiveView === 'chat' ? 'hidden lg:flex' : 'flex'
+          }`}>
+            {/* Search & Filter (Sticky / flex-shrink-0) */}
+            <div className="flex-shrink-0 p-3 sm:p-3.5 border-b border-canvas-line space-y-2.5 bg-linen/50">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-light" />
                 <input
@@ -356,12 +469,12 @@ export default function AdminMessages() {
                 />
               </div>
 
-              <div className="flex gap-1.5 overflow-x-auto text-[10px]">
+              <div className="flex gap-1.5 overflow-x-auto text-[10px] scrollbar-none">
                 {(['ALL', 'PENDING_ADMIN', 'OPEN', 'RESOLVED'] as const).map((filter) => (
                   <button
                     key={filter}
                     onClick={() => setStatusFilter(filter)}
-                    className={`px-2.5 py-1 rounded-sm uppercase tracking-wider font-semibold transition-all ${
+                    className={`px-2.5 py-1 rounded-sm uppercase tracking-wider font-semibold transition-all whitespace-nowrap ${
                       statusFilter === filter
                         ? 'bg-bark text-linen'
                         : 'bg-canvas/40 text-ink-light hover:text-ink'
@@ -373,8 +486,8 @@ export default function AdminMessages() {
               </div>
             </div>
 
-            {/* List Items */}
-            <div className="flex-1 overflow-y-auto divide-y divide-canvas-line">
+            {/* List Items (Independent Scroll Area) */}
+            <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-canvas-line atelier-scrollbar">
               {loading ? (
                 <div className="p-10 text-center">
                   <Loader2 size={24} className="animate-spin text-rose mx-auto mb-2" />
@@ -391,7 +504,10 @@ export default function AdminMessages() {
                   return (
                     <button
                       key={conv.id}
-                      onClick={() => setSelectedConv(conv)}
+                      onClick={() => {
+                        setSelectedConv(conv);
+                        setMobileActiveView('chat');
+                      }}
                       className={`w-full p-4 text-left transition-colors flex flex-col gap-1.5 ${
                         isSelected
                           ? 'bg-rose/5 border-l-4 border-l-rose'
@@ -440,34 +556,45 @@ export default function AdminMessages() {
           </div>
 
           {/* Active Conversation Detail Column (8 cols) */}
-          <div className="lg:col-span-8 bg-white rounded-sm border border-canvas-line shadow-soft flex flex-col overflow-hidden">
+          <div className={`lg:col-span-8 h-full bg-white rounded-sm border border-canvas-line shadow-soft flex flex-col min-h-0 overflow-hidden ${
+            mobileActiveView === 'list' ? 'hidden lg:flex' : 'flex'
+          }`}>
             {selectedConv ? (
               <>
                 {/* Active Chat Header */}
-                <div className="p-4 bg-linen border-b border-canvas-line flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-bark text-linen flex items-center justify-center font-bold text-sm">
+                <div className="flex-shrink-0 p-3.5 sm:p-4 bg-linen border-b border-canvas-line flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                    {/* Mobile Back to List Button */}
+                    <button
+                      onClick={() => setMobileActiveView('list')}
+                      className="lg:hidden p-1.5 -ml-1 rounded-sm hover:bg-canvas text-bark flex items-center gap-1 text-xs font-semibold flex-shrink-0"
+                      title="Back to conversation list"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-bark text-linen flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0">
                       {selectedConv.customer_name.slice(0, 2).toUpperCase()}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-serif font-semibold text-bark text-base">
+                        <h3 className="font-serif font-semibold text-bark text-sm sm:text-base truncate">
                           {selectedConv.customer_name}
                         </h3>
                         {selectedConv.customer_id && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-bark text-linen">
+                          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-bark text-linen">
                             Registered Customer
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-ink-light mt-0.5">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-light mt-0.5">
                         {selectedConv.customer_phone && (
-                          <span className="flex items-center gap-1 font-mono">
+                          <span className="flex items-center gap-1 font-mono text-[11px] sm:text-xs">
                             <Phone size={11} /> +91 {selectedConv.customer_phone}
                           </span>
                         )}
                         {selectedConv.customer_email && (
-                          <span className="flex items-center gap-1">
+                          <span className="hidden md:flex items-center gap-1 text-[11px] sm:text-xs truncate max-w-[200px]">
                             <Mail size={11} /> {selectedConv.customer_email}
                           </span>
                         )}
@@ -475,101 +602,247 @@ export default function AdminMessages() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-auto sm:ml-0">
+                    <button
+                      onClick={() => setShowContextDrawer(!showContextDrawer)}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-all border ${
+                        showContextDrawer
+                          ? 'bg-bark text-linen border-bark'
+                          : 'bg-white border-canvas-line text-bark hover:border-bark'
+                      }`}
+                      title="Toggle Patron Context & Recent Orders"
+                    >
+                      <Package size={13} className={showContextDrawer ? 'text-rose-200' : 'text-rose'} />
+                      <span className="hidden sm:inline">Patron Orders</span>
+                      {patronOrders.length > 0 && (
+                        <span className="w-4 h-4 rounded-full bg-rose text-white text-[9px] font-mono flex items-center justify-center font-bold">
+                          {patronOrders.length}
+                        </span>
+                      )}
+                    </button>
+
                     <button
                       onClick={() => openWhatsAppForCustomer(selectedConv)}
-                      className="px-3 py-1.5 bg-[#25D366] text-white hover:opacity-90 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-opacity"
+                      className="px-2.5 sm:px-3 py-1.5 bg-[#25D366] text-white hover:opacity-90 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-opacity"
                       title="Continue conversation on WhatsApp"
                     >
-                      <Phone size={13} />
-                      WhatsApp
+                      <Phone size={12} />
+                      <span className="hidden sm:inline">WhatsApp</span>
                     </button>
                     {selectedConv.status !== 'RESOLVED' && (
                       <button
                         onClick={() => handleResolve(selectedConv.id)}
-                        className="px-3 py-1.5 border border-canvas-line text-ink hover:bg-canvas/40 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors"
+                        className="px-2.5 sm:px-3 py-1.5 border border-canvas-line text-ink hover:bg-canvas/40 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors"
                       >
-                        <CheckCircle2 size={13} className="text-emerald-700" />
-                        Resolve
+                        <CheckCircle2 size={12} className="text-emerald-700" />
+                        <span>Resolve</span>
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Messages Body */}
-                <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-canvas/10">
-                  {loadingMessages ? (
-                    <div className="p-10 text-center">
-                      <Loader2 size={24} className="animate-spin text-rose mx-auto" />
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <div className="p-10 text-center text-xs text-ink-light">
-                      No messages recorded in this conversation yet.
-                    </div>
-                  ) : (
-                    messages.map((m) => {
-                      const isArtisan = m.sender_type === 'ADMIN';
-                      return (
-                        <div
-                          key={m.id}
-                          className={`flex flex-col ${isArtisan ? 'items-end' : 'items-start'}`}
-                        >
+                {/* Messages Body + Patron Context Sidebar */}
+                <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+                  <div
+                    ref={messagesContainerRef}
+                    className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3.5 bg-canvas/15 min-w-0 atelier-scrollbar"
+                  >
+                    {loadingMessages ? (
+                      <div className="p-10 text-center">
+                        <Loader2 size={24} className="animate-spin text-rose mx-auto" />
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="p-10 text-center text-xs text-ink-light">
+                        No messages recorded in this conversation yet.
+                      </div>
+                    ) : (
+                      messages.map((m) => {
+                        const isArtisan = m.sender_type === 'ADMIN';
+                        return (
                           <div
-                            className={`max-w-[75%] p-3.5 rounded-sm text-xs leading-relaxed ${
-                              isArtisan
-                                ? 'bg-bark text-linen rounded-br-none shadow-sm'
-                                : 'bg-white text-ink border border-canvas-line rounded-bl-none shadow-sm'
-                            }`}
+                            key={m.id}
+                            className={`flex flex-col ${isArtisan ? 'items-end' : 'items-start'}`}
                           >
-                            <div className="flex justify-between items-center gap-4 mb-1">
-                              <span
-                                className={`text-[10px] font-bold uppercase tracking-wider ${
-                                  isArtisan ? 'text-rose-200' : 'text-rose'
-                                }`}
-                              >
-                                {isArtisan ? 'Artisan Team' : m.sender_name}
-                              </span>
-                              <span
-                                className={`text-[9px] font-mono ${
-                                  isArtisan ? 'text-white/60' : 'text-ink-light'
-                                }`}
-                              >
-                                {new Date(m.created_at).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </span>
+                            <div
+                              className={`max-w-[88%] sm:max-w-[75%] p-3.5 sm:p-4 rounded-2xl text-xs leading-relaxed shadow-soft transition-all ${
+                                isArtisan
+                                  ? 'bg-bark text-parchment-50 rounded-tr-xs'
+                                  : 'bg-white text-bark border border-canvas-line rounded-tl-xs'
+                              }`}
+                            >
+                              <div className="flex justify-between items-center gap-4 mb-1.5">
+                                <span
+                                  className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+                                    isArtisan ? 'text-rose-200' : 'text-rose'
+                                  }`}
+                                >
+                                  {isArtisan ? (
+                                    <>
+                                      <Sparkles size={11} />
+                                      <span>Artisan Concierge</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <User size={11} />
+                                      <span>{m.sender_name || 'Patron'}</span>
+                                    </>
+                                  )}
+                                </span>
+                                <span
+                                  className={`text-[9px] font-mono ${
+                                    isArtisan ? 'text-parchment-50/60' : 'text-ink-light'
+                                  }`}
+                                >
+                                  {new Date(m.created_at).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                              <p className="whitespace-pre-wrap leading-relaxed">{m.message_text}</p>
                             </div>
-                            <p className="whitespace-pre-wrap">{m.message_text}</p>
+                          </div>
+                        );
+                      })
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {/* Patron Context Sidebar Drawer */}
+                  {showContextDrawer && (
+                    <div className="w-full lg:w-80 h-full border-t lg:border-t-0 lg:border-l border-canvas-line bg-linen/50 flex flex-col overflow-y-auto p-4 space-y-4 max-h-[45vh] lg:max-h-none flex-shrink-0 atelier-scrollbar">
+                      <div className="flex items-center justify-between pb-3 border-b border-canvas-line/80">
+                        <div className="flex items-center gap-2">
+                          <Package size={16} className="text-rose" />
+                          <h4 className="font-serif font-semibold text-bark text-sm">Patron Dossier</h4>
+                        </div>
+                        <button
+                          onClick={() => setShowContextDrawer(false)}
+                          className="p-1 rounded hover:bg-canvas text-ink-light hover:text-bark transition-colors"
+                          title="Close dossier"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+
+                      {/* Patron Relationship Stats */}
+                      <div className="bg-white p-3.5 rounded-sm border border-canvas-line space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-ink-light">Status</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose/10 text-rose border border-rose/20">
+                            {selectedConv.customer_id ? 'Registered Patron' : 'Guest Visitor'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-canvas-line/60 text-xs">
+                          <div>
+                            <span className="text-[10px] text-ink-light block">Total Orders</span>
+                            <span className="font-serif font-bold text-bark text-base">{patronOrders.length}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-ink-light block">Lifetime Spend</span>
+                            <span className="font-serif font-bold text-bark text-base">
+                              {formatPrice(patronOrders.reduce((sum, o) => sum + (o.total_in_paise || 0), 0) / 100)}
+                            </span>
                           </div>
                         </div>
-                      );
-                    })
+                      </div>
+
+                      {/* Recent Orders List */}
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-ink-light">Recent Orders</span>
+                          <button
+                            onClick={() => navigate('/admin/orders')}
+                            className="text-[10px] text-rose hover:underline flex items-center gap-1 font-medium"
+                          >
+                            <span>All Orders</span>
+                            <ExternalLink size={10} />
+                          </button>
+                        </div>
+
+                        {loadingContext ? (
+                          <div className="py-8 text-center text-xs text-ink-light">
+                            <Loader2 size={16} className="animate-spin text-rose mx-auto mb-1" />
+                            <span>Searching order ledger...</span>
+                          </div>
+                        ) : patronOrders.length === 0 ? (
+                          <div className="bg-white/60 p-4 rounded-sm border border-canvas-line text-center text-xs text-ink-light space-y-1">
+                            <p>No past orders located.</p>
+                            <p className="text-[10px] text-ink-light/60">Phone: {selectedConv.customer_phone || 'None'}</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {patronOrders.map((ord) => (
+                              <div
+                                key={ord.id}
+                                onClick={() => navigate('/admin/orders')}
+                                className="bg-white p-3 rounded-sm border border-canvas-line hover:border-bark hover:shadow-2xs transition-all cursor-pointer space-y-1.5"
+                                title="Click to view in orders manager"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-mono font-bold text-xs text-bark">{ord.order_number}</span>
+                                  <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-canvas border border-canvas-line text-bark">
+                                    {ord.order_status.replace(/_/g, ' ')}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-ink-light text-[10px]">
+                                    {new Date(ord.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                  <span className="font-serif font-bold text-bark">
+                                    {formatPrice((ord.total_in_paise || 0) / 100)}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  <div ref={messagesEndRef} />
                 </div>
 
-                {/* Reply Composer */}
-                <form onSubmit={handleSendReply} className="p-4 bg-white border-t border-canvas-line">
+                {/* Canned Concierge Responses Toolbar (flex-shrink-0) */}
+                <div className="flex-shrink-0 px-3.5 py-2 bg-linen/60 border-t border-canvas-line flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-rose flex items-center gap-1 flex-shrink-0 mr-1">
+                    <Sparkles size={11} /> Canned:
+                  </span>
+                  {CANNED_REPLIES.map((canned) => (
+                    <button
+                      key={canned.label}
+                      type="button"
+                      onClick={() => setReplyText(canned.text)}
+                      className="px-2.5 py-1 rounded-full bg-white hover:bg-rose/10 border border-canvas-line hover:border-rose/30 text-[11px] text-bark hover:text-rose-deep transition-all shadow-2xs whitespace-nowrap flex items-center gap-1 flex-shrink-0"
+                      title="Insert template into reply input"
+                    >
+                      <span>{canned.icon}</span>
+                      <span>{canned.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Reply Composer (flex-shrink-0) */}
+                <form onSubmit={handleSendReply} className="flex-shrink-0 p-3 sm:p-4 bg-white border-t border-canvas-line">
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
                       placeholder="Type studio response to customer..."
-                      className="flex-1 px-4 py-2.5 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     />
                     <button
                       type="submit"
                       disabled={isSending || !replyText.trim()}
-                      className="px-5 py-2.5 bg-bark text-linen hover:bg-rose-deep rounded-sm text-xs uppercase tracking-wider font-medium flex items-center gap-2 transition-all disabled:opacity-40"
+                      className="px-3.5 sm:px-5 py-2 sm:py-2.5 bg-bark text-linen hover:bg-rose-deep rounded-sm text-xs uppercase tracking-wider font-medium flex items-center gap-1.5 sm:gap-2 transition-all disabled:opacity-40 flex-shrink-0"
                     >
                       {isSending ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : (
                         <Send size={14} />
                       )}
-                      <span>Send Reply</span>
+                      <span className="hidden sm:inline">Send Reply</span>
+                      <span className="sm:hidden">Send</span>
                     </button>
                   </div>
                 </form>
@@ -582,7 +855,7 @@ export default function AdminMessages() {
             )}
           </div>
         </div>
-      </main>
+      </div>
     </AdminLayout>
   );
 }

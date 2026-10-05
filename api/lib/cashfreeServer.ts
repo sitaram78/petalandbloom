@@ -137,3 +137,70 @@ export function verifyCashfreeSignature(signature: string, timestamp: string, ra
     return false;
   }
 }
+
+/**
+ * Fetches order details directly from Cashfree Payment Gateway.
+ */
+export async function fetchCashfreeOrder(orderId: string): Promise<any> {
+  const config = getCashfreeConfig();
+  if (!config.appId || !config.secretKey) {
+    return null;
+  }
+
+  const endpoint = `${config.baseUrl}/orders/${encodeURIComponent(orderId)}`;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'x-client-id': config.appId,
+        'x-client-secret': config.secretKey,
+        'x-api-version': config.apiVersion,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`[Cashfree fetchCashfreeOrder] ${orderId} returned HTTP ${response.status}`);
+      return null;
+    }
+
+    return await response.json();
+  } catch (err: any) {
+    console.error(`[Cashfree fetchCashfreeOrder Error] for ${orderId}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Fetches payment attempts for an order from Cashfree Payment Gateway.
+ */
+export async function fetchCashfreePayments(orderId: string): Promise<any[]> {
+  const config = getCashfreeConfig();
+  if (!config.appId || !config.secretKey) {
+    return [];
+  }
+
+  const endpoint = `${config.baseUrl}/orders/${encodeURIComponent(orderId)}/payments`;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'x-client-id': config.appId,
+        'x-client-secret': config.secretKey,
+        'x-api-version': config.apiVersion,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`[Cashfree fetchCashfreePayments] ${orderId} returned HTTP ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err: any) {
+    console.error(`[Cashfree fetchCashfreePayments Error] for ${orderId}:`, err.message);
+    return [];
+  }
+}
