@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
 import { fetchCashfreeOrder, fetchCashfreePayments } from '../lib/cashfreeServer';
 import { confirmOrderPayment } from '../lib/orderPaymentService';
+import { fetchDelhiveryLiveTracking, type DelhiveryLiveTrackingResult } from '../lib/delhiveryService';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -9,7 +10,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { orderNumber, phone } = req.body || {};
+    const { orderNumber, phone, awbNumber, forceRefresh } = req.body || {};
+
+    // Allow direct AWB tracking if provided
+    if (awbNumber && !orderNumber) {
+      const liveTracking = await fetchDelhiveryLiveTracking(String(awbNumber), {
+        forceRefresh: Boolean(forceRefresh),
+      });
+      return res.status(200).json({
+        success: true,
+        liveTracking,
+      });
+    }
 
     if (!orderNumber || typeof orderNumber !== 'string') {
       return res.status(400).json({ success: false, message: 'Order number is required.' });
@@ -108,6 +120,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq('order_id', order.id)
       .maybeSingle();
 
+    let liveTracking: DelhiveryLiveTrackingResult | null = null;
+
+    if (shipment?.awb_number) {
+      const carrierUpper = (shipment.carrier || '').toUpperCase();
+      if (carrierUpper === 'DELHIVERY' || !carrierUpper) {
+        try {
+          liveTracking = await fetchDelhiveryLiveTracking(shipment.awb_number, {
+            forceRefresh: Boolean(forceRefresh),
+          });
+        } catch (delhiveryErr) {
+          console.warn('[Track Order Delhivery Live Warning]:', delhiveryErr);
+        }
+      }
+    }
+
+    const enrichedShipment = shipment
+      ? {
+          ...shipment,
+          tracking_url:
+            shipment.tracking_url ||
+            (shipment.awb_number
+              ? `https://www.delhivery.com/track/package/${encodeURIComponent(shipment.awb_number)}`
+              : null),
+          estimated_delivery_date:
+            shipment.estimated_delivery_date || liveTracking?.expectedDeliveryDate || null,
+          liveTracking,
+        }
+      : null;
+
     return res.status(200).json({
       success: true,
       order: {
@@ -122,7 +163,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: order.created_at,
         items: items || [],
         history: history || [],
-        shipment: shipment || null,
+        shipment: enrichedShipment,
+        liveTracking,
       },
     });
   } catch (err: any) {

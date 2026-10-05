@@ -40,6 +40,7 @@ import { buildWhatsAppLink } from '@/utils/whatsapp';
 import Reveal from '@/components/Reveal';
 import SEO from '@/components/SEO';
 import InvoiceModal, { InvoiceOrderData } from '@/components/admin/InvoiceModal';
+import LiveCourierJourney from '@/components/LiveCourierJourney';
 import { useProducts } from '@/context/ProductContext';
 
 export const INDIAN_STATES: string[] = [
@@ -200,7 +201,12 @@ export default function Account() {
   const [savingAddress, setSavingAddress] = useState(false);
   const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false);
   const [pincodeLookupSuccess, setPincodeLookupSuccess] = useState(false);
-  const pincodeSuccessTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pincodeSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Live Courier Tracking Modal State
+  const [trackingModalOrder, setTrackingModalOrder] = useState<string | null>(null);
+  const [liveTrackingModalData, setLiveTrackingModalData] = useState<any>(null);
+  const [trackingModalLoading, setTrackingModalLoading] = useState(false);
 
   // Clean up timers on unmount
   useEffect(() => {
@@ -682,9 +688,9 @@ export default function Account() {
     const invoiceData: InvoiceOrderData = {
       order_number: order.order_number,
       created_at: order.created_at,
-      guest_name: order.guest_name || profile?.full_name || user.email?.split('@')[0] || 'Valued Patron',
+      guest_name: order.guest_name || profile?.full_name || user?.email?.split('@')[0] || 'Valued Patron',
       guest_phone: order.guest_phone || profile?.phone || '',
-      guest_email: order.guest_email || user.email || '',
+      guest_email: order.guest_email || user?.email || '',
       shipping_address_snapshot: order.shipping_address_snapshot || {
         recipientName: order.guest_name || profile?.full_name || 'Valued Patron',
         phone: order.guest_phone || profile?.phone || '',
@@ -713,6 +719,33 @@ export default function Account() {
       })),
     };
     setSelectedInvoiceOrder(invoiceData);
+  };
+
+  // Open Live Courier Tracking Modal
+  const handleOpenLiveTracking = async (orderCode: string, isForceRefresh = false) => {
+    setTrackingModalOrder(orderCode);
+    setTrackingModalLoading(true);
+    try {
+      const res = await fetch('/api/orders/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: orderCode,
+          forceRefresh: isForceRefresh,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.order) {
+        setLiveTrackingModalData({
+          liveTracking: data.order.shipment?.liveTracking || data.order.liveTracking,
+          shipment: data.order.shipment,
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to load live tracking modal:', e);
+    } finally {
+      setTrackingModalLoading(false);
+    }
   };
 
   // Helper for Order Status Badge
@@ -1385,6 +1418,17 @@ export default function Account() {
                               Receipt
                               <ExternalLink size={12} />
                             </Link>
+                            {['SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(order.order_status) && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenLiveTracking(order.order_number)}
+                                className="px-3 py-1.5 rounded-sm bg-[#F0F5EE] border border-[#D1E0CD] text-[#2D5A27] text-xs font-medium hover:bg-[#e4ede1] transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                title="View Live Delhivery Journey"
+                              >
+                                <Truck size={13} className="text-[#2D5A27]" />
+                                <span>Live Courier</span>
+                              </button>
+                            )}
                             <Link
                               to={`/track?order_number=${encodeURIComponent(order.order_number)}`}
                               className="px-3.5 py-1.5 rounded-sm bg-rose text-linen text-xs font-medium hover:bg-rose-deep transition-all flex items-center gap-1.5"
@@ -2285,6 +2329,22 @@ export default function Account() {
         <InvoiceModal
           order={selectedInvoiceOrder}
           onClose={() => setSelectedInvoiceOrder(null)}
+        />
+      )}
+
+      {/* Live Courier Journey Modal */}
+      {trackingModalOrder && (
+        <LiveCourierJourney
+          variant="modal"
+          orderNumber={trackingModalOrder}
+          liveTracking={liveTrackingModalData?.liveTracking}
+          shipment={liveTrackingModalData?.shipment}
+          isRefreshing={trackingModalLoading}
+          onRefresh={() => handleOpenLiveTracking(trackingModalOrder, true)}
+          onClose={() => {
+            setTrackingModalOrder(null);
+            setLiveTrackingModalData(null);
+          }}
         />
       )}
     </>

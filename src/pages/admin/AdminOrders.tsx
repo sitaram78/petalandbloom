@@ -37,6 +37,7 @@ import {
 import InvoiceModal from '@/components/admin/InvoiceModal';
 import PackingSlipModal from '@/components/admin/PackingSlipModal';
 import CourierBookingModal from '@/components/admin/CourierBookingModal';
+import LiveCourierJourney from '@/components/LiveCourierJourney';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import { downloadCSV } from '@/utils/csvExporter';
 import {
@@ -178,6 +179,33 @@ export default function AdminOrders() {
     setSelectedOrder(order);
   };
 
+  const [adminLiveTracking, setAdminLiveTracking] = useState<any>(null);
+  const [adminTrackingLoading, setAdminTrackingLoading] = useState(false);
+
+  const fetchAdminLiveTracking = async (awbToTrack: string, isForceRefresh = false) => {
+    const cleanAwb = (awbToTrack || '').trim();
+    if (!cleanAwb) return;
+    setAdminTrackingLoading(true);
+    try {
+      const res = await fetch('/api/orders/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          awbNumber: cleanAwb,
+          forceRefresh: isForceRefresh,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.liveTracking) {
+        setAdminLiveTracking(data.liveTracking);
+      }
+    } catch (err) {
+      console.warn('[Admin Live Tracking Warning]:', err);
+    } finally {
+      setAdminTrackingLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (selectedOrder) {
       setNewStatus(selectedOrder.order_status);
@@ -187,11 +215,19 @@ export default function AdminOrders() {
         setCarrier(existingShipment.carrier || 'DELHIVERY');
         setAwbNumber(existingShipment.awb_number || '');
         setCustomTrackingUrl(existingShipment.tracking_url || '');
+        if (existingShipment.awb_number) {
+          fetchAdminLiveTracking(existingShipment.awb_number, false);
+        } else {
+          setAdminLiveTracking(null);
+        }
       } else {
         setCarrier('DELHIVERY');
         setAwbNumber('');
         setCustomTrackingUrl('');
+        setAdminLiveTracking(null);
       }
+    } else {
+      setAdminLiveTracking(null);
     }
   }, [selectedOrder]);
 
@@ -1314,6 +1350,35 @@ export default function AdminOrders() {
                 </div>
               </div>
 
+              {/* Live Courier Journey Tracker (Delhivery / Surface Cargo) */}
+              {(selectedOrder.shipments?.[0]?.awb_number || adminLiveTracking) && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs uppercase tracking-wider font-bold text-bark flex items-center gap-1.5">
+                      <Truck size={14} className="text-[#2D5A27]" />
+                      <span>Live Courier Journey (Delhivery)</span>
+                    </h4>
+                    {adminLiveTracking?.currentLocation && (
+                      <span className="text-[11px] text-ink-light flex items-center gap-1">
+                        <MapPin size={11} className="text-rose" />
+                        <span>Hub: {adminLiveTracking.currentLocation}</span>
+                      </span>
+                    )}
+                  </div>
+                  <LiveCourierJourney
+                    variant="card"
+                    orderNumber={selectedOrder.order_number}
+                    liveTracking={adminLiveTracking}
+                    shipment={selectedOrder.shipments?.[0]}
+                    isRefreshing={adminTrackingLoading}
+                    onRefresh={() => {
+                      const curAwb = selectedOrder.shipments?.[0]?.awb_number || awbNumber;
+                      if (curAwb) fetchAdminLiveTracking(curAwb, true);
+                    }}
+                  />
+                </div>
+              )}
+
               {/* Status Update Form */}
               <form onSubmit={handleUpdateOrderStatus} className="bg-canvas/30 p-5 rounded-sm border border-canvas-line space-y-4">
                 <h4 className="heading-serif text-lg text-bark">Update Order & Dispatch</h4>
@@ -1358,15 +1423,28 @@ export default function AdminOrders() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
-                      AWB / Tracking Number
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium">
+                        AWB / Tracking Number
+                      </label>
+                      {awbNumber.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => fetchAdminLiveTracking(awbNumber, true)}
+                          className="text-[10px] text-rose hover:text-rose-deep font-medium flex items-center gap-1 cursor-pointer"
+                          title="Query live Delhivery tracking"
+                        >
+                          <RefreshCw size={10} className={adminTrackingLoading ? 'animate-spin' : ''} />
+                          Check Live
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={awbNumber}
                       onChange={(e) => setAwbNumber(e.target.value)}
                       placeholder="e.g. 142385920194"
-                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark font-mono"
                     />
                   </div>
 
