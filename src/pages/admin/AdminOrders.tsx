@@ -20,6 +20,7 @@ import {
   FileText,
   MessageCircle,
   Download,
+  Plus,
   X,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
@@ -37,6 +38,7 @@ import {
 import InvoiceModal from '@/components/admin/InvoiceModal';
 import PackingSlipModal from '@/components/admin/PackingSlipModal';
 import CourierBookingModal from '@/components/admin/CourierBookingModal';
+import CreateOrderModal from '@/components/admin/CreateOrderModal';
 import LiveCourierJourney from '@/components/LiveCourierJourney';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import { downloadCSV } from '@/utils/csvExporter';
@@ -119,6 +121,7 @@ export default function AdminOrders() {
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showPackingSlipModal, setShowPackingSlipModal] = useState(false);
   const [showCourierModal, setShowCourierModal] = useState(false);
+  const [showCreateOrderModal, setShowCreateOrderModal] = useState(false);
 
   // Unified Admin View System hook
   const {
@@ -816,6 +819,12 @@ export default function AdminOrders() {
               subtext: 'Completed orders',
             },
           ]}
+          primaryAction={{
+            label: 'Record New Order',
+            icon: <Plus size={15} />,
+            onClick: () => setShowCreateOrderModal(true),
+            title: 'Record a new or historical offline customer order',
+          }}
           secondaryActions={[
             {
               label: 'Dispatch Manifest',
@@ -1516,6 +1525,15 @@ export default function AdminOrders() {
             onConfirmBooking={handleConfirmCourierBooking}
           />
         )}
+
+        {/* Record Offline / Direct Customer Order Modal */}
+        <CreateOrderModal
+          isOpen={showCreateOrderModal}
+          onClose={() => setShowCreateOrderModal(false)}
+          onOrderCreated={async () => {
+            await fetchOrders();
+          }}
+        />
 
         {/* Responsive Batch Action Bar: Mobile Bottom Dock + Desktop Floating Pill */}
         {selectedOrderIds.length > 0 && (

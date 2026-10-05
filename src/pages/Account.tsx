@@ -29,6 +29,11 @@ import {
   Edit2,
   FileText,
   RotateCcw,
+  X,
+  KeyRound,
+  Send,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
@@ -176,6 +181,22 @@ export default function Account() {
   const [authReferralCode, setAuthReferralCode] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState('');
+
+  // Forgot / Set Password Modal State
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotStatus, setForgotStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Set New Password Recovery State
+  const [isPasswordRecoveryMode, setIsPasswordRecoveryMode] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetPasswordSubmitting, setResetPasswordSubmitting] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState('');
 
   // Dashboard Data State
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -340,6 +361,30 @@ export default function Account() {
     }
   }, [user]);
 
+  // Listen for Password Recovery events & detect URL recovery flags
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const hash = location.hash || '';
+
+    if (
+      searchParams.get('mode') === 'reset-password' ||
+      searchParams.get('type') === 'recovery' ||
+      hash.includes('type=recovery')
+    ) {
+      setIsPasswordRecoveryMode(true);
+    }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecoveryMode(true);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [location]);
+
   // Handle Authentication
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -399,6 +444,100 @@ export default function Account() {
       setAuthError(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setAuthSubmitting(false);
+    }
+  };
+
+  // Handle Secure 2-Factor Ownership Verification & Password Reset
+  const handleSendPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail || !forgotEmail.trim()) {
+      setForgotStatus({ type: 'error', message: 'Please enter your account email address.' });
+      return;
+    }
+    const cleanPhone = (forgotPhone || '').replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length !== 10) {
+      setForgotStatus({ type: 'error', message: 'Please enter the 10-digit mobile number linked to this account.' });
+      return;
+    }
+
+    setForgotSubmitting(true);
+    setForgotStatus(null);
+
+    try {
+      const res = await fetch('/api/account/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: forgotEmail.trim().toLowerCase(),
+          phone: cleanPhone,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Verification failed. Please check your details.');
+      }
+
+      setForgotStatus({
+        type: 'success',
+        message: 'Account ownership verified! Redirecting to secure password setup...',
+      });
+
+      // Navigate directly to the verified Supabase recovery link
+      setTimeout(() => {
+        window.location.href = data.redirectUrl;
+      }, 600);
+    } catch (err: any) {
+      setForgotStatus({
+        type: 'error',
+        message: err.message || 'Unable to verify account details. Please try again.',
+      });
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
+
+  // Handle Setting New Password from Recovery flow
+  const handleSetNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetPasswordError('');
+
+    if (newPassword.length < 6) {
+      setResetPasswordError('Password must be at least 6 characters.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setResetPasswordError('Passwords do not match. Please verify and try again.');
+      return;
+    }
+
+    setResetPasswordSubmitting(true);
+
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) throw error;
+
+      showNotification('Your password has been successfully set. Welcome back to the Atelier!', 'success');
+      setIsPasswordRecoveryMode(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      navigate('/account', { replace: true });
+
+      if (data.user) {
+        await refreshProfile();
+        loadOrders();
+        loadAddresses();
+        loadLoyaltyTransactions();
+      }
+    } catch (err: any) {
+      setResetPasswordError(err.message || 'Failed to update password. Your reset link may have expired.');
+    } finally {
+      setResetPasswordSubmitting(false);
     }
   };
 
@@ -850,16 +989,121 @@ export default function Account() {
   return (
     <>
       <SEO
-        title={user ? 'My Atelier Account' : 'Customer Sign In'}
+        title={isPasswordRecoveryMode ? 'Set Account Password' : user ? 'My Atelier Account' : 'Customer Sign In'}
         description="Manage your handcrafted floral orders, loyalty points, saved delivery addresses and atelier rewards at The Petal & Bloom."
       />
 
       <div className="min-h-screen bg-parchment-50/50 pt-28 pb-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
           {/* ========================================================================= */}
-          {/* 1. UNAUTHENTICATED STATE: LOGIN / REGISTER CARD                           */}
+          {/* RECOVERY STATE: SET NEW PASSWORD CARD                                      */}
           {/* ========================================================================= */}
-          {!user ? (
+          {isPasswordRecoveryMode ? (
+            <Reveal>
+              <div className="max-w-md mx-auto bg-linen rounded-sm border border-canvas-line shadow-soft p-8 sm:p-10">
+                <div className="text-center mb-8">
+                  <div className="w-12 h-12 rounded-full bg-rose/10 border border-rose/20 text-rose flex items-center justify-center mx-auto mb-3">
+                    <KeyRound size={22} />
+                  </div>
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-rose font-medium mb-1">
+                    Security & Access
+                  </p>
+                  <h1 className="heading-serif text-3xl sm:text-4xl text-bark mb-3">
+                    Set Your Password
+                  </h1>
+                  <p className="text-xs sm:text-sm text-ink-light font-light leading-relaxed">
+                    Choose a secure password for your account to access your handcrafted orders, saved addresses, and loyalty rewards.
+                  </p>
+                </div>
+
+                <form onSubmit={handleSetNewPassword} className="space-y-4">
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                      New Password *
+                    </label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="At least 6 characters"
+                        className="w-full pl-10 pr-10 py-2.5 bg-canvas/40 border border-canvas-line rounded-sm text-sm text-ink focus:outline-none focus:border-bark focus:bg-linen"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-light hover:text-bark p-1"
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                      Confirm New Password *
+                    </label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                      <input
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-enter your password"
+                        className="w-full pl-10 pr-10 py-2.5 bg-canvas/40 border border-canvas-line rounded-sm text-sm text-ink focus:outline-none focus:border-bark focus:bg-linen"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-light hover:text-bark p-1"
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {resetPasswordError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded-sm">
+                      {resetPasswordError}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={resetPasswordSubmitting}
+                    className="w-full mt-2 py-3 rounded-atelier-btn bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-widest font-medium transition-all duration-300 flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                  >
+                    {resetPasswordSubmitting ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Saving Password...
+                      </>
+                    ) : (
+                      'Save Password & Access Account'
+                    )}
+                  </button>
+
+                  <div className="text-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPasswordRecoveryMode(false);
+                        navigate('/account', { replace: true });
+                      }}
+                      className="text-xs text-ink-light hover:text-bark hover:underline"
+                    >
+                      Cancel and return to Sign In
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </Reveal>
+          ) : !user ? (
             <Reveal>
               <div className="max-w-md mx-auto bg-linen rounded-sm border border-canvas-line shadow-soft p-8 sm:p-10">
                 <div className="text-center mb-8">
@@ -1001,9 +1245,24 @@ export default function Account() {
                   </div>
 
                   <div>
-                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
-                      Password *
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium">
+                        Password *
+                      </label>
+                      {!isRegisterMode && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowForgotPasswordModal(true);
+                            setForgotEmail(authEmail || '');
+                            setForgotStatus(null);
+                          }}
+                          className="text-[11px] text-rose hover:text-rose-deep font-medium hover:underline transition-colors"
+                        >
+                          Forgot / Set Password?
+                        </button>
+                      )}
+                    </div>
                     <div className="relative">
                       <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
                       <input
@@ -2346,6 +2605,115 @@ export default function Account() {
             setLiveTrackingModalData(null);
           }}
         />
+      )}
+
+      {/* Forgot / Set Password Modal */}
+      {showForgotPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bark/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-linen rounded-sm border border-canvas-line shadow-2xl p-6 sm:p-8">
+            <button
+              type="button"
+              onClick={() => setShowForgotPasswordModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-ink-light hover:text-bark rounded-full hover:bg-canvas/50 transition-colors"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 rounded-full bg-rose/10 border border-rose/20 text-rose flex items-center justify-center mx-auto mb-3">
+                <KeyRound size={22} />
+              </div>
+              <h3 className="heading-serif text-2xl text-bark mb-1.5">
+                Set or Reset Password
+              </h3>
+              <p className="text-xs text-ink-light leading-relaxed">
+                Enter your account email and registered mobile number to verify ownership and instantly create or update your password.
+              </p>
+            </div>
+
+            {forgotStatus?.type === 'success' ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-sm text-xs text-emerald-800 leading-relaxed flex items-start gap-2.5">
+                  <CheckCircle2 size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold mb-1">Ownership Verified</p>
+                    <p>{forgotStatus.message}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSendPasswordReset} className="space-y-4">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Account Email Address *
+                  </label>
+                  <div className="relative">
+                    <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                    <input
+                      type="email"
+                      required
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full pl-10 pr-4 py-2.5 bg-canvas/40 border border-canvas-line rounded-sm text-sm text-ink focus:outline-none focus:border-bark focus:bg-linen"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Registered Mobile Number *
+                  </label>
+                  <div className="relative">
+                    <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-light" />
+                    <input
+                      type="tel"
+                      required
+                      maxLength={10}
+                      value={forgotPhone}
+                      onChange={(e) => setForgotPhone(e.target.value.replace(/\D/g, ''))}
+                      placeholder="10-digit mobile number"
+                      className="w-full pl-10 pr-4 py-2.5 bg-canvas/40 border border-canvas-line rounded-sm text-sm text-ink focus:outline-none focus:border-bark focus:bg-linen"
+                    />
+                  </div>
+                </div>
+
+                {forgotStatus?.type === 'error' && (
+                  <div className="p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded-sm">
+                    {forgotStatus.message}
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPasswordModal(false)}
+                    className="flex-1 py-2.5 rounded-atelier-btn border border-canvas-line text-xs uppercase tracking-wider font-medium text-bark hover:bg-canvas/50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={forgotSubmitting}
+                    className="flex-1 py-2.5 rounded-atelier-btn bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {forgotSubmitting ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Verifying...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert size={14} />
+                        Verify & Set Password
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
       )}
     </>
   );

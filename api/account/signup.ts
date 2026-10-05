@@ -41,7 +41,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // 1. Create User via Supabase Admin (bypasses client-side rate limits & auto-confirms email)
+    // 1. Pre-check: Ensure phone number is not already registered in profiles
+    const { data: phoneInUse } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, phone')
+      .eq('phone', cleanPhone)
+      .maybeSingle();
+
+    if (phoneInUse) {
+      if (phoneInUse.email && phoneInUse.email.toLowerCase() === cleanEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'An account with this email and mobile number already exists. Please Sign In or use "Forgot Password".',
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'This mobile number is already registered to another account. Please use a different mobile number or sign in.',
+      });
+    }
+
+    // 2. Pre-check: Ensure email is not already registered in profiles
+    const { data: emailInUse } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email')
+      .ilike('email', cleanEmail)
+      .maybeSingle();
+
+    if (emailInUse) {
+      return res.status(400).json({
+        success: false,
+        message: 'An account with this email already exists. Please sign in or use "Forgot Password" to access your account.',
+      });
+    }
+
+    // 3. Create User via Supabase Admin (bypasses client-side rate limits & auto-confirms email)
     const { data: userData, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email: cleanEmail,
       password: password,
@@ -58,7 +92,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')) {
         return res.status(400).json({
           success: false,
-          message: 'An account with this email already exists. Please sign in instead.',
+          message: 'An account with this email already exists. Please sign in or use "Forgot Password".',
+        });
+      }
+      if (msg.toLowerCase().includes('database error')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Unable to register with these details. The email or mobile number may already be registered. Please try signing in or resetting your password.',
         });
       }
       return res.status(400).json({ success: false, message: msg });
