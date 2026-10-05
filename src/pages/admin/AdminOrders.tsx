@@ -22,6 +22,8 @@ import {
   Download,
   Plus,
   X,
+  Gift,
+  Sparkles,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import Reveal from '@/components/Reveal';
@@ -1249,49 +1251,93 @@ export default function AdminOrders() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Customer & Shipping Address */}
-                <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs uppercase tracking-wider font-bold text-bark flex items-center gap-1.5">
-                      <MapPin size={14} className="text-rose" />
-                      Delivery Destination
-                    </h4>
-                    <button
-                      onClick={() => copyAddressToClipboard(selectedOrder)}
-                      className="text-[11px] text-rose hover:underline flex items-center gap-1"
-                    >
-                      <Copy size={12} />
-                      Copy Label
-                    </button>
-                  </div>
+                {(() => {
+                  const isGift = Boolean(
+                    (selectedOrder.shipping_address_snapshot?.recipientName &&
+                     selectedOrder.guest_name &&
+                     selectedOrder.shipping_address_snapshot.recipientName.trim().toLowerCase() !== selectedOrder.guest_name.trim().toLowerCase()) ||
+                    selectedOrder.customer_note?.includes('[GIFT')
+                  );
+                  return (
+                    <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs uppercase tracking-wider font-bold text-bark flex items-center gap-1.5">
+                            <MapPin size={14} className="text-rose" />
+                            Delivery Destination
+                          </h4>
+                          {isGift && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose/15 text-rose-deep border border-rose/30 flex items-center gap-1">
+                              <Gift size={11} className="text-rose" /> Gift Order
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => copyAddressToClipboard(selectedOrder)}
+                          className="text-[11px] text-rose hover:underline flex items-center gap-1"
+                        >
+                          <Copy size={12} />
+                          Copy Label
+                        </button>
+                      </div>
 
-                  <div className="text-xs text-ink space-y-1">
-                    <p className="font-semibold text-bark">
-                      {selectedOrder.shipping_address_snapshot.recipientName}
-                    </p>
-                    <p className="flex items-center gap-1.5 text-ink-light">
-                      <Phone size={12} />
-                      +91 {selectedOrder.shipping_address_snapshot.phone}
-                    </p>
-                    {selectedOrder.guest_email && (
-                      <p className="flex items-center gap-1.5 text-ink-light">
-                        <Mail size={12} />
-                        {selectedOrder.guest_email}
-                      </p>
-                    )}
-                    <p className="pt-1 leading-relaxed">
-                      {selectedOrder.shipping_address_snapshot.addressLine1}
-                      {selectedOrder.shipping_address_snapshot.addressLine2 && (
-                        <>, {selectedOrder.shipping_address_snapshot.addressLine2}</>
-                      )}
-                      <br />
-                      {selectedOrder.shipping_address_snapshot.city},{' '}
-                      {selectedOrder.shipping_address_snapshot.state} —{' '}
-                      <strong className="font-mono font-bold">
-                        {selectedOrder.shipping_address_snapshot.pincode}
-                      </strong>
-                    </p>
-                  </div>
-                </div>
+                      <div className="text-xs text-ink space-y-1.5">
+                        {isGift && (
+                          <div className="p-2 bg-linen rounded-sm border border-canvas-line text-[11px] space-y-1 mb-2">
+                            <p className="text-ink-light">
+                              <strong className="text-bark">Buyer / Sender:</strong> {selectedOrder.guest_name} (+91 {selectedOrder.guest_phone})
+                            </p>
+                            <p className="text-ink-light">
+                              <strong className="text-bark">Recipient:</strong> {selectedOrder.shipping_address_snapshot.recipientName} (+91 {selectedOrder.shipping_address_snapshot.phone})
+                            </p>
+                          </div>
+                        )}
+
+                        {!isGift && (
+                          <p className="font-semibold text-bark">
+                            {selectedOrder.shipping_address_snapshot.recipientName}
+                          </p>
+                        )}
+
+                        <p className="flex items-center gap-1.5 text-ink-light">
+                          <Phone size={12} />
+                          +91 {selectedOrder.shipping_address_snapshot.phone}
+                          {isGift && <span className="text-[10px] text-rose font-medium">(Courier delivery call)</span>}
+                        </p>
+                        {selectedOrder.guest_email && (
+                          <p className="flex items-center gap-1.5 text-ink-light">
+                            <Mail size={12} />
+                            {selectedOrder.guest_email}
+                          </p>
+                        )}
+                        <p className="pt-1 leading-relaxed">
+                          {selectedOrder.shipping_address_snapshot.addressLine1}
+                          {selectedOrder.shipping_address_snapshot.addressLine2 && (
+                            <>, {selectedOrder.shipping_address_snapshot.addressLine2}</>
+                          )}
+                          <br />
+                          {selectedOrder.shipping_address_snapshot.city},{' '}
+                          {selectedOrder.shipping_address_snapshot.state} —{' '}
+                          <strong className="font-mono font-bold">
+                            {selectedOrder.shipping_address_snapshot.pincode}
+                          </strong>
+                        </p>
+
+                        {/* Gift Note Callout for atelier florists */}
+                        {selectedOrder.customer_note?.includes('[GIFT CARD MESSAGE]:') && (
+                          <div className="mt-2.5 p-2 bg-rose/10 border border-rose/25 rounded-sm text-[11px] text-bark">
+                            <span className="font-semibold text-rose flex items-center gap-1 mb-0.5">
+                              <Sparkles size={11} className="text-rose" /> Complimentary Handwritten Card Note:
+                            </span>
+                            <p className="italic text-ink font-serif">
+                              &ldquo;{selectedOrder.customer_note.split('[GIFT CARD MESSAGE]:')[1]?.split('|')[0]?.replace(/^[\s":]+|[\s":]+$/g, '')}&rdquo;
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Financial Summary */}
                 <div className="bg-canvas/30 p-4 rounded-sm border border-canvas-line space-y-2 text-xs">

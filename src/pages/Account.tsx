@@ -219,6 +219,7 @@ export default function Account() {
   const [newState, setNewState] = useState('');
   const [newPincode, setNewPincode] = useState('');
   const [isDefaultAddress, setIsDefaultAddress] = useState(false);
+  const [isGiftAddress, setIsGiftAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [pincodeLookupLoading, setPincodeLookupLoading] = useState(false);
   const [pincodeLookupSuccess, setPincodeLookupSuccess] = useState(false);
@@ -554,13 +555,16 @@ export default function Account() {
     setPincodeLookupLoading(false);
     setPincodeLookupSuccess(false);
     setIsDefaultAddress(addresses.length === 0);
+    setIsGiftAddress(false);
     setShowAddressModal(true);
   };
 
   const handleOpenEditAddress = (addr: SavedAddress) => {
     if (pincodeSuccessTimerRef.current) clearTimeout(pincodeSuccessTimerRef.current);
     setEditingAddressId(addr.id);
-    setNewRecipient(addr.recipient_name);
+    const isGift = addr.recipient_name.toLowerCase().startsWith('gift:');
+    setIsGiftAddress(isGift);
+    setNewRecipient(isGift ? addr.recipient_name.replace(/^gift:\s*/i, '') : addr.recipient_name);
     setNewPhone(addr.phone);
     setNewLine1(addr.address_line1);
     setNewLine2(addr.address_line2 || '');
@@ -686,6 +690,11 @@ export default function Account() {
         throw new Error('Please enter a valid 6-digit postal PIN code.');
       }
 
+      const rawRecipient = newRecipient.trim();
+      const finalRecipientName = isGiftAddress
+        ? (rawRecipient.toLowerCase().startsWith('gift:') ? rawRecipient : `Gift: ${rawRecipient}`)
+        : (rawRecipient.toLowerCase().startsWith('gift:') ? rawRecipient.replace(/^gift:\s*/i, '') : rawRecipient);
+
       // If set as default, reset other defaults first
       if (isDefaultAddress) {
         await supabase
@@ -698,7 +707,7 @@ export default function Account() {
         const { error } = await supabase
           .from('customer_addresses')
           .update({
-            recipient_name: newRecipient.trim(),
+            recipient_name: finalRecipientName,
             phone: cleanPhone,
             address_line1: newLine1.trim(),
             address_line2: newLine2.trim() || null,
@@ -710,22 +719,22 @@ export default function Account() {
           .eq('id', editingAddressId);
 
         if (error) throw error;
-        showNotification('Address updated successfully.', 'success');
+        showNotification(isGiftAddress ? 'Gift recipient address updated.' : 'Address updated successfully.', 'success');
       } else {
         const { error } = await supabase.from('customer_addresses').insert({
           customer_id: user.id,
-          recipient_name: newRecipient.trim(),
+          recipient_name: finalRecipientName,
           phone: cleanPhone,
           address_line1: newLine1.trim(),
           address_line2: newLine2.trim() || null,
           city: newCity.trim(),
           state: newState.trim(),
           pincode: cleanPincode,
-          is_default: isDefaultAddress || addresses.length === 0,
+          is_default: isDefaultAddress || (addresses.length === 0 && !isGiftAddress),
         });
 
         if (error) throw error;
-        showNotification('Address saved to your Atelier profile.', 'success');
+        showNotification(isGiftAddress ? 'Gift recipient address saved to your Atelier profile.' : 'Address saved to your Atelier profile.', 'success');
       }
 
       setShowAddressModal(false);
@@ -738,6 +747,7 @@ export default function Account() {
       setNewState('');
       setNewPincode('');
       setIsDefaultAddress(false);
+      setIsGiftAddress(false);
       loadAddresses();
     } catch (err: any) {
       showNotification(err.message || 'Failed to save address.', 'error');
@@ -2264,71 +2274,99 @@ export default function Account() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {addresses.map((addr) => (
-                        <div
-                          key={addr.id}
-                          className={`p-5 rounded-sm border shadow-soft relative transition-all ${
-                            addr.is_default
-                              ? 'bg-parchment-50/70 border-rose/40 ring-1 ring-rose/30 shadow-md'
-                              : 'bg-linen border-canvas-line hover:border-canvas-line-hover'
-                          }`}
-                        >
-                          {addr.is_default && (
-                            <span className="absolute top-4 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose/10 text-rose-deep border border-rose/30 flex items-center gap-1 shadow-2xs">
-                              <Sparkles size={10} className="text-rose" />
-                              Primary Delivery
-                            </span>
-                          )}
-                          <div className="flex items-center gap-1.5 mb-1.5">
-                            <MapPin size={15} className={addr.is_default ? 'text-rose' : 'text-ink-light'} />
-                            <p className="font-serif font-semibold text-bark text-base">
-                              {addr.recipient_name}
+                      {addresses.map((addr) => {
+                        const isGift = addr.recipient_name.toLowerCase().startsWith('gift:');
+                        const cleanRecipientName = isGift
+                          ? addr.recipient_name.replace(/^gift:\s*/i, '')
+                          : addr.recipient_name;
+
+                        return (
+                          <div
+                            key={addr.id}
+                            className={`p-5 rounded-sm border shadow-soft relative transition-all ${
+                              addr.is_default
+                                ? 'bg-parchment-50/70 border-rose/40 ring-1 ring-rose/30 shadow-md'
+                                : isGift
+                                ? 'bg-rose/5 border-rose/30 ring-1 ring-rose/20 shadow-xs hover:border-rose/50'
+                                : 'bg-linen border-canvas-line hover:border-canvas-line-hover'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {isGift ? (
+                                  <Gift size={16} className="text-rose shrink-0" />
+                                ) : (
+                                  <MapPin size={15} className={addr.is_default ? 'text-rose shrink-0' : 'text-ink-light shrink-0'} />
+                                )}
+                                <p className="font-serif font-semibold text-bark text-base truncate">
+                                  {cleanRecipientName}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isGift && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose/15 text-rose-deep border border-rose/30 flex items-center gap-1 shadow-2xs">
+                                    <Gift size={10} className="text-rose" />
+                                    Gift Recipient
+                                  </span>
+                                )}
+                                {addr.is_default && (
+                                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose/10 text-rose-deep border border-rose/30 flex items-center gap-1 shadow-2xs">
+                                    <Sparkles size={10} className="text-rose" />
+                                    Primary Delivery
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-ink-light mb-2 flex items-center gap-1.5">
+                              <span>Phone: +91 {addr.phone}</span>
+                              {isGift && <span className="text-[10px] text-rose font-medium">(Recipient courier call)</span>}
                             </p>
-                          </div>
-                          <p className="text-xs text-ink-light mb-2">Phone: +91 {addr.phone}</p>
-                          <p className="text-xs text-ink leading-relaxed">
-                            {addr.address_line1}
-                            {addr.address_line2 && `, ${addr.address_line2}`}
-                            <br />
-                            {addr.city}, {addr.state} — <span className="font-mono font-bold text-bark">{addr.pincode}</span>
-                          </p>
+                            <p className="text-xs text-ink leading-relaxed">
+                              {addr.address_line1}
+                              {addr.address_line2 && `, ${addr.address_line2}`}
+                              <br />
+                              {addr.city}, {addr.state} — <span className="font-mono font-bold text-bark">{addr.pincode}</span>
+                            </p>
 
-                          <div className="mt-4 pt-3 border-t border-canvas-line flex items-center justify-between">
-                            {!addr.is_default ? (
-                              <button
-                                type="button"
-                                onClick={() => handleSetDefaultAddress(addr.id)}
-                                className="text-xs text-rose hover:text-rose-deep font-medium underline underline-offset-2 cursor-pointer"
-                              >
-                                Set as Default
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-emerald-800 font-medium flex items-center gap-1">
-                                <Check size={12} className="text-emerald-600" /> Primary destination
-                              </span>
-                            )}
+                            <div className="mt-4 pt-3 border-t border-canvas-line flex items-center justify-between">
+                              {!addr.is_default ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetDefaultAddress(addr.id)}
+                                  className="text-xs text-rose hover:text-rose-deep font-medium underline underline-offset-2 cursor-pointer"
+                                >
+                                  Set as Default
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-emerald-800 font-medium flex items-center gap-1">
+                                  <Check size={12} className="text-emerald-600" /> Primary destination
+                                </span>
+                              )}
 
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditAddress(addr)}
-                                className="text-xs text-ink-light hover:text-bark flex items-center gap-1 font-medium transition-colors cursor-pointer"
-                              >
-                                <Edit2 size={13} />
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAddress(addr.id)}
-                                className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors cursor-pointer"
-                              >
-                                <Trash2 size={13} />
-                                Remove
-                              </button>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditAddress(addr)}
+                                  className="text-xs text-ink-light hover:text-bark flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                                >
+                                  <Edit2 size={13} />
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAddress(addr.id)}
+                                  className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 size={13} />
+                                  Remove
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -2352,24 +2390,62 @@ export default function Account() {
                         </div>
 
                         <form onSubmit={handleSaveAddress} className="space-y-4">
+                          {/* Gifting Address Toggle */}
+                          <div
+                            className={`p-3 rounded-sm border transition-all ${
+                              isGiftAddress
+                                ? 'bg-rose/10 border-rose/30 shadow-2xs'
+                                : 'bg-canvas/30 border-canvas-line hover:border-canvas-line-hover'
+                            }`}
+                          >
+                            <label className="flex items-center justify-between cursor-pointer">
+                              <div className="flex items-center gap-2.5">
+                                <div
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                                    isGiftAddress ? 'bg-rose text-linen' : 'bg-linen border border-canvas-line text-rose'
+                                  }`}
+                                >
+                                  <Gift size={14} />
+                                </div>
+                                <div>
+                                  <span className="text-xs font-semibold text-bark block">
+                                    This is a Gift Recipient Address
+                                  </span>
+                                  <span className="text-[10px] text-ink-light block">
+                                    Tag with a Gift badge for sending floral surprises directly to family or friends
+                                  </span>
+                                </div>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={isGiftAddress}
+                                onChange={(e) => setIsGiftAddress(e.target.checked)}
+                                className="w-4 h-4 accent-rose rounded cursor-pointer"
+                              />
+                            </label>
+                          </div>
+
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                               <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
-                                Recipient Name *
+                                {isGiftAddress ? "Recipient's Full Name *" : 'Recipient Name *'}
                               </label>
                               <input
                                 type="text"
                                 required
                                 value={newRecipient}
                                 onChange={(e) => setNewRecipient(e.target.value)}
-                                placeholder="Recipient name"
+                                placeholder={isGiftAddress ? "e.g. Ananya Sharma" : "Recipient name"}
                                 className="w-full h-10 px-3 py-2 bg-canvas/40 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                               />
                             </div>
 
                             <div>
-                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center">
-                                Phone Number *
+                              <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5 h-4 flex items-center justify-between">
+                                <span>{isGiftAddress ? "Recipient's Mobile *" : 'Phone Number *'}</span>
+                                {isGiftAddress && (
+                                  <span className="text-[10px] text-rose font-normal lowercase">for courier call</span>
+                                )}
                               </label>
                               <input
                                 type="tel"

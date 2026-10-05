@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, CheckCircle2, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin, Zap } from 'lucide-react';
+import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, CheckCircle2, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin, Zap, ChevronDown, ChevronUp, Tag } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
@@ -34,6 +34,10 @@ export default function CartDrawer() {
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
   const [isExpressCourier, setIsExpressCourier] = useState(false);
 
+  // Collapsible mobile drawer states
+  const [showOffersSection, setShowOffersSection] = useState(false);
+  const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
+
   // Guest discount popup state
   const [showGuestDiscountModal, setShowGuestDiscountModal] = useState(false);
 
@@ -52,6 +56,12 @@ export default function CartDrawer() {
   const [pinCode, setPinCode] = useState('');
   const [customerNote, setCustomerNote] = useState('');
 
+  // Gifting Order State
+  const [isGiftOrder, setIsGiftOrder] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [giftCardMessage, setGiftCardMessage] = useState('');
+
   // Customer Saved Addresses State
   const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('new');
@@ -62,8 +72,19 @@ export default function CartDrawer() {
   const [redeemPoints, setRedeemPoints] = useState(false);
 
   const applyAddress = (addr: CustomerAddress) => {
-    setCustomerName(addr.recipient_name || profile?.full_name || '');
-    setCustomerPhone(addr.phone || profile?.phone || '');
+    const isGiftAddr = addr.recipient_name.toLowerCase().startsWith('gift:');
+    if (isGiftAddr) {
+      setIsGiftOrder(true);
+      const cleanName = addr.recipient_name.replace(/^gift:\s*/i, '');
+      setRecipientName(cleanName);
+      setRecipientPhone(addr.phone || '');
+      // Keep sender/buyer contact from profile
+      if (profile?.full_name && !customerName) setCustomerName(profile.full_name);
+      if (profile?.phone && !customerPhone) setCustomerPhone(profile.phone);
+    } else {
+      setCustomerName(addr.recipient_name || profile?.full_name || '');
+      setCustomerPhone(addr.phone || profile?.phone || '');
+    }
     setAddressLine1(addr.address_line1 || '');
     setAddressLine2(addr.address_line2 || '');
     setCity(addr.city || '');
@@ -116,7 +137,7 @@ export default function CartDrawer() {
     }
   };
 
-  const saveAddressIfNew = async (cleanPhone: string, cleanPin: string) => {
+  const saveAddressIfNew = async (targetRecipientName: string, targetPhone: string, cleanPin: string) => {
     if (!user || !saveAddressToProfile || !addressLine1.trim() || !city.trim() || !state.trim()) return;
     try {
       const isFirstAddress = savedAddresses.length === 0;
@@ -127,18 +148,22 @@ export default function CartDrawer() {
       );
 
       if (!alreadyExists) {
+        const displayName = isGiftOrder
+          ? (targetRecipientName.trim() ? `Gift: ${targetRecipientName.trim()}` : customerName.trim())
+          : targetRecipientName.trim();
+
         const { data: newAddr } = await supabase
           .from('customer_addresses')
           .insert({
             customer_id: user.id,
-            recipient_name: customerName.trim(),
-            phone: cleanPhone,
+            recipient_name: displayName,
+            phone: targetPhone,
             address_line1: addressLine1.trim(),
             address_line2: addressLine2.trim() || null,
             city: city.trim(),
             state: state.trim(),
             pincode: cleanPin,
-            is_default: isFirstAddress,
+            is_default: isFirstAddress && !isGiftOrder,
           })
           .select()
           .maybeSingle();
@@ -225,16 +250,35 @@ export default function CartDrawer() {
     setCheckoutMessage('');
 
     if (!customerName.trim()) {
-      setCheckoutMessage('Please enter your full name.');
+      setCheckoutMessage('Please enter your full name (Buyer / Sender).');
       return;
     }
     const cleanPhone = customerPhone.replace(/\D/g, '').slice(-10);
     if (cleanPhone.length !== 10) {
-      setCheckoutMessage('Please enter a valid 10-digit mobile number.');
+      setCheckoutMessage('Please enter your valid 10-digit mobile number for order updates.');
       return;
     }
+
+    // If Gift Order: Validate Recipient Details
+    let finalRecipientName = customerName.trim();
+    let finalRecipientPhone = cleanPhone;
+
+    if (isGiftOrder) {
+      if (!recipientName.trim()) {
+        setCheckoutMessage("Please enter the gift recipient's full name.");
+        return;
+      }
+      const cleanRecipPhone = recipientPhone.replace(/\D/g, '').slice(-10);
+      if (cleanRecipPhone.length !== 10) {
+        setCheckoutMessage("Please enter the recipient's 10-digit mobile number so the courier can deliver.");
+        return;
+      }
+      finalRecipientName = recipientName.trim();
+      finalRecipientPhone = cleanRecipPhone;
+    }
+
     if (!addressLine1.trim() || !city.trim() || !state.trim()) {
-      setCheckoutMessage('Please complete your delivery address.');
+      setCheckoutMessage(isGiftOrder ? "Please complete the recipient's delivery address." : 'Please complete your delivery address.');
       return;
     }
     const cleanPin = pinCode.replace(/\D/g, '');
@@ -247,7 +291,13 @@ export default function CartDrawer() {
     trackEvent('checkout_started', { total: grandTotal, items: totalItems });
 
     // Auto-save address to user profile if new
-    await saveAddressIfNew(cleanPhone, cleanPin);
+    await saveAddressIfNew(finalRecipientName, finalRecipientPhone, cleanPin);
+
+    // Format customer note with gift card message if applicable
+    let finalCustomerNote = customerNote.trim();
+    if (isGiftOrder && giftCardMessage.trim()) {
+      finalCustomerNote = `[GIFT CARD MESSAGE]: "${giftCardMessage.trim()}"${finalCustomerNote ? ` | Additional Note: ${finalCustomerNote}` : ''}`;
+    }
 
     const result = await initiateCheckout({
       customer: {
@@ -257,8 +307,8 @@ export default function CartDrawer() {
         customerId: user?.id,
       },
       shippingAddress: {
-        recipientName: customerName.trim(),
-        phone: cleanPhone,
+        recipientName: finalRecipientName,
+        phone: finalRecipientPhone,
         addressLine1: addressLine1.trim(),
         addressLine2: addressLine2.trim() || undefined,
         city: city.trim(),
@@ -266,7 +316,7 @@ export default function CartDrawer() {
         pincode: cleanPin,
       },
       redeemPoints: pointsToRedeem > 0 ? pointsToRedeem : undefined,
-      customerNote: customerNote.trim() || undefined,
+      customerNote: finalCustomerNote || undefined,
       isExpress: isExpressCourier,
     });
 
@@ -281,14 +331,32 @@ export default function CartDrawer() {
       setCheckoutMessage('Please enter your name and 6-digit PIN code.');
       return;
     }
-    trackEvent('checkout_started', { total: grandTotal, items: totalItems });
 
     const cleanPhone = customerPhone.replace(/\D/g, '').slice(-10);
     const cleanPin = pinCode.replace(/\D/g, '');
-    saveAddressIfNew(cleanPhone, cleanPin);
+
+    let finalRecipientName = customerName.trim();
+    let finalRecipientPhone = cleanPhone;
+
+    if (isGiftOrder) {
+      if (!recipientName.trim()) {
+        setCheckoutMessage("Please enter the gift recipient's full name.");
+        return;
+      }
+      const cleanRecipPhone = recipientPhone.replace(/\D/g, '').slice(-10);
+      if (cleanRecipPhone.length !== 10) {
+        setCheckoutMessage("Please enter the recipient's 10-digit mobile number.");
+        return;
+      }
+      finalRecipientName = recipientName.trim();
+      finalRecipientPhone = cleanRecipPhone;
+    }
+
+    trackEvent('checkout_started', { total: grandTotal, items: totalItems });
+    saveAddressIfNew(finalRecipientName, finalRecipientPhone, cleanPin);
 
     checkoutWhatsApp({
-      name: customerName.trim(),
+      name: isGiftOrder ? `${customerName.trim()} (Sending Gift to ${finalRecipientName})` : customerName.trim(),
       pinCode: pinCode.trim(),
       shipping: shippingCost + giftWrapTotal,
     });
@@ -303,7 +371,7 @@ export default function CartDrawer() {
           <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={closeCart} />
           <div className="absolute right-0 top-0 bottom-0 w-full max-w-md glass-panel shadow-2xl animate-slide-in flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 h-20 border-b border-silk">
+            <div className="flex items-center justify-between px-6 h-16 sm:h-20 border-b border-silk">
               <div className="flex items-center gap-3">
                 <ShoppingBag size={20} strokeWidth={1.5} className="text-ink-light" />
                 <span className="font-serif text-xl font-medium text-ink">Your Collection</span>
@@ -316,11 +384,52 @@ export default function CartDrawer() {
 
             {/* Added confirmation */}
             {justAdded && (
-              <div className="px-5 py-3 bg-sage-light border-b border-sage-dark/10 flex items-center gap-2 animate-fade-in">
-                <div className="w-6 h-6 rounded-full bg-sage flex items-center justify-center">
-                  <Check size={14} className="text-parchment-50" strokeWidth={2.5} />
+              <div className="px-5 py-2.5 bg-sage-light border-b border-sage-dark/10 flex items-center gap-2 animate-fade-in">
+                <div className="w-5 h-5 rounded-full bg-sage flex items-center justify-center">
+                  <Check size={12} className="text-parchment-50" strokeWidth={2.5} />
                 </div>
-                <p className="text-sm text-sage-dark font-medium">Added to your collection</p>
+                <p className="text-xs text-sage-dark font-medium">Added to your collection</p>
+              </div>
+            )}
+
+            {/* Compact Complimentary Studio Shipping Sub-Bar */}
+            {items.length > 0 && (
+              <div className="relative bg-linen-light/95 border-b border-silk/80 px-5 py-2">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 truncate pr-2">
+                    {freeShippingProgress >= 100 ? (
+                      <>
+                        <CheckCircle2 size={13} className="text-sage-dark shrink-0" />
+                        <span className="font-serif italic text-sage-dark text-[11px] font-medium truncate">
+                          Complimentary Studio Shipping Unlocked!
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={13} className="text-rose shrink-0" />
+                        <span className="text-bark text-[11px] truncate">
+                          Add <strong className="text-rose font-semibold">₹{freeShippingRemaining}</strong> for Complimentary Shipping
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <span className={`text-[10px] font-mono font-medium shrink-0 ${
+                    freeShippingProgress >= 100 ? 'text-sage-dark' : 'text-ink-light'
+                  }`}>
+                    {freeShippingProgress}%
+                  </span>
+                </div>
+                {/* Thin integrated track directly beneath the bar */}
+                <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-silk/40 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-500 ease-out ${
+                      freeShippingProgress >= 100
+                        ? 'bg-sage-dark'
+                        : 'bg-gradient-to-r from-rose to-sage'
+                    }`}
+                    style={{ width: `${freeShippingProgress}%` }}
+                  />
+                </div>
               </div>
             )}
 
@@ -336,41 +445,6 @@ export default function CartDrawer() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Complimentary Studio Shipping Progress Bar */}
-                  <div className="bg-linen-light border border-canvas-line rounded-atelier-panel p-3.5 shadow-xs">
-                    <div className="flex items-center justify-between text-xs mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        {freeShippingProgress >= 100 ? (
-                          <>
-                            <CheckCircle2 size={14} className="text-sage-dark shrink-0" />
-                            <span className="font-serif italic text-sage-dark font-medium">Complimentary Studio Shipping Unlocked!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={14} className="text-rose shrink-0" />
-                            <span className="text-bark">
-                              Add <strong className="text-rose font-semibold">₹{freeShippingRemaining}</strong> more for Complimentary Shipping
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      <span className={`text-[11px] font-mono font-medium ${freeShippingProgress >= 100 ? 'text-sage-dark' : 'text-ink-light'}`}>
-                        {freeShippingProgress}%
-                      </span>
-                    </div>
-                    {/* Visual Progress Bar Track & Fill */}
-                    <div className="h-1.5 w-full bg-silk/40 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-500 ease-out rounded-full ${
-                          freeShippingProgress >= 100
-                            ? 'bg-sage-dark'
-                            : 'bg-gradient-to-r from-rose to-sage'
-                        }`}
-                        style={{ width: `${freeShippingProgress}%` }}
-                      />
-                    </div>
-                  </div>
-
                   {items.map((item) => (
                     <div key={item.code + (item.color || '')} className="flex gap-4 pb-6 border-b border-silk/50">
                       <div className="w-16 h-20 flex-shrink-0 overflow-hidden rounded-sm bg-silk/30">
@@ -432,154 +506,196 @@ export default function CartDrawer() {
 
             {/* Footer with totals & action */}
             {items.length > 0 && (
-              <div className="border-t border-silk px-5 py-4 space-y-3">
-                {/* Coupon Input (Toggled via Feature Flag) */}
-                {settings.featureFlags?.enableCoupons !== false && (
-                  <div className="space-y-2 text-sm">
-                    <div className="flex gap-2">
-                      <input
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                        placeholder="Coupon code"
-                        className="input-field flex-1 text-sm py-2"
-                        aria-label="Coupon code"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleApplyCoupon}
-                        disabled={isApplyingCoupon}
-                        className="btn-secondary px-3 text-xs"
-                      >
-                        {isApplyingCoupon ? 'Checking...' : 'Apply'}
-                      </button>
-                    </div>
-                    {couponMessage && <p className="text-xs text-rose">{couponMessage}</p>}
-                    {appliedCoupon && (
-                      <div className="flex justify-between text-xs text-sage-dark bg-sage/10 p-2 rounded-sm">
-                        <span>{appliedCoupon.code} applied (-₹{appliedCoupon.discountInRupees})</span>
-                        <button type="button" onClick={removeCoupon} className="underline hover:text-rose">Remove</button>
-                      </div>
+              <div className="border-t border-silk px-5 py-3.5 space-y-2.5 bg-parchment-50/50">
+                {/* 1. Offers & Priority Express Delivery Center Flip Toggle */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowOffersSection(!showOffersSection)}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3.5 rounded-atelier-btn bg-silk/25 hover:bg-silk/40 transition-colors text-xs text-ink-light group"
+                    aria-expanded={showOffersSection}
+                  >
+                    <Tag size={13} className="text-rose shrink-0" />
+                    <span className="font-serif italic text-bark text-xs">
+                      {showOffersSection ? 'Hide Offers & Express Delivery' : 'Coupons & Express Delivery'}
+                    </span>
+                    <span className="p-0.5 rounded-full bg-silk/40 text-ink group-hover:bg-silk/60 transition-transform">
+                      {showOffersSection ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </span>
+                    {/* Badge indicators when minimized */}
+                    {!showOffersSection && (appliedCoupon || isExpressCourier) && (
+                      <span className="ml-1 inline-flex items-center gap-1 text-[10px] bg-rose/10 text-rose font-medium px-1.5 py-0.2 rounded-full">
+                        {appliedCoupon && `-${formatPrice(appliedCoupon.discountInRupees)}`}
+                        {isExpressCourier && '· Express'}
+                      </span>
                     )}
-                  </div>
-                )}
+                  </button>
 
-                {/* Priority Express Courier Toggle */}
-                <div className={`p-3 rounded-atelier-panel border transition-all ${
-                  isExpressCourier
-                    ? 'bg-rose/5 border-rose/30 shadow-xs'
-                    : 'bg-canvas/30 border-canvas-line'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                        isExpressCourier ? 'bg-rose/15 text-rose' : 'bg-canvas text-ink-light'
-                      }`}>
-                        <Zap size={15} className={isExpressCourier ? 'text-rose' : 'text-ink-light'} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-medium text-bark">Priority Express Courier</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose/10 text-rose font-medium">
-                            +₹{Math.round(expressShipping)}
-                          </span>
+                  {/* Smooth Collapsible Offers Body */}
+                  {showOffersSection && (
+                    <div className="mt-2 space-y-3 p-3.5 rounded-atelier-panel bg-linen-light/70 border border-silk/60 animate-fade-in">
+                      {/* Coupon Input */}
+                      {settings.featureFlags?.enableCoupons !== false && (
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex gap-2">
+                            <input
+                              value={couponCode}
+                              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                              placeholder="Enter coupon code"
+                              className="input-field flex-1 text-xs sm:text-sm py-2 px-3.5 bg-parchment-50 h-9"
+                              aria-label="Coupon code"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleApplyCoupon}
+                              disabled={isApplyingCoupon}
+                              className="btn-secondary px-4 py-2 text-xs font-medium whitespace-nowrap h-9"
+                            >
+                              {isApplyingCoupon ? 'Checking...' : 'Apply'}
+                            </button>
+                          </div>
+                          {couponMessage && <p className="text-xs text-rose">{couponMessage}</p>}
+                          {appliedCoupon && (
+                            <div className="flex justify-between items-center text-xs text-sage-dark bg-sage/10 p-2.5 rounded-sm">
+                              <span>{appliedCoupon.code} applied (-₹{appliedCoupon.discountInRupees})</span>
+                              <button type="button" onClick={removeCoupon} className="underline hover:text-rose text-[11px]">Remove</button>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-[11px] text-ink-light/70">
-                          Expedited 1–2 day air dispatch with priority studio handling
-                        </p>
+                      )}
+
+                      {/* Priority Express Courier Toggle */}
+                      <div className={`p-2.5 rounded-lg border transition-all ${
+                        isExpressCourier
+                          ? 'bg-rose/5 border-rose/30 shadow-xs'
+                          : 'bg-parchment-50 border-canvas-line'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                              isExpressCourier ? 'bg-rose/15 text-rose' : 'bg-canvas text-ink-light'
+                            }`}>
+                              <Zap size={13} className={isExpressCourier ? 'text-rose' : 'text-ink-light'} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium text-bark">Priority Express Courier</span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose/10 text-rose font-medium">
+                                  +₹{Math.round(expressShipping)}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-ink-light/70">
+                                1–2 day air dispatch with priority studio handling
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={isExpressCourier}
+                            onClick={() => setIsExpressCourier(!isExpressCourier)}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              isExpressCourier ? 'bg-rose' : 'bg-silk'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                isExpressCourier ? 'translate-x-4' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={isExpressCourier}
-                      onClick={() => setIsExpressCourier(!isExpressCourier)}
-                      className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        isExpressCourier ? 'bg-rose' : 'bg-silk'
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                          isExpressCourier ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
+                  )}
                 </div>
 
-                {/* Pricing Breakdown */}
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between pt-2">
-                    <span className="text-ink-light">Subtotal</span>
-                    <span className="text-ink">{formatPrice(totalPrice)}</span>
-                  </div>
-                  {discountAmount > 0 && (
-                    <div className="flex justify-between text-sage-dark">
-                      <span>Discount</span>
-                      <span>-{formatPrice(discountAmount)}</span>
-                    </div>
-                  )}
-                  {giftWrapTotal > 0 && (
-                    <div className="flex justify-between text-ink-light">
-                      <span>Gift Wrapping</span>
-                      <span>{formatPrice(giftWrapTotal)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-ink-light flex items-center gap-1">
-                      <Truck size={12} strokeWidth={1.5} /> Shipping
-                      {isExpressCourier && (
-                        <span className="text-[10px] text-rose font-medium ml-1">(Express Air)</span>
+                {/* 2. Pricing Summary & Collapsible Breakdown */}
+                <div className="pt-2 border-t border-silk/80">
+                  {/* Expanded Breakdown details */}
+                  {showPriceBreakdown && (
+                    <div className="space-y-1.5 text-xs pb-2 mb-2 border-b border-silk/60 animate-fade-in text-ink-light">
+                      <div className="flex justify-between">
+                        <span>Subtotal</span>
+                        <span className="text-ink font-medium">{formatPrice(totalPrice)}</span>
+                      </div>
+                      {discountAmount > 0 && (
+                        <div className="flex justify-between text-sage-dark">
+                          <span>Discount</span>
+                          <span>-{formatPrice(discountAmount)}</span>
+                        </div>
                       )}
-                    </span>
-                    <span className={shippingCost === 0 ? 'text-sage-dark font-medium' : 'text-ink'}>
-                      {shippingCost === 0 ? 'COMPLIMENTARY' : formatPrice(shippingCost)}
-                    </span>
-                  </div>
+                      {giftWrapTotal > 0 && (
+                        <div className="flex justify-between">
+                          <span>Gift Wrapping</span>
+                          <span>{formatPrice(giftWrapTotal)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="flex items-center gap-1">
+                          <Truck size={12} strokeWidth={1.5} /> Shipping
+                          {isExpressCourier && (
+                            <span className="text-[10px] text-rose font-medium ml-0.5">(Express Air)</span>
+                          )}
+                        </span>
+                        <span className={shippingCost === 0 ? 'text-sage-dark font-medium' : 'text-ink'}>
+                          {shippingCost === 0 ? 'COMPLIMENTARY' : formatPrice(shippingCost)}
+                        </span>
+                      </div>
+                      {shippingCost > 0 && !isExpressCourier && totalPrice < freeThreshold && (
+                        <p className="text-[10px] text-ink-light/60">
+                          Add ₹{Math.max(0, Math.round(freeThreshold - totalPrice))} more for complimentary shipping
+                        </p>
+                      )}
+                    </div>
+                  )}
 
-                  {shippingCost > 0 && !isExpressCourier && totalPrice < freeThreshold && (
-                    <p className="text-[11px] text-ink-light/60">
-                      Add ₹{Math.max(0, Math.round(freeThreshold - totalPrice))} more for complimentary shipping
-                    </p>
-                  )}
-                  {isExpressCourier && (
-                    <p className="text-[11px] text-rose font-medium">
-                      Priority Express courier surcharge active (+₹{Math.round(expressShipping)})
-                    </p>
-                  )}
-                  <div className="flex justify-between pt-3 border-t border-silk">
-                    <span className="text-sm font-medium text-ink">Estimated Total</span>
-                    <span className="font-serif text-2xl text-ink">{formatPrice(grandTotal)}</span>
+                  {/* Summary Line with Collapsible Dropdown Toggle */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-ink">Estimated Total</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowPriceBreakdown(!showPriceBreakdown)}
+                          className="inline-flex items-center gap-0.5 text-[11px] text-rose hover:text-rose-deep font-medium cursor-pointer transition-colors"
+                        >
+                          <span>{showPriceBreakdown ? 'Hide breakup' : 'View breakup'}</span>
+                          {showPriceBreakdown ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                      </div>
+                      <span className="text-[10px] text-ink-light/60 block">All taxes & packaging included</span>
+                    </div>
+                    <span className="font-serif text-2xl font-medium text-ink">
+                      {formatPrice(grandTotal)}
+                    </span>
                   </div>
                 </div>
 
-                {/* Primary Checkout CTA */}
+                {/* 3. Primary Checkout CTA */}
                 <button
                   onClick={openCheckout}
-                  className="btn-primary w-full py-4 text-sm flex items-center justify-center gap-2 shadow-soft"
+                  className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2 shadow-soft mt-1"
                 >
-                  <Lock size={16} /> Place Order · Settle via UPI
+                  <Lock size={15} /> Place Order · Settle via UPI
                 </button>
 
-                {/* Secondary concierge assistance button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    closeCart();
-                    triggerAssistance(
-                      `Hi The Petal & Bloom Atelier, I have items in my bag and would like some assistance before placing my order.`
-                    );
-                  }}
-                  className={`w-full py-2.5 text-xs flex items-center justify-center gap-2 rounded-atelier-btn transition-all duration-300 cursor-pointer ${
-                    settings.conciergeChannelMode === 'IN_SYSTEM'
-                      ? 'bg-rose text-linen hover:bg-rose-deep shadow-soft'
-                      : 'btn-whatsapp opacity-90 hover:opacity-100'
-                  }`}
-                >
-                  <MessageCircle size={15} />
-                  {settings.conciergeChannelMode === 'IN_SYSTEM'
-                    ? 'Ask Studio Concierge'
-                    : 'Order via WhatsApp Concierge'}
-                </button>
+                {/* Subtle Support Link */}
+                <p className="text-center text-[11px] text-ink-light/60 pt-0.5">
+                  Need custom styling advice?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeCart();
+                      triggerAssistance(
+                        `Hi The Petal & Bloom Atelier, I have items in my bag and would like some assistance before placing my order.`
+                      );
+                    }}
+                    className="underline hover:text-ink transition-colors cursor-pointer"
+                  >
+                    Ask Studio Concierge
+                  </button>
+                </p>
               </div>
             )}
           </div>
@@ -757,15 +873,26 @@ export default function CartDrawer() {
                           }`}
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-bark truncate">{addr.recipient_name}</span>
-                              {addr.is_default && (
-                                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-rose/10 text-rose-deep border border-rose/20">
-                                  Default
-                                </span>
-                              )}
-                              <span className="text-[11px] text-ink-light truncate">· +91 {addr.phone}</span>
-                            </div>
+                            {(() => {
+                              const isGift = addr.recipient_name.toLowerCase().startsWith('gift:');
+                              const cleanName = isGift ? addr.recipient_name.replace(/^gift:\s*/i, '') : addr.recipient_name;
+                              return (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-bark truncate">{cleanName}</span>
+                                  {isGift && (
+                                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-rose/15 text-rose-deep border border-rose/30 flex items-center gap-0.5">
+                                      <Gift size={9} className="text-rose" /> Gift
+                                    </span>
+                                  )}
+                                  {addr.is_default && (
+                                    <span className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-rose/10 text-rose-deep border border-rose/20">
+                                      Default
+                                    </span>
+                                  )}
+                                  <span className="text-[11px] text-ink-light truncate">· +91 {addr.phone}</span>
+                                </div>
+                              );
+                            })()}
                             <p className="text-[11px] text-ink-light truncate mt-0.5">
                               {addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ''}
                             </p>
@@ -806,12 +933,124 @@ export default function CartDrawer() {
                 </div>
               )}
 
+              {/* Gifting Toggle Card */}
+              <div
+                className={`p-3.5 rounded-sm border transition-all ${
+                  isGiftOrder
+                    ? 'bg-rose/10 border-rose/30 shadow-xs'
+                    : 'bg-canvas/40 border-canvas-line hover:border-canvas-line-hover'
+                }`}
+              >
+                <label htmlFor="isGiftOrder" className="flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                        isGiftOrder ? 'bg-rose text-linen shadow-xs' : 'bg-linen border border-canvas-line text-rose'
+                      }`}
+                    >
+                      <Gift size={16} />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold text-bark block">
+                        Sending this as a gift to someone else?
+                      </span>
+                      <span className="text-[11px] text-ink-light block">
+                        Deliver directly to recipient with a complimentary handwritten card
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    id="isGiftOrder"
+                    type="checkbox"
+                    checked={isGiftOrder}
+                    onChange={(e) => setIsGiftOrder(e.target.checked)}
+                    className="w-4 h-4 accent-rose rounded cursor-pointer"
+                  />
+                </label>
+
+                {isGiftOrder && (
+                  <div className="mt-3.5 pt-3.5 border-t border-rose/20 space-y-3 animate-in fade-in duration-200">
+                    {/* Reassurance Guarantee Badge */}
+                    <div className="p-2.5 bg-linen/95 border border-rose/25 rounded-sm flex items-start gap-2.5 text-[11px] text-rose-deep leading-relaxed">
+                      <ShieldCheck size={16} className="text-rose shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Atelier Gifting Guarantee:</strong> We <u>never</u> include price tags or invoices in gift deliveries. Your recipient only receives the fresh handcrafted bouquet and your handwritten card.
+                      </span>
+                    </div>
+
+                    {/* Recipient Details */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="recipientName" className="block text-xs uppercase tracking-wider text-bark font-semibold mb-1">
+                          Recipient's Full Name *
+                        </label>
+                        <input
+                          id="recipientName"
+                          required={isGiftOrder}
+                          value={recipientName}
+                          onChange={(e) => setRecipientName(e.target.value)}
+                          placeholder="e.g. Riya Sharma"
+                          className="input-field text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="recipientPhone" className="block text-xs uppercase tracking-wider text-bark font-semibold mb-1 flex items-center justify-between">
+                          <span>Recipient's Mobile *</span>
+                          <span className="text-[10px] text-ink-light font-normal">For courier call</span>
+                        </label>
+                        <input
+                          id="recipientPhone"
+                          required={isGiftOrder}
+                          type="tel"
+                          maxLength={10}
+                          value={recipientPhone}
+                          onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          placeholder="10-digit mobile"
+                          className="input-field text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Gift Message Card */}
+                    <div>
+                      <label htmlFor="giftCardMessage" className="block text-xs uppercase tracking-wider text-bark font-semibold mb-1 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Sparkles size={12} className="text-rose" />
+                          Complimentary Handwritten Card Note
+                        </span>
+                        <span className="text-[10px] text-ink-light font-normal">{giftCardMessage.length}/250 chars</span>
+                      </label>
+                      <textarea
+                        id="giftCardMessage"
+                        rows={2}
+                        maxLength={250}
+                        value={giftCardMessage}
+                        onChange={(e) => setGiftCardMessage(e.target.value)}
+                        placeholder="e.g. Happy Birthday Riya! Wishing you the happiest year ahead. With all my love, Ananya"
+                        className="input-field text-xs resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Sender / Billing Contact Details */}
+              <div className="pt-1">
+                <p className="text-[11px] uppercase tracking-wider text-bark font-semibold flex items-center justify-between">
+                  <span>{isGiftOrder ? '1. Your Details (Sender / Billing)' : 'Your Contact Details'}</span>
+                  {isGiftOrder && (
+                    <span className="text-[10px] text-ink-light font-normal lowercase">receipts & tracking sent here</span>
+                  )}
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                  <label htmlFor="customerName" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                     Your Name *
                   </label>
                   <input
+                    id="customerName"
                     required
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
@@ -820,10 +1059,11 @@ export default function CartDrawer() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                  <label htmlFor="customerPhone" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                     Mobile Number *
                   </label>
                   <input
+                    id="customerPhone"
                     required
                     type="tel"
                     value={customerPhone}
@@ -835,10 +1075,11 @@ export default function CartDrawer() {
               </div>
 
               <div>
-                <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                <label htmlFor="customerEmail" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                   Email Address (Optional)
                 </label>
                 <input
+                  id="customerEmail"
                   type="email"
                   value={customerEmail}
                   onChange={(e) => setCustomerEmail(e.target.value)}
@@ -847,11 +1088,22 @@ export default function CartDrawer() {
                 />
               </div>
 
+              {/* Delivery Destination Address */}
+              <div className="pt-2">
+                <p className="text-[11px] uppercase tracking-wider text-bark font-semibold flex items-center justify-between">
+                  <span>{isGiftOrder ? "2. Recipient's Delivery Address" : 'Delivery Address'}</span>
+                  {isGiftOrder && (
+                    <span className="text-[10px] text-rose font-medium">destination for gift parcel</span>
+                  )}
+                </p>
+              </div>
+
               <div>
-                <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
-                  House / Flat / Street Address *
+                <label htmlFor="addressLine1" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                  {isGiftOrder ? "Recipient's House / Flat / Street Address *" : 'House / Flat / Street Address *'}
                 </label>
                 <input
+                  id="addressLine1"
                   required
                   value={addressLine1}
                   onChange={(e) => setAddressLine1(e.target.value)}
@@ -861,10 +1113,11 @@ export default function CartDrawer() {
               </div>
 
               <div>
-                <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                <label htmlFor="addressLine2" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                   Landmark / Area (Optional)
                 </label>
                 <input
+                  id="addressLine2"
                   value={addressLine2}
                   onChange={(e) => setAddressLine2(e.target.value)}
                   placeholder="Near Botanical Garden"
@@ -874,10 +1127,11 @@ export default function CartDrawer() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                  <label htmlFor="city" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                     City *
                   </label>
                   <input
+                    id="city"
                     required
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
@@ -886,10 +1140,11 @@ export default function CartDrawer() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                  <label htmlFor="state" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                     State *
                   </label>
                   <input
+                    id="state"
                     required
                     value={state}
                     onChange={(e) => setState(e.target.value)}
@@ -898,10 +1153,11 @@ export default function CartDrawer() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
+                  <label htmlFor="pinCode" className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
                     PIN *
                   </label>
                   <input
+                    id="pinCode"
                     required
                     value={pinCode}
                     onChange={(e) => setPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -920,18 +1176,26 @@ export default function CartDrawer() {
                     onChange={(e) => setSaveAddressToProfile(e.target.checked)}
                     className="accent-rose rounded cursor-pointer"
                   />
-                  <span>Save this delivery address to my Atelier profile for future orders</span>
+                  <span>
+                    {isGiftOrder
+                      ? "Save recipient's address to my Atelier profile for future gifting"
+                      : 'Save this delivery address to my Atelier profile for future orders'}
+                  </span>
                 </label>
               )}
 
               <div>
                 <label className="block text-xs uppercase tracking-wider text-ink font-semibold mb-1">
-                  Special Note or Gift Message
+                  {isGiftOrder ? 'Additional Studio Instructions (Optional)' : 'Special Note or Gift Message'}
                 </label>
                 <input
                   value={customerNote}
                   onChange={(e) => setCustomerNote(e.target.value)}
-                  placeholder="Special instructions for the studio"
+                  placeholder={
+                    isGiftOrder
+                      ? 'e.g. Ring doorbell gently, deliver in evening'
+                      : 'Special instructions for the studio'
+                  }
                   className="input-field text-sm"
                 />
               </div>

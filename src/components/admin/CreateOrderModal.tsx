@@ -17,6 +17,7 @@ import {
   MapPin,
   DollarSign,
   FileText,
+  Sparkles,
 } from 'lucide-react';
 import { useProducts } from '@/context/ProductContext';
 import { useNotification } from '@/context/NotificationContext';
@@ -56,6 +57,12 @@ export default function CreateOrderModal({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+
+  // Form State: Gifting
+  const [isGiftOrder, setIsGiftOrder] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [giftCardMessage, setGiftCardMessage] = useState('');
 
   // Form State: Address
   const [addressLine1, setAddressLine1] = useState('');
@@ -159,8 +166,26 @@ export default function CreateOrderModal({
 
     const cleanPhone = customerPhone.replace(/\D/g, '').slice(-10);
     if (cleanPhone.length !== 10) {
-      setFormError('Please enter a valid 10-digit Indian mobile phone number.');
+      setFormError('Please enter a valid 10-digit Indian mobile phone number for the buyer.');
       return;
+    }
+
+    // Gift Recipient Validation
+    let finalRecipientName = customerName.trim();
+    let finalRecipientPhone = cleanPhone;
+
+    if (isGiftOrder) {
+      if (!recipientName.trim()) {
+        setFormError('Please enter the gift recipient full name.');
+        return;
+      }
+      const cleanRecipPhone = recipientPhone.replace(/\D/g, '').slice(-10);
+      if (cleanRecipPhone.length !== 10) {
+        setFormError('Please enter a valid 10-digit mobile number for the gift recipient (for courier delivery call).');
+        return;
+      }
+      finalRecipientName = recipientName.trim();
+      finalRecipientPhone = cleanRecipPhone;
     }
 
     if (!addressLine1.trim() || !city.trim() || !state.trim()) {
@@ -182,6 +207,13 @@ export default function CreateOrderModal({
     setSubmitting(true);
 
     try {
+      let finalAdminNote = adminNote.trim();
+      if (isGiftOrder) {
+        const giftHeader = `[GIFT ORDER - Recipient: ${finalRecipientName} | Phone: +91 ${finalRecipientPhone}]`;
+        const cardMsg = giftCardMessage.trim() ? ` [GIFT CARD MESSAGE]: "${giftCardMessage.trim()}"` : '';
+        finalAdminNote = `${giftHeader}${cardMsg}${finalAdminNote ? ` | ${finalAdminNote}` : ''}`;
+      }
+
       const payload = {
         customer: {
           name: customerName.trim(),
@@ -189,8 +221,8 @@ export default function CreateOrderModal({
           email: customerEmail.trim() || undefined,
         },
         shippingAddress: {
-          recipientName: customerName.trim(),
-          phone: cleanPhone,
+          recipientName: finalRecipientName,
+          phone: finalRecipientPhone,
           addressLine1: addressLine1.trim(),
           addressLine2: addressLine2.trim() || undefined,
           city: city.trim(),
@@ -213,7 +245,7 @@ export default function CreateOrderModal({
         paymentStatus,
         paymentMethod,
         orderDate: isHistoricalDate && customDate ? new Date(customDate).toISOString() : undefined,
-        adminNote: adminNote.trim() || undefined,
+        adminNote: finalAdminNote || undefined,
         shipment:
           awbNumber.trim() || orderStatus === 'SHIPPED' || orderStatus === 'DELIVERED'
             ? {
@@ -279,10 +311,116 @@ export default function CreateOrderModal({
 
           {/* Section 1: Customer & Delivery Address */}
           <div className="space-y-4">
-            <h4 className="text-xs uppercase tracking-wider font-bold text-bark flex items-center gap-2 border-b border-canvas-line pb-2">
-              <MapPin size={14} className="text-rose" />
-              <span>1. Customer &amp; Shipping Details</span>
+            <h4 className="text-xs uppercase tracking-wider font-bold text-bark flex items-center justify-between border-b border-canvas-line pb-2">
+              <span className="flex items-center gap-2">
+                <MapPin size={14} className="text-rose" />
+                <span>1. Customer &amp; Shipping Details</span>
+              </span>
+              {isGiftOrder && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose/15 text-rose-deep border border-rose/30 flex items-center gap-1">
+                  <Gift size={11} className="text-rose" /> Gift Order Active
+                </span>
+              )}
             </h4>
+
+            {/* Gifting Toggle Card */}
+            <div
+              className={`p-3.5 rounded-sm border transition-all ${
+                isGiftOrder
+                  ? 'bg-rose/10 border-rose/30 shadow-2xs'
+                  : 'bg-canvas/30 border-canvas-line hover:border-canvas-line-hover'
+              }`}
+            >
+              <label className="flex items-center justify-between cursor-pointer">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                      isGiftOrder ? 'bg-rose text-linen shadow-xs' : 'bg-linen border border-canvas-line text-rose'
+                    }`}
+                  >
+                    <Gift size={14} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-bark block">
+                      Mark as a Gift Delivery
+                    </span>
+                    <span className="text-[11px] text-ink-light block">
+                      Deliver directly to recipient with a complimentary handwritten card (omit price tags &amp; invoices)
+                    </span>
+                  </div>
+                </div>
+                <input
+                  id="adminIsGiftOrder"
+                  type="checkbox"
+                  checked={isGiftOrder}
+                  onChange={(e) => setIsGiftOrder(e.target.checked)}
+                  className="w-4 h-4 accent-rose rounded cursor-pointer"
+                />
+              </label>
+
+              {isGiftOrder && (
+                <div className="mt-3.5 pt-3.5 border-t border-rose/20 space-y-3 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-semibold mb-1">
+                        Recipient Full Name <span className="text-rose">*</span>
+                      </label>
+                      <input
+                        required={isGiftOrder}
+                        type="text"
+                        value={recipientName}
+                        onChange={(e) => setRecipientName(e.target.value)}
+                        placeholder="e.g. Ananya Sharma"
+                        className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-semibold mb-1 flex items-center justify-between">
+                        <span>Recipient Mobile <span className="text-rose">*</span></span>
+                        <span className="text-[10px] text-rose font-normal">For courier call</span>
+                      </label>
+                      <input
+                        required={isGiftOrder}
+                        type="tel"
+                        maxLength={10}
+                        value={recipientPhone}
+                        onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="10-digit mobile"
+                        className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-semibold mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles size={12} className="text-rose" />
+                        Handwritten Card Note
+                      </span>
+                      <span className="text-[10px] text-ink-light font-normal">{giftCardMessage.length}/250 chars</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      maxLength={250}
+                      value={giftCardMessage}
+                      onChange={(e) => setGiftCardMessage(e.target.value)}
+                      placeholder="e.g. Wishing you a wonderful birthday! May your year bloom with joy and happiness."
+                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Buyer Contact Details Subheader */}
+            <div className="pt-1">
+              <p className="text-[11px] uppercase tracking-wider text-bark font-semibold flex items-center justify-between">
+                <span>{isGiftOrder ? 'Buyer / Sender Details (Payment & Receipt Contact)' : 'Customer Contact Details'}</span>
+                {isGiftOrder && (
+                  <span className="text-[10px] text-ink-light font-normal">invoice &amp; receipts sent here</span>
+                )}
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
@@ -326,6 +464,16 @@ export default function CreateOrderModal({
                   className="w-full px-3 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                 />
               </div>
+            </div>
+
+            {/* Destination Address Subheader */}
+            <div className="pt-2">
+              <p className="text-[11px] uppercase tracking-wider text-bark font-semibold flex items-center justify-between">
+                <span>{isGiftOrder ? "Recipient's Delivery Address (Courier Destination)" : 'Delivery Address'}</span>
+                {isGiftOrder && (
+                  <span className="text-[10px] text-rose font-medium">destination for gift parcel</span>
+                )}
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
