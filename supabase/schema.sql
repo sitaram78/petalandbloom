@@ -940,3 +940,42 @@ drop policy if exists "Users can manage own wishlist" on public.customer_wishlis
 create policy "Users can manage own wishlist" on public.customer_wishlists
   for all using (auth.uid() = customer_id or public.is_admin())
   with check (auth.uid() = customer_id or public.is_admin());
+
+-- OCCASIONS & FESTIVE CATALOG
+create table if not exists public.occasions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  slug text not null unique,
+  emoji text not null default '🌸',
+  description text,
+  banner_image_url text,
+  is_active boolean not null default true,
+  display_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_occasions_slug on public.occasions(slug);
+create index if not exists idx_occasions_active on public.occasions(is_active);
+create index if not exists idx_occasions_display_order on public.occasions(display_order);
+
+drop trigger if exists tr_occasions_updated_at on public.occasions;
+create trigger tr_occasions_updated_at
+  before update on public.occasions
+  for each row execute function public.handle_updated_at();
+
+alter table public.occasions enable row level security;
+
+drop policy if exists "Public can view active occasions" on public.occasions;
+create policy "Public can view active occasions"
+  on public.occasions for select
+  using (is_active = true or public.is_admin());
+
+drop policy if exists "Admins can manage occasions" on public.occasions;
+create policy "Admins can manage occasions"
+  on public.occasions for all
+  using (public.is_admin())
+  with check (public.is_admin());
+
+create index if not exists idx_products_occasions on public.products using gin(occasions);
+

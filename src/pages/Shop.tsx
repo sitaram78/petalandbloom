@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { SlidersHorizontal, X, Search, ChevronDown, LayoutGrid, List, Filter } from 'lucide-react';
+import { SlidersHorizontal, X, Search, ChevronDown, ChevronLeft, ChevronRight, LayoutGrid, List, Filter } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import ProductGrid from '@/components/ProductGrid';
 import ProductList from '@/components/ProductList';
@@ -12,7 +12,8 @@ import SectionHeading from '@/components/SectionHeading';
 import AtelierButton from '@/components/AtelierButton';
 import AtelierChip from '@/components/AtelierChip';
 import { type ProductCategory, formatPrice } from '@/data/products';
-import { occasions, budgetFilters, giftingOccasions } from '@/data/site';
+import { budgetFilters } from '@/data/site';
+import { fetchOccasions, DEFAULT_OCCASIONS, type Occasion } from '@/services/occasionService';
 import { buildWhatsAppLink, generalEnquiryMessage } from '@/utils/whatsapp';
 import { trackEvent } from '@/utils/analytics';
 import { useSiteAssets, getDynamicAsset } from '@/context/SiteAssetsContext';
@@ -88,6 +89,69 @@ export default function ShopPage() {
     fetchCategories();
   }, []);
 
+  // Dynamic Storefront Occasions
+  const [dynamicOccasions, setDynamicOccasions] = useState<Occasion[]>([]);
+  const [occasionsLoaded, setOccasionsLoaded] = useState<boolean>(false);
+
+  useEffect(() => {
+    async function fetchStoreOccasions() {
+      try {
+        const data = await fetchOccasions({ activeOnly: true });
+        setDynamicOccasions(data || []);
+      } catch (err) {
+        console.warn('Error fetching store occasions:', err);
+      } finally {
+        setOccasionsLoaded(true);
+      }
+    }
+    fetchStoreOccasions();
+  }, []);
+
+  const occasionChips = useMemo(() => {
+    const list = occasionsLoaded ? dynamicOccasions : DEFAULT_OCCASIONS;
+    return list.map((o) => ({
+      label: o.name,
+      value: o.slug,
+      emoji: o.emoji,
+    }));
+  }, [dynamicOccasions, occasionsLoaded]);
+
+  // Horizontal Occasion Rail Scroll State
+  const occasionScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkOccasionScroll = () => {
+    if (!occasionScrollRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = occasionScrollRef.current;
+    setCanScrollLeft(scrollLeft > 6);
+    setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 6);
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(checkOccasionScroll, 120);
+    const el = occasionScrollRef.current;
+    if (!el) return () => clearTimeout(timer);
+
+    el.addEventListener('scroll', checkOccasionScroll, { passive: true });
+    window.addEventListener('resize', checkOccasionScroll);
+
+    return () => {
+      clearTimeout(timer);
+      el.removeEventListener('scroll', checkOccasionScroll);
+      window.removeEventListener('resize', checkOccasionScroll);
+    };
+  }, [occasionChips]);
+
+  const scrollOccasions = (direction: 'left' | 'right') => {
+    if (!occasionScrollRef.current) return;
+    const scrollAmount = Math.max(260, occasionScrollRef.current.clientWidth * 0.6);
+    occasionScrollRef.current.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth',
+    });
+  };
+
   useEffect(() => {
     if (occasionFilter || budgetFilter || searchQuery) {
       const params = new URLSearchParams(searchParams);
@@ -132,7 +196,16 @@ export default function ShopPage() {
     return result;
   }, [products, category, occasionFilter, activeBudget, customOnly, searchQuery, sort, categories]);
 
-  const occasionName = occasions.find((o) => o.filter === occasionFilter)?.name;
+  const occasionName = useMemo(() => {
+    if (!occasionFilter) return null;
+    const clean = occasionFilter.toLowerCase().trim();
+    const list = dynamicOccasions.length > 0 ? dynamicOccasions : DEFAULT_OCCASIONS;
+    const match = list.find(
+      (o) => o.slug.toLowerCase() === clean || o.name.toLowerCase() === clean
+    );
+    return match?.name || occasionFilter;
+  }, [occasionFilter, dynamicOccasions]);
+
   const hasActiveFilter = occasionFilter || budgetFilter || searchQuery || customOnly || category !== 'all';
 
   const clearAllFilters = () => {
@@ -146,26 +219,39 @@ export default function ShopPage() {
   const activeCategoryData = categories.find(c => c.value === category);
 
   const getOccasionAssetKey = (filter: string) => {
-    const occasion = occasions.find(o => o.filter === filter);
-    if (!occasion) return null;
-
-    const mapping: Record<string, string> = {
-      'Birthday': SITE_ASSET_KEYS.HOME_OCCASION_BIRTHDAY,
-      'Anniversary': SITE_ASSET_KEYS.HOME_OCCASION_ANNIVERSARY,
-      'Friendship': SITE_ASSET_KEYS.HOME_OCCASION_FRIENDSHIP,
-      'Just Because': SITE_ASSET_KEYS.HOME_OCCASION_JUST_BECAUSE,
-      "Mother's Day": SITE_ASSET_KEYS.HOME_OCCASION_MOTHERS_DAY,
-      "Valentine's Day": SITE_ASSET_KEYS.HOME_OCCASION_VALENTINES_DAY,
-      'Festivals': SITE_ASSET_KEYS.HOME_OCCASION_FESTIVALS,
-    };
-
-    return mapping[occasion.filter] || null;
+    const norm = filter.toLowerCase().trim();
+    if (norm.includes('birth')) return SITE_ASSET_KEYS.HOME_OCCASION_BIRTHDAY;
+    if (norm.includes('anniv')) return SITE_ASSET_KEYS.HOME_OCCASION_ANNIVERSARY;
+    if (norm.includes('friend')) return SITE_ASSET_KEYS.HOME_OCCASION_FRIENDSHIP;
+    if (norm.includes('just')) return SITE_ASSET_KEYS.HOME_OCCASION_JUST_BECAUSE;
+    if (norm.includes('mother')) return SITE_ASSET_KEYS.HOME_OCCASION_MOTHERS_DAY;
+    if (norm.includes('valen')) return SITE_ASSET_KEYS.HOME_OCCASION_VALENTINES_DAY;
+    if (norm.includes('diwali') || norm.includes('festiv') || norm.includes('rakhi')) return SITE_ASSET_KEYS.HOME_OCCASION_FESTIVALS;
+    return null;
   };
 
   const heroImage = useMemo(() => {
     if (occasionFilter) {
+      const cleanOcc = occasionFilter.toLowerCase().trim();
+      const matchedOcc = dynamicOccasions.find(
+        (o) => o.slug.toLowerCase() === cleanOcc || o.name.toLowerCase() === cleanOcc
+      );
+
+      if (matchedOcc) {
+        // 1. Check Studio Visuals asset for this occasion hero banner
+        const studioAsset = getDynamicAsset(assets, SITE_ASSET_KEYS.OCCASION_HERO(matchedOcc.slug));
+        if (studioAsset) return studioAsset;
+
+        // 2. Check direct occasion database banner_image_url
+        if (matchedOcc.banner_image_url) return matchedOcc.banner_image_url;
+      }
+
+      // 3. Fallback to legacy home occasion visual if present
       const occasionKey = getOccasionAssetKey(occasionFilter);
-      if (occasionKey) return getDynamicAsset(assets, occasionKey);
+      if (occasionKey) {
+        const legacyAsset = getDynamicAsset(assets, occasionKey);
+        if (legacyAsset) return legacyAsset;
+      }
     }
 
     if (category !== 'all' && activeCategoryData) {
@@ -173,7 +259,7 @@ export default function ShopPage() {
     }
 
     return getDynamicAsset(assets, SITE_ASSET_KEYS.SHOP_HERO_DEFAULT);
-  }, [assets, occasionFilter, category, activeCategoryData]);
+  }, [assets, occasionFilter, dynamicOccasions, category, activeCategoryData]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -331,7 +417,7 @@ export default function ShopPage() {
                 }`}
               >
                 <Filter size={14} />
-                {isToolbarExpanded ? 'Close Filters' : `Filters ${activeFilterCount > 0 && `(${activeFilterCount})`}`}
+                {isToolbarExpanded ? 'Close Filters' : activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
               </button>
 
               <div className="flex items-center gap-2 text-sm text-ink-light">
@@ -409,24 +495,31 @@ export default function ShopPage() {
               </div>
 
               <div className="flex flex-wrap justify-center gap-2">
-                {giftingOccasions.map((occ) => (
-                  <AtelierChip
-                    key={occ}
-                    variant="occasion"
-                    active={occasionFilter === occ}
-                    onClick={() => {
-                      const params = new URLSearchParams(searchParams);
-                      if (occasionFilter === occ) {
-                        params.delete('occasion');
-                      } else {
-                        params.set('occasion', occ);
-                      }
-                      setSearchParams(params);
-                    }}
-                  >
-                    {occ}
-                  </AtelierChip>
-                ))}
+                {occasionChips.map((occ) => {
+                  const isActive =
+                    occasionFilter.toLowerCase() === occ.value.toLowerCase() ||
+                    occasionFilter.toLowerCase() === occ.label.toLowerCase();
+
+                  return (
+                    <AtelierChip
+                      key={occ.value}
+                      variant="occasion"
+                      active={isActive}
+                      onClick={() => {
+                        const params = new URLSearchParams(searchParams);
+                        if (isActive) {
+                          params.delete('occasion');
+                        } else {
+                          params.set('occasion', occ.value);
+                        }
+                        setSearchParams(params);
+                      }}
+                    >
+                      {occ.emoji && <span>{occ.emoji}</span>}
+                      <span>{occ.label}</span>
+                    </AtelierChip>
+                  );
+                })}
               </div>
 
               <div className="flex justify-center">
@@ -441,26 +534,62 @@ export default function ShopPage() {
             </div>
           )}
 
-          {/* Occasion scroll - Hidden on mobile */}
-          <div className="hidden sm:flex items-center justify-start lg:justify-center gap-3 overflow-x-auto pb-2 scrollbar-hide px-6">
-            {giftingOccasions.map((occ) => (
-              <AtelierChip
-                key={occ}
-                variant="occasion"
-                active={occasionFilter === occ}
-                onClick={() => {
-                  const params = new URLSearchParams(searchParams);
-                  if (occasionFilter === occ) {
-                    params.delete('occasion');
-                  } else {
-                    params.set('occasion', occ);
-                  }
-                  setSearchParams(params);
-                }}
+          {/* Occasion Scroll Rail with Desktop Arrow Controls */}
+          <div className="relative group/occ w-full">
+            {canScrollLeft && (
+              <button
+                type="button"
+                onClick={() => scrollOccasions('left')}
+                aria-label="Scroll occasions left"
+                className="hidden md:flex absolute -left-2 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 border border-canvas-line shadow-sm items-center justify-center text-bark hover:bg-canvas hover:scale-105 transition-all"
               >
-                {occ}
-              </AtelierChip>
-            ))}
+                <ChevronLeft size={16} />
+              </button>
+            )}
+
+            <div
+              ref={occasionScrollRef}
+              className="flex items-center justify-start gap-2.5 overflow-x-auto pb-1 scrollbar-hide scroll-smooth px-2 sm:px-6 w-full"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
+              {occasionChips.map((occ) => {
+                const isActive =
+                  occasionFilter.toLowerCase() === occ.value.toLowerCase() ||
+                  occasionFilter.toLowerCase() === occ.label.toLowerCase();
+
+                return (
+                  <div key={occ.value} className="flex-shrink-0">
+                    <AtelierChip
+                      variant="occasion"
+                      active={isActive}
+                      onClick={() => {
+                        const params = new URLSearchParams(searchParams);
+                        if (isActive) {
+                          params.delete('occasion');
+                        } else {
+                          params.set('occasion', occ.value);
+                        }
+                        setSearchParams(params);
+                      }}
+                    >
+                      {occ.emoji && <span>{occ.emoji}</span>}
+                      <span>{occ.label}</span>
+                    </AtelierChip>
+                  </div>
+                );
+              })}
+            </div>
+
+            {canScrollRight && (
+              <button
+                type="button"
+                onClick={() => scrollOccasions('right')}
+                aria-label="Scroll occasions right"
+                className="hidden md:flex absolute -right-2 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white/95 border border-canvas-line shadow-sm items-center justify-center text-bark hover:bg-canvas hover:scale-105 transition-all"
+              >
+                <ChevronRight size={16} />
+              </button>
+            )}
           </div>
 
           {/* Mobile ViewMode buttons */}

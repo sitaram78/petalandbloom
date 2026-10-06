@@ -27,9 +27,21 @@ export function filterProducts(products: Product[], criteria: SearchCriteria) {
       }
     }
 
-    // Occasion filter
-    if (occasion && (!p.occasions || !p.occasions.some(o => o.toLowerCase() === occasion.toLowerCase()))) {
-      return false;
+    // Occasion filter (matches exact slug, normalized string, or partial inclusion)
+    if (occasion) {
+      if (!p.occasions || p.occasions.length === 0) return false;
+      const target = occasion.toLowerCase().trim();
+      const hasMatch = p.occasions.some((o) => {
+        if (!o) return false;
+        const clean = o.toLowerCase().trim();
+        return (
+          clean === target ||
+          clean.replace(/[^a-z0-9]/g, '') === target.replace(/[^a-z0-9]/g, '') ||
+          clean.includes(target) ||
+          target.includes(clean)
+        );
+      });
+      if (!hasMatch) return false;
     }
 
     // Budget filter (assumes budget string comes from budgetFilters.param)

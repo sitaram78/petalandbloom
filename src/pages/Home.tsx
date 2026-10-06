@@ -11,7 +11,7 @@ import StitchDivider from '@/components/StitchDivider';
 import { formatPrice } from '@/data/products';
 import { useSiteAssets, getDynamicAsset } from '@/context/SiteAssetsContext';
 import {
-  trustStrip, addOns, giftingOccasions,
+  trustStrip, addOns,
   brandInfo, budgetFilters, howItWorksSteps,
 } from '@/data/site';
 import { SITE_ASSET_KEYS } from '@/utils/siteAssetKeys';

@@ -19,6 +19,7 @@ export const SITE_ASSET_KEYS = {
   // Shop Page
   SHOP_HERO_DEFAULT: 'shop_hero_default',
   SHOP_HERO_SECONDARY: 'hero_secondary',
+  OCCASION_HERO: (slug: string) => `occasion_${slug}_hero`,
   // Category heroes are dynamic: `cat_{slug}_hero`
 
   // About Page

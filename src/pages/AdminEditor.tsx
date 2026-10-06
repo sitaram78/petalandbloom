@@ -11,14 +11,15 @@ import {
   Image as ImageIcon,
   Sparkles,
   Package,
-  CheckCircle2
+  CheckCircle2,
+  Check,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useProducts } from '@/context/ProductContext';
 import Reveal from '@/components/Reveal';
 import AdminLayout from '@/components/AdminLayout';
 import { formatPrice } from '@/data/products';
-import { occasions } from '@/data/site';
+import { fetchOccasions, createOccasion, type Occasion } from '@/services/occasionService';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
 
@@ -104,6 +105,13 @@ export default function AdminEditor() {
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
 
+  // Dynamic Occasions System
+  const [availableOccasions, setAvailableOccasions] = useState<Occasion[]>([]);
+  const [isQuickOccasionModalOpen, setIsQuickOccasionModalOpen] = useState(false);
+  const [quickOccasionName, setQuickOccasionName] = useState('');
+  const [quickOccasionEmoji, setQuickOccasionEmoji] = useState('🌸');
+  const [creatingOccasion, setCreatingOccasion] = useState(false);
+
   const [form, setForm] = useState<ProductForm>({
     name: '',
     code: '',
@@ -145,6 +153,54 @@ export default function AdminEditor() {
     }
     fetchCategories();
   }, []);
+
+  useEffect(() => {
+    async function loadOccasionsList() {
+      try {
+        const occs = await fetchOccasions({ activeOnly: true });
+        setAvailableOccasions(occs);
+      } catch (err) {
+        console.warn('Failed to load occasions:', err);
+      }
+    }
+    loadOccasionsList();
+  }, []);
+
+  const toggleOccasionPill = (occSlug: string) => {
+    setForm(prev => {
+      const current = prev.occasions.filter(o => o.trim() !== '');
+      const cleanSlug = occSlug.toLowerCase().trim();
+      const hasIt = current.some(o => o.toLowerCase().trim() === cleanSlug);
+      const next = hasIt
+        ? current.filter(o => o.toLowerCase().trim() !== cleanSlug)
+        : [...current, cleanSlug];
+      return { ...prev, occasions: next };
+    });
+  };
+
+  const handleCreateQuickOccasion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickOccasionName.trim()) return;
+    setCreatingOccasion(true);
+    try {
+      const created = await createOccasion({
+        name: quickOccasionName.trim(),
+        emoji: quickOccasionEmoji.trim() || '🌸',
+      });
+      setAvailableOccasions(prev => [...prev, created]);
+      setForm(prev => ({
+        ...prev,
+        occasions: [...prev.occasions.filter(o => o.trim() !== ''), created.slug],
+      }));
+      setIsQuickOccasionModalOpen(false);
+      setQuickOccasionName('');
+      setQuickOccasionEmoji('🌸');
+    } catch (err: any) {
+      alert(`Could not create occasion: ${err.message}`);
+    } finally {
+      setCreatingOccasion(false);
+    }
+  };
 
   useEffect(() => {
     if (isEditMode && codeParam) {
@@ -532,42 +588,51 @@ export default function AdminEditor() {
                     ))}\n                  </div>
                 </div>
 
-                {/* Occasions */}
-                <div className="space-y-4">
+                {/* Occasions (Dynamic Interactive Festive Pills) */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs uppercase tracking-wider text-ink font-medium">Occasions</label>
+                    <div>
+                      <label className="text-xs uppercase tracking-wider text-ink font-medium">
+                        Occasions & Festive Tags
+                      </label>
+                      <p className="text-[11px] text-ink-light">
+                        Click pills to toggle. Directly links this piece to festive filters, gift finder, and coupons.
+                      </p>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => addArrayItem('occasions')}
-                      className="text-xs text-rose hover:text-rose-dark font-medium flex items-center gap-1"
+                      onClick={() => setIsQuickOccasionModalOpen(true)}
+                      className="text-xs text-rose hover:text-rose-dark font-medium flex items-center gap-1 transition-colors"
                     >
-                      <Plus size={14} /> Add Occasion
+                      <Plus size={14} /> New Occasion
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-3">
-                    {form.occasions.map((occ, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-silk/20 border border-silk rounded-sm px-2 py-1">
-                        <select
-                          value={occ}
-                          onChange={(e) => handleArrayChange('occasions', i, e.target.value)}
-                          className="bg-transparent text-sm py-1 focus:outline-none w-32 appearance-none cursor-pointer"
-                        >
-                          <option value="" className="bg-parchment-50 text-ink">Select Occasion...</option>
-                          {occasions.map((o) => (
-                            <option key={o.filter} value={o.filter} className="bg-parchment-50 text-ink">
-                              {o.name}
-                            </option>
-                          ))}
-                        </select>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {availableOccasions.map((occ) => {
+                      const isSelected = form.occasions.some(
+                        (o) =>
+                          o.toLowerCase().trim() === occ.slug.toLowerCase().trim() ||
+                          o.toLowerCase().trim() === occ.name.toLowerCase().trim()
+                      );
+                      return (
                         <button
+                          key={occ.id || occ.slug}
                           type="button"
-                          onClick={() => removeArrayItem('occasions', i)}
-                          className="text-ink-light hover:text-rose"
+                          onClick={() => toggleOccasionPill(occ.slug)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-1.5 transition-all select-none ${
+                            isSelected
+                              ? 'bg-rose text-white border-rose shadow-xs'
+                              : 'bg-silk/20 border-silk text-ink hover:border-bark/40 hover:bg-silk/40'
+                          }`}
                         >
-                          <X size={14} />
+                          <span>{occ.emoji || '🌸'}</span>
+                          <span>{occ.name}</span>
+                          {isSelected && <Check size={12} strokeWidth={3} className="ml-0.5" />}
                         </button>
-                      </div>
-                    ))}\n                  </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Recipients */}
@@ -639,7 +704,8 @@ export default function AdminEditor() {
                           <X size={14} />
                         </button>
                       </div>
-                    ))}\n                  </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* What's Included */}
@@ -672,7 +738,8 @@ export default function AdminEditor() {
                           <X size={14} />
                         </button>
                       </div>
-                    ))}\n                  </div>
+                    ))}
+                  </div>
                 </div>
               </section>
             </Reveal>
@@ -801,6 +868,75 @@ export default function AdminEditor() {
         }}
         existingProducts={[]}
       />
+
+      {/* Quick Occasion Creation Modal */}
+      {isQuickOccasionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
+            onClick={() => setIsQuickOccasionModalOpen(false)}
+          />
+          <div className="relative bg-linen border border-canvas-line rounded-sm shadow-2xl max-w-sm w-full z-10 p-5 space-y-4 animate-slideUp">
+            <div className="flex items-center justify-between">
+              <h4 className="heading-serif text-lg text-bark">Create New Occasion</h4>
+              <button
+                type="button"
+                onClick={() => setIsQuickOccasionModalOpen(false)}
+                className="text-ink-light hover:text-ink"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateQuickOccasion} className="space-y-3">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-semibold text-bark mb-1">
+                  Occasion Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={quickOccasionName}
+                  onChange={(e) => setQuickOccasionName(e.target.value)}
+                  placeholder="e.g. Navratri, Housewarming..."
+                  className="w-full px-3 py-1.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider font-semibold text-bark mb-1">
+                  Emoji / Icon
+                </label>
+                <input
+                  type="text"
+                  maxLength={4}
+                  value={quickOccasionEmoji}
+                  onChange={(e) => setQuickOccasionEmoji(e.target.value)}
+                  className="w-16 text-center py-1.5 bg-white border border-canvas-line rounded-sm text-sm focus:outline-none focus:border-bark"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-canvas-line">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickOccasionModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-ink-light hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingOccasion || !quickOccasionName.trim()}
+                  className="px-4 py-1.5 bg-ink text-white hover:bg-bark text-xs font-medium uppercase tracking-wider rounded-sm disabled:opacity-50 flex items-center gap-1"
+                >
+                  {creatingOccasion ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                  Add & Select
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

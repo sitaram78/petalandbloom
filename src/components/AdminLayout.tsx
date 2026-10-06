@@ -35,6 +35,7 @@ interface AdminLayoutProps {
     | 'dashboard'
     | 'orders'
     | 'editor'
+    | 'occasions'
     | 'settings'
     | 'navigation'
     | 'assets'
@@ -171,6 +172,12 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           title: 'Add New Piece',
           path: '/admin/editor',
           icon: <Plus size={17} />,
+        },
+        {
+          id: 'occasions',
+          title: 'Occasions & Festivals',
+          path: '/admin/occasions',
+          icon: <Sparkles size={17} />,
         },
       ],
     },

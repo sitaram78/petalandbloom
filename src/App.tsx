@@ -53,6 +53,7 @@ const AdminAuditLogs = lazy(() => import('@/pages/admin/AdminAuditLogs'));
 const AdminInfluencers = lazy(() => import('@/pages/admin/AdminInfluencers'));
 const AdminAbandonedCarts = lazy(() => import('@/pages/admin/AdminAbandonedCarts'));
 const AdminReports = lazy(() => import('@/pages/admin/AdminReports'));
+const AdminOccasions = lazy(() => import('@/pages/admin/AdminOccasions'));
 
 function PageFallback() {
   return (
@@ -115,6 +116,7 @@ function AppContent() {
             <Route path="/admin/influencers" element={<AdminInfluencers />} />
             <Route path="/admin/abandoned-carts" element={<AdminAbandonedCarts />} />
             <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
+            <Route path="/admin/occasions" element={<AdminOccasions />} />
           </Route>
         </Routes>
         </Suspense>

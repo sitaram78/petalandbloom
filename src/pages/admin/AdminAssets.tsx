@@ -4,6 +4,7 @@ import { useSiteAssets } from '@/context/SiteAssetsContext';
 import { Upload, Image as ImageIcon, Loader2, CheckCircle2, RefreshCw, Trash2 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { SITE_ASSET_KEYS } from '@/utils/siteAssetKeys';
+import { fetchOccasions, Occasion } from '@/services/occasionService';
 
 const FIXED_ASSET_GROUPS = [
   {
@@ -20,13 +21,6 @@ const FIXED_ASSET_GROUPS = [
       { key: SITE_ASSET_KEYS.HOME_HERO_TEXTURE, label: 'Hero Texture', desc: 'Textural detail image' },
       { key: SITE_ASSET_KEYS.HOME_HERO_HANDS, label: 'Hero Hands', desc: 'Detail shot of hands working' },
       { key: SITE_ASSET_KEYS.HOME_HERO_YARN, label: 'Hero Yarn', desc: 'Close-up of luxury yarn' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_BIRTHDAY, label: 'Occasion: Birthday', desc: 'Thumbnail for birthday collection' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_ANNIVERSARY, label: 'Occasion: Anniversary', desc: 'Thumbnail for anniversary collection' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_JUST_BECAUSE, label: 'Occasion: Just Because', desc: 'Thumbnail for just because collection' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_FRIENDSHIP, label: 'Occasion: Friendship', desc: 'Thumbnail for friendship collection' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_MOTHERS_DAY, label: 'Occasion: Mother\'s Day', desc: 'Thumbnail for Mother\'s Day collection' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_VALENTINES_DAY, label: 'Occasion: Valentine\'s Day', desc: 'Thumbnail for Valentine\'s Day collection' },
-      { key: SITE_ASSET_KEYS.HOME_OCCASION_FESTIVALS, label: 'Occasion: Festivals', desc: 'Thumbnail for festival collection' },
     ]
   },
   {
@@ -62,6 +56,7 @@ export default function AdminAssets() {
   const [successKey, setSuccessKey] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [dynamicCategories, setDynamicCategories] = useState<{ label: string; slug: string }[]>([]);
+  const [dynamicOccasions, setDynamicOccasions] = useState<Occasion[]>([]);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -73,7 +68,20 @@ export default function AdminAssets() {
         setDynamicCategories(data.map(c => ({ label: c.name, slug: c.slug })));
       }
     }
+
+    async function loadOccasions() {
+      try {
+        const occs = await fetchOccasions();
+        if (occs && occs.length > 0) {
+          setDynamicOccasions(occs);
+        }
+      } catch (err) {
+        console.warn('Could not load occasions in AdminAssets:', err);
+      }
+    }
+
     fetchCategories();
+    loadOccasions();
   }, []);
 
   const handleRefresh = async () => {
@@ -107,6 +115,15 @@ export default function AdminAssets() {
       const { error: updateError } = await updateAsset(key, publicUrl);
       if (updateError) throw updateError;
 
+      // If this is an occasion hero banner, also sync to public.occasions table
+      if (key.startsWith('occasion_') && key.endsWith('_hero')) {
+        const occSlug = key.replace('occasion_', '').replace('_hero', '');
+        await supabase
+          .from('occasions')
+          .update({ banner_image_url: publicUrl })
+          .eq('slug', occSlug);
+      }
+
       setSuccessKey(key);
     } catch (error: any) {
       console.error('Asset upload failed:', error);
@@ -116,9 +133,17 @@ export default function AdminAssets() {
     }
   };
 
-  // Combine fixed groups with dynamic shop categories
+  // Combine fixed groups with dynamic shop categories and occasions
   const allAssetGroups = [
     ...FIXED_ASSET_GROUPS,
+    {
+      label: 'Shop Page — Occasion Hero Banners',
+      keys: dynamicOccasions.map((occ) => ({
+        key: SITE_ASSET_KEYS.OCCASION_HERO(occ.slug),
+        label: `${occ.emoji ? occ.emoji + ' ' : ''}${occ.name} Hero Banner`,
+        desc: `16:9 banner displayed when "${occ.name}" is selected on /shop`
+      }))
+    },
     {
       label: 'Shop Page & Categories',
       keys: [

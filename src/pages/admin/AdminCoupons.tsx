@@ -27,6 +27,7 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 import AdminLayout from '@/components/AdminLayout';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import { fetchOccasions, DEFAULT_OCCASIONS } from '@/services/occasionService';
 import {
   useAdminView,
   AdminViewHeader,
@@ -79,16 +80,6 @@ const CATEGORY_OPTIONS = [
   { slug: 'custom', label: 'Custom Orders', icon: '🎨' },
 ];
 
-const OCCASION_OPTIONS = [
-  { slug: 'diwali', label: 'Diwali & Festive', emoji: '🪔' },
-  { slug: 'valentines', label: "Valentine's Day", emoji: '❤️' },
-  { slug: 'birthday', label: 'Birthday', emoji: '🎂' },
-  { slug: 'anniversary', label: 'Anniversary', emoji: '🥂' },
-  { slug: 'mothers-day', label: "Mother's Day", emoji: '🌷' },
-  { slug: 'wedding', label: 'Weddings', emoji: '💍' },
-  { slug: 'friendship', label: 'Friendship', emoji: '🤝' },
-];
-
 const SCOPE_TYPE_OPTIONS = [
   { id: 'ALL', label: 'All Products', icon: '🌐', desc: 'Applies to any product across the atelier' },
   { id: 'CATEGORIES', label: 'Category Only', icon: '💐', desc: 'Restricted to selected product categories' },
@@ -98,6 +89,21 @@ const SCOPE_TYPE_OPTIONS = [
   { id: 'CUSTOM_COMPOUND', label: 'Compound Criteria', icon: '⚙️', desc: 'Combine multiple category, price, and festive filters' },
 ];
 
+function isSchemaCacheError(msg?: string): boolean {
+  if (!msg) return false;
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('schema cache') ||
+    lower.includes('applicable_categories') ||
+    lower.includes('applicable_occasions') ||
+    lower.includes('applicable_product_codes') ||
+    lower.includes('scope_type') ||
+    lower.includes('min_product_price_in_paise') ||
+    lower.includes('min_spend_mode') ||
+    lower.includes('cart_mix_mode')
+  );
+}
+
 export default function AdminCoupons() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
@@ -106,6 +112,31 @@ export default function AdminCoupons() {
   const [error, setError] = useState('');
   const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
+
+  // Dynamic Occasion Scopes
+  const [dynamicOccasions, setDynamicOccasions] = useState<{ slug: string; label: string; emoji: string }[]>([]);
+  const [occasionsLoaded, setOccasionsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadOccasions() {
+      try {
+        const data = await fetchOccasions({ activeOnly: true });
+        setDynamicOccasions(
+          (data || []).map((o) => ({ slug: o.slug, label: o.name, emoji: o.emoji || '🌸' }))
+        );
+      } catch (e) {
+        console.warn('Could not load dynamic occasions for coupon scopes:', e);
+      } finally {
+        setOccasionsLoaded(true);
+      }
+    }
+    loadOccasions();
+  }, []);
+
+  const activeOccasionOptions =
+    occasionsLoaded
+      ? dynamicOccasions
+      : DEFAULT_OCCASIONS.map((o) => ({ slug: o.slug, label: o.name, emoji: o.emoji }));
 
   // Search input inside product picker modal
   const [productPickerSearch, setProductPickerSearch] = useState('');
@@ -317,21 +348,6 @@ export default function AdminCoupons() {
       setSaving(false);
       return;
     }
-
-    const isSchemaCacheError = (msg?: string) => {
-      if (!msg) return false;
-      const lower = msg.toLowerCase();
-      return (
-        lower.includes('schema cache') ||
-        lower.includes('applicable_categories') ||
-        lower.includes('applicable_occasions') ||
-        lower.includes('applicable_product_codes') ||
-        lower.includes('scope_type') ||
-        lower.includes('min_product_price_in_paise') ||
-        lower.includes('min_spend_mode') ||
-        lower.includes('cart_mix_mode')
-      );
-    };
 
     let { error: insertError } = await supabase.from('coupons').insert({
       code: couponCode,
@@ -849,7 +865,7 @@ export default function AdminCoupons() {
               Select Festive Occasions
             </label>
             <div className="flex flex-wrap gap-2">
-              {OCCASION_OPTIONS.map((occ) => {
+              {activeOccasionOptions.map((occ) => {
                 const isChecked = currentForm.applicableOccasions.includes(occ.slug);
                 return (
                   <button

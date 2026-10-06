@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Gift, Heart, Users, Sparkles, PartyPopper, Check } from 'lucide-react';
 import Reveal from '@/components/Reveal';
@@ -12,8 +12,8 @@ import { SITE_ASSET_KEYS } from '@/utils/siteAssetKeys';
 import { giftFinderMessage } from '@/utils/whatsapp';
 import { trackEvent } from '@/utils/analytics';
 import SEO from '@/components/SEO';
+import { fetchOccasions, DEFAULT_OCCASIONS } from '@/services/occasionService';
 
-const occasions = ['Birthday', 'Anniversary', 'Friendship', 'Festival', 'Just Because'];
 const recipients = ['Partner', 'Friend', 'Mother', 'Sibling', 'Other'];
 const budgets = [
   { label: 'Under ₹300', min: 0, max: 299 },
@@ -31,6 +31,28 @@ export default function GiftFinder() {
   const [recipient, setRecipient] = useState('');
   const [budget, setBudget] = useState('');
 
+  // Dynamic Storefront Occasions
+  const [activeOccasions, setActiveOccasions] = useState<Array<{ name: string; emoji?: string }>>([]);
+  const [occasionsLoaded, setOccasionsLoaded] = useState<boolean>(false);
+
+  useEffect(() => {
+    async function loadOccasions() {
+      try {
+        const data = await fetchOccasions({ activeOnly: true });
+        setActiveOccasions((data || []).map((o) => ({ name: o.name, emoji: o.emoji })));
+      } catch (e) {
+        console.warn('Could not load dynamic occasions for gift finder:', e);
+      } finally {
+        setOccasionsLoaded(true);
+      }
+    }
+    loadOccasions();
+  }, []);
+
+  const occasionOptions = occasionsLoaded
+    ? activeOccasions.map((o) => o.name)
+    : DEFAULT_OCCASIONS.map((o) => o.name);
+
   const recommendations = useMemo(() => {
     if (!occasion || !recipient || !budget) return [];
     const budgetObj = budgets.find((b) => b.label === budget);
@@ -44,11 +66,12 @@ export default function GiftFinder() {
         const inBudget = p.price >= budgetObj.min && p.price <= budgetObj.max;
         if (inBudget) score += 10;
 
-        // 2. Occasion Score
-        const matchesOccasion = p.occasions?.some((o) =>
-          o.toLowerCase().includes(occasion.toLowerCase()) ||
-          occasion.toLowerCase().includes(o.toLowerCase())
-        );
+        // 2. Occasion Score (matches slug or name case-insensitively)
+        const matchesOccasion = p.occasions?.some((o) => {
+          const cleanO = o.toLowerCase().trim();
+          const cleanOcc = occasion.toLowerCase().trim();
+          return cleanO === cleanOcc || cleanO.includes(cleanOcc) || cleanOcc.includes(cleanO);
+        });
         if (matchesOccasion) score += 5;
 
         // 3. Recipient Score
@@ -160,7 +183,7 @@ export default function GiftFinder() {
               <p className="font-serif italic text-sm text-rose text-center mb-3 uppercase tracking-widest">Step 1 of 3</p>
               <h2 className="font-serif text-3xl text-center text-bark mb-12">What's the occasion?</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {occasions.map((occ) => (
+                {occasionOptions.map((occ) => (
                   <button
                     key={occ}
                     onClick={() => setOccasion(occ)}
