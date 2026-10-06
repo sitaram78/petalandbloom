@@ -1,4 +1,10 @@
+import crypto from 'node:crypto';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+
+function isValidUUID(val?: string | null): boolean {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+}
 
 export interface ServerConversation {
   id: string;
@@ -95,8 +101,9 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === 'POST') {
     const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+    const convId = isValidUUID(payload.id) ? payload.id : crypto.randomUUID();
     const newConv: ServerConversation = {
-      id: payload.id || `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: convId,
       customer_id: payload.customer_id || null,
       customer_name: payload.customer_name || 'Guest Visitor',
       customer_phone: payload.customer_phone || null,

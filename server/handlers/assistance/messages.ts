@@ -1,5 +1,11 @@
+import crypto from 'node:crypto';
 import { supabaseAdmin } from '../../lib/supabaseServer';
 import { getConversationsCache } from './conversations';
+
+function isValidUUID(val?: string | null): boolean {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+}
 
 export interface ServerMessage {
   id: string;
@@ -143,18 +149,22 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === 'POST') {
     const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const targetConvId = payload.conversation_id || conversationId;
+    const rawConvId = payload.conversation_id || conversationId;
 
-    if (!targetConvId || !payload.message_text) {
+    if (!rawConvId || !payload.message_text) {
       return res.status(400).json({ error: 'conversation_id and message_text are required' });
     }
 
+    const targetConvId = isValidUUID(rawConvId) ? rawConvId : crypto.randomUUID();
+    const cleanText = String(payload.message_text).trim().slice(0, 2000);
+    const msgId = isValidUUID(payload.id) ? payload.id : crypto.randomUUID();
+
     const newMsg: ServerMessage = {
-      id: payload.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: msgId,
       conversation_id: targetConvId,
       sender_type: payload.sender_type || 'CUSTOMER',
       sender_name: payload.sender_name || 'Visitor',
-      message_text: payload.message_text,
+      message_text: cleanText,
       created_at: new Date().toISOString(),
     };
 
@@ -167,7 +177,7 @@ export default async function handler(req: any, res: any) {
     const convList = getConversationsCache();
     const conv = convList.find((c) => c.id === targetConvId);
     if (conv) {
-      conv.last_message_preview = payload.message_text;
+      conv.last_message_preview = cleanText;
       conv.last_message_at = new Date().toISOString();
       if (newMsg.sender_type === 'CUSTOMER') {
         conv.status = 'PENDING_ADMIN';
@@ -181,16 +191,16 @@ export default async function handler(req: any, res: any) {
         customer_name: newMsg.sender_name || 'Customer',
         customer_phone: null,
         customer_email: null,
-        subject: payload.message_text.slice(0, 50),
+        subject: cleanText.slice(0, 50),
         status: newMsg.sender_type === 'CUSTOMER' ? 'PENDING_ADMIN' : 'REPLIED',
-        last_message_preview: payload.message_text,
+        last_message_preview: cleanText,
         last_message_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
       });
     }
 
     try {
-      await supabaseAdmin.from('assistance_messages').insert({
+      const { error: insertErr } = await supabaseAdmin.from('assistance_messages').insert({
         id: newMsg.id,
         conversation_id: newMsg.conversation_id,
         sender_type: newMsg.sender_type,
@@ -198,6 +208,10 @@ export default async function handler(req: any, res: any) {
         message_text: newMsg.message_text,
         created_at: newMsg.created_at,
       });
+
+      if (insertErr) {
+        console.warn('[assistance_messages DB insert error]:', insertErr.message);
+      }
 
       await supabaseAdmin
         .from('assistance_conversations')
@@ -207,8 +221,8 @@ export default async function handler(req: any, res: any) {
           status: newMsg.sender_type === 'CUSTOMER' ? 'PENDING_ADMIN' : 'REPLIED',
         })
         .eq('id', targetConvId);
-    } catch {
-      // Keep in local cache
+    } catch (err: any) {
+      console.warn('[assistance_messages DB exception]:', err?.message || err);
     }
 
     return res.status(200).json({ success: true, message: newMsg });

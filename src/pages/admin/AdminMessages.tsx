@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { useNotification } from '@/context/NotificationContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { formatPrice } from '@/data/products';
+import { generateUUID, isValidUUID } from '@/utils/uuid';
 
 interface Conversation {
   id: string;
@@ -103,6 +104,9 @@ export default function AdminMessages() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const channelRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const [isCustomerTyping, setIsCustomerTyping] = useState(false);
 
   const fetchConversations = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -200,7 +204,8 @@ export default function AdminMessages() {
             .from('assistance_messages')
             .select('*')
             .eq('conversation_id', selectedConv?.id)
-            .order('created_at', { ascending: true });
+            .order('created_at', { ascending: true })
+            .limit(50);
 
           if (!error && data && isMounted) {
             setMessages(data);
@@ -215,28 +220,56 @@ export default function AdminMessages() {
 
     loadMessages(false);
 
-    // Supabase Realtime channel for active thread instant message delivery
-    const msgChannel = supabase
-      .channel(`realtime:assistance_messages:${selectedConv.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'assistance_messages',
-          filter: `conversation_id=eq.${selectedConv.id}`,
-        },
-        (payload) => {
-          if (!isMounted) return;
-          const newMsg = payload.new as MessageItem;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-          fetchConversations(true);
-        }
-      )
-      .subscribe();
+    // Dual Engine Realtime: Supabase Broadcast (Sub-50ms) + PostgreSQL WAL Changes (Persistence fallback)
+    const channelTopic = `assistance:chat:${selectedConv.id}`;
+    const msgChannel = supabase.channel(channelTopic, {
+      config: {
+        broadcast: { ack: false, self: false },
+      },
+    });
+
+    // Engine 1: Instant WebSocket Broadcast (Sub-50ms cross-device delivery)
+    msgChannel.on('broadcast', { event: 'NEW_MESSAGE' }, ({ payload }) => {
+      if (!isMounted || !payload) return;
+      const newMsg = payload as MessageItem;
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
+      fetchConversations(true);
+      setIsCustomerTyping(false);
+    });
+
+    // Live customer typing indicator
+    msgChannel.on('broadcast', { event: 'TYPING' }, ({ payload }) => {
+      if (!isMounted || !payload) return;
+      if (payload.sender === 'CUSTOMER') {
+        setIsCustomerTyping(Boolean(payload.isTyping));
+      }
+    });
+
+    // Engine 2: PostgreSQL WAL Changes (Fail-safe persistence sync)
+    msgChannel.on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'assistance_messages',
+        filter: `conversation_id=eq.${selectedConv.id}`,
+      },
+      (payload) => {
+        if (!isMounted) return;
+        const newMsg = payload.new as MessageItem;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg];
+        });
+        fetchConversations(true);
+      }
+    );
+
+    msgChannel.subscribe();
+    channelRef.current = msgChannel;
 
     // Passive fallback interval (30 seconds)
     const messagePollInterval = setInterval(() => {
@@ -265,9 +298,11 @@ export default function AdminMessages() {
 
     return () => {
       isMounted = false;
+      channelRef.current = null;
       supabase.removeChannel(msgChannel);
       clearInterval(messagePollInterval);
       if (bc) bc.close();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [selectedConv?.id]);
 
@@ -346,8 +381,9 @@ export default function AdminMessages() {
 
     setIsSending(true);
     const text = replyText.trim();
+    const msgId = generateUUID();
     const tempMsg: MessageItem = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: msgId,
       conversation_id: selectedConv.id,
       sender_type: 'ADMIN',
       sender_name: 'Studio Artisan',
@@ -355,9 +391,29 @@ export default function AdminMessages() {
       created_at: new Date().toISOString(),
     };
 
+    // Optimistic UI (0ms instant display)
     setMessages((prev) => [...prev, tempMsg]);
     setReplyText('');
 
+    // ENGINE 1: Ultra-Fast WebSocket Broadcast (Sub-50ms instant delivery to Customer)
+    try {
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'NEW_MESSAGE',
+          payload: tempMsg,
+        });
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'TYPING',
+          payload: { isTyping: false, sender: 'ADMIN' },
+        });
+      }
+    } catch (bcErr) {
+      console.warn('Realtime admin broadcast warning:', bcErr);
+    }
+
+    // ENGINE 2: Persistent Storage via API
     try {
       await fetch('/api/assistance/messages', {
         method: 'POST',
@@ -387,6 +443,27 @@ export default function AdminMessages() {
       showNotification('Failed to send reply: ' + err.message, 'error');
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setReplyText(e.target.value);
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'TYPING',
+        payload: { isTyping: true, sender: 'ADMIN' },
+      });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'TYPING',
+            payload: { isTyping: false, sender: 'ADMIN' },
+          });
+        }
+      }, 2000);
     }
   };
 
@@ -705,6 +782,16 @@ export default function AdminMessages() {
                         );
                       })
                     )}
+                    {isCustomerTyping && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-ink-light bg-white border border-canvas-line rounded-full w-fit animate-fade-in mt-1 shadow-2xs">
+                        <span className="inline-flex gap-1 items-center">
+                          <span className="w-1.5 h-1.5 rounded-full bg-bark/60 animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-bark/60 animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full bg-bark/60 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </span>
+                        <span className="text-[11px] font-medium text-bark/70">Customer is typing...</span>
+                      </div>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
 
@@ -827,7 +914,7 @@ export default function AdminMessages() {
                     <input
                       type="text"
                       value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
+                      onChange={handleReplyChange}
                       placeholder="Type studio response to customer..."
                       className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
                     />

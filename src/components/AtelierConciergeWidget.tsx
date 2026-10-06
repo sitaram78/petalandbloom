@@ -19,6 +19,7 @@ import {
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
+import { generateUUID, isValidUUID } from '@/utils/uuid';
 
 interface ChatMessage {
   id: string;
@@ -40,7 +41,8 @@ export default function AtelierConciergeWidget() {
   const { user, profile } = useAuth();
 
   const [conversationId, setConversationId] = useState<string | null>(() => {
-    return localStorage.getItem('tpb_active_conversation_id');
+    const stored = localStorage.getItem('tpb_active_conversation_id');
+    return isValidUUID(stored) ? stored : null;
   });
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -49,8 +51,11 @@ export default function AtelierConciergeWidget() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [hasStartedConversation, setHasStartedConversation] = useState(false);
+  const [isArtisanTyping, setIsArtisanTyping] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const channelRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<any>(null);
 
   // Auto-scroll to latest message
   const scrollToBottom = () => {
@@ -128,7 +133,8 @@ export default function AtelierConciergeWidget() {
           .from('assistance_messages')
           .select('*')
           .eq('conversation_id', conversationId)
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: true })
+          .limit(50);
 
         if (!error && data && data.length > 0 && isMounted) {
           setMessages(data);
@@ -141,28 +147,56 @@ export default function AtelierConciergeWidget() {
 
     loadMessages();
 
-    // Supabase Realtime channel for instant live concierge response delivery
-    const msgChannel = supabase
-      .channel(`realtime:concierge_messages:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'assistance_messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          if (!isMounted) return;
-          const newMsg = payload.new as ChatMessage;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-          setHasStartedConversation(true);
-        }
-      )
-      .subscribe();
+    // Dual Engine Realtime: Supabase Broadcast (Sub-50ms) + PostgreSQL WAL Changes (Persistence fallback)
+    const channelTopic = `assistance:chat:${conversationId}`;
+    const msgChannel = supabase.channel(channelTopic, {
+      config: {
+        broadcast: { ack: false, self: false },
+      },
+    });
+
+    // Engine 1: Instant WebSocket Broadcast (Sub-50ms cross-device delivery)
+    msgChannel.on('broadcast', { event: 'NEW_MESSAGE' }, ({ payload }) => {
+      if (!isMounted || !payload) return;
+      const newMsg = payload as ChatMessage;
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
+      setHasStartedConversation(true);
+      setIsArtisanTyping(false);
+    });
+
+    // Live typing indicator listener
+    msgChannel.on('broadcast', { event: 'TYPING' }, ({ payload }) => {
+      if (!isMounted || !payload) return;
+      if (payload.sender === 'ADMIN') {
+        setIsArtisanTyping(Boolean(payload.isTyping));
+      }
+    });
+
+    // Engine 2: PostgreSQL WAL Changes (Fail-safe persistence sync)
+    msgChannel.on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'assistance_messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        if (!isMounted) return;
+        const newMsg = payload.new as ChatMessage;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg];
+        });
+        setHasStartedConversation(true);
+      }
+    );
+
+    msgChannel.subscribe();
+    channelRef.current = msgChannel;
 
     // Passive fallback sync every 30s while chat is open
     const fallbackTimer = setInterval(() => {
@@ -171,7 +205,7 @@ export default function AtelierConciergeWidget() {
       }
     }, 30000);
 
-    // Subscribe to new messages via BroadcastChannel
+    // Subscribe to new messages via local browser BroadcastChannel (same-origin instant sync)
     let bc: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
       try {
@@ -194,9 +228,11 @@ export default function AtelierConciergeWidget() {
 
     return () => {
       isMounted = false;
+      channelRef.current = null;
       supabase.removeChannel(msgChannel);
       clearInterval(fallbackTimer);
       if (bc) bc.close();
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [conversationId, isChatOpen]);
 
@@ -208,46 +244,66 @@ export default function AtelierConciergeWidget() {
     setIsSending(true);
 
     const senderName = customerName.trim() || profile?.full_name || 'Guest Visitor';
-    const tempId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    let activeConvId = conversationId;
+
+    // Create valid UUID conversation if not exists
+    if (!activeConvId || !isValidUUID(activeConvId)) {
+      activeConvId = generateUUID();
+      setConversationId(activeConvId);
+      localStorage.setItem('tpb_active_conversation_id', activeConvId);
+      setHasStartedConversation(true);
+
+      try {
+        await fetch('/api/assistance/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: activeConvId,
+            customer_id: user?.id || null,
+            customer_name: senderName,
+            customer_phone: customerPhone.trim() || profile?.phone || null,
+            customer_email: user?.email || null,
+            subject: text.slice(0, 60),
+            status: 'PENDING_ADMIN',
+            last_message_preview: text,
+          }),
+        });
+      } catch {}
+    }
+
+    const msgId = generateUUID();
     const newMsg: ChatMessage = {
-      id: tempId,
+      id: msgId,
       sender_type: 'CUSTOMER',
       sender_name: senderName,
       message_text: text,
       created_at: new Date().toISOString(),
     };
 
+    // Optimistic UI (0ms instant display for sender)
     setMessages((prev) => [...prev, newMsg]);
     setInputText('');
 
+    // ENGINE 1: Ultra-Fast WebSocket Broadcast (Sub-50ms instant delivery to Admin)
     try {
-      let activeConvId = conversationId;
-
-      // Create conversation if not exists
-      if (!activeConvId) {
-        activeConvId = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setConversationId(activeConvId);
-        localStorage.setItem('tpb_active_conversation_id', activeConvId);
-        setHasStartedConversation(true);
-
-        try {
-          await fetch('/api/assistance/conversations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: activeConvId,
-              customer_id: user?.id || null,
-              customer_name: senderName,
-              customer_phone: customerPhone.trim() || profile?.phone || null,
-              customer_email: user?.email || null,
-              subject: text.slice(0, 60),
-              status: 'PENDING_ADMIN',
-              last_message_preview: text,
-            }),
-          });
-        } catch {}
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'NEW_MESSAGE',
+          payload: { ...newMsg, conversation_id: activeConvId },
+        });
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'TYPING',
+          payload: { isTyping: false, sender: 'CUSTOMER' },
+        });
       }
+    } catch (bcErr) {
+      console.warn('Realtime broadcast warning:', bcErr);
+    }
 
+    // ENGINE 2: Persistent Storage via API
+    try {
       await fetch('/api/assistance/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -272,6 +328,27 @@ export default function AtelierConciergeWidget() {
       console.warn('Error saving in-system message:', err);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'TYPING',
+        payload: { isTyping: true, sender: 'CUSTOMER' },
+      });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'TYPING',
+            payload: { isTyping: false, sender: 'CUSTOMER' },
+          });
+        }
+      }, 2000);
     }
   };
 
@@ -527,6 +604,16 @@ export default function AtelierConciergeWidget() {
                   </div>
                 );
               })}
+              {isArtisanTyping && (
+                <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-rose-deep bg-rose/10 border border-rose/20 rounded-full w-fit animate-fade-in mt-1">
+                  <span className="inline-flex gap-1 items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <span className="font-serif italic text-[11px]">Atelier Florist is crafting a reply...</span>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
 
@@ -568,7 +655,7 @@ export default function AtelierConciergeWidget() {
                 <input
                   type="text"
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={handleInputChange}
                   placeholder="Ask our master florists anything..."
                   className="flex-1 bg-transparent text-xs sm:text-sm text-bark placeholder:text-ink-light/50 focus:outline-none py-1.5"
                 />
