@@ -20,6 +20,7 @@ import { useSiteAssets, getDynamicAsset } from '@/context/SiteAssetsContext';
 import { useProducts } from '@/context/ProductContext';
 import { filterProducts } from '@/utils/productSearch';
 import { SITE_ASSET_KEYS } from '@/utils/siteAssetKeys';
+import { useSwipeDownToClose } from '@/hooks/useSwipeDownToClose';
 
 const sortOptions = [
   { label: 'Recommended', value: 'featured' },
@@ -54,6 +55,20 @@ export default function ShopPage() {
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Swipe Down to Dismiss hook for Mobile Filter Drawer
+  const {
+    handleTouchStart: handleFilterTouchStart,
+    handleTouchMove: handleFilterTouchMove,
+    handleTouchEnd: handleFilterTouchEnd,
+    triggerCloseWithAnimation: closeFilterDrawer,
+    sheetStyle: filterSheetStyle,
+    backdropOpacity: filterBackdropOpacity,
+    isDragging: isFilterDragging,
+  } = useSwipeDownToClose({
+    onClose: () => setIsFilterDrawerOpen(false),
+    threshold: 75,
+  });
 
   // Close sort dropdown when clicking outside
   useEffect(() => {
@@ -661,13 +676,14 @@ export default function ShopPage() {
         </div>
       </div>
 
-      {/* Slide-Up Mobile Filter Drawer (Option A) */}
+      {/* Slide-Up Mobile Filter Drawer */}
       {isFilterDrawerOpen && (
         <div className="fixed inset-0 z-50 sm:hidden">
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-bark/60 backdrop-blur-sm transition-opacity animate-fade-in"
-            onClick={() => setIsFilterDrawerOpen(false)}
+            className="fixed inset-0 bg-bark/60 backdrop-blur-sm transition-opacity"
+            style={{ opacity: filterBackdropOpacity }}
+            onClick={closeFilterDrawer}
             aria-hidden="true"
           />
 
@@ -676,15 +692,32 @@ export default function ShopPage() {
             role="dialog"
             aria-modal="true"
             aria-label="Filter and sort creations"
-            className="fixed inset-x-0 bottom-0 max-h-[85vh] bg-linen rounded-t-3xl shadow-2xl flex flex-col z-10 border-t border-silk animate-slide-up"
+            style={filterSheetStyle}
+            className={`fixed inset-x-0 bottom-0 max-h-[85vh] bg-linen rounded-t-3xl shadow-2xl flex flex-col z-10 border-t border-silk ${
+              !isFilterDragging ? 'animate-slide-up' : ''
+            }`}
           >
-            {/* Grab Handle */}
-            <div className="pt-3 pb-1 flex justify-center">
-              <div className="w-10 h-1.5 rounded-full bg-bark/20" />
+            {/* Grab Handle Bar (Interactive Swipe-Down Area) */}
+            <div
+              className="pt-3 pb-2 flex justify-center cursor-grab active:cursor-grabbing select-none touch-none"
+              onTouchStart={handleFilterTouchStart}
+              onTouchMove={handleFilterTouchMove}
+              onTouchEnd={handleFilterTouchEnd}
+            >
+              <div
+                className={`h-1.5 rounded-full transition-all duration-150 ${
+                  isFilterDragging ? 'w-12 bg-bark/45 scale-y-110' : 'w-10 bg-bark/20'
+                }`}
+              />
             </div>
 
-            {/* Drawer Header */}
-            <div className="px-6 py-3 border-b border-silk/80 flex items-center justify-between">
+            {/* Drawer Header (Also swipeable) */}
+            <div
+              className="px-6 py-2.5 border-b border-silk/80 flex items-center justify-between select-none touch-none"
+              onTouchStart={handleFilterTouchStart}
+              onTouchMove={handleFilterTouchMove}
+              onTouchEnd={handleFilterTouchEnd}
+            >
               <div className="flex items-center gap-2">
                 <h3 className="font-serif text-xl text-bark">Filters</h3>
                 {activeFilterCount > 0 && (
@@ -706,7 +739,7 @@ export default function ShopPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => setIsFilterDrawerOpen(false)}
+                  onClick={closeFilterDrawer}
                   className="p-1.5 rounded-full hover:bg-canvas text-ink-light hover:text-ink transition-colors"
                   aria-label="Close filters"
                 >
@@ -838,7 +871,7 @@ export default function ShopPage() {
               <AtelierButton
                 variant="primary"
                 className="w-full justify-center py-3.5 text-sm font-medium tracking-wider shadow-sm"
-                onClick={() => setIsFilterDrawerOpen(false)}
+                onClick={closeFilterDrawer}
               >
                 View {filtered.length} {filtered.length === 1 ? 'Bloom' : 'Blooms'}
               </AtelierButton>

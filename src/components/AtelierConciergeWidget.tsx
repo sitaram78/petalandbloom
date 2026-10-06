@@ -20,6 +20,7 @@ import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
 import { generateUUID, isValidUUID } from '@/utils/uuid';
+import { useSwipeDownToClose } from '@/hooks/useSwipeDownToClose';
 
 interface ChatMessage {
   id: string;
@@ -53,6 +54,38 @@ export default function AtelierConciergeWidget() {
   const [hasStartedConversation, setHasStartedConversation] = useState(false);
   const [isArtisanTyping, setIsArtisanTyping] = useState(false);
 
+  // Mobile Collapsed State: when closed or after interaction on mobile, becomes compact circular icon
+  const [isMobileCollapsed, setIsMobileCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return sessionStorage.getItem('tpb_concierge_collapsed_mobile') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleCloseChat = () => {
+    setIsChatOpen(false);
+    setIsMobileCollapsed(true);
+    try {
+      sessionStorage.setItem('tpb_concierge_collapsed_mobile', 'true');
+    } catch {}
+  };
+
+  // Mobile Swipe Down to Close gesture hook
+  const {
+    handleTouchStart: handleChatTouchStart,
+    handleTouchMove: handleChatTouchMove,
+    handleTouchEnd: handleChatTouchEnd,
+    triggerCloseWithAnimation: closeChatWithAnimation,
+    sheetStyle: chatSheetStyle,
+    backdropOpacity: chatBackdropOpacity,
+    isDragging: isChatDragging,
+  } = useSwipeDownToClose({
+    onClose: handleCloseChat,
+    threshold: 75,
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<any>(null);
@@ -72,12 +105,12 @@ export default function AtelierConciergeWidget() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isChatOpen) {
-        setIsChatOpen(false);
+        closeChatWithAnimation();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isChatOpen, setIsChatOpen]);
+  }, [isChatOpen, closeChatWithAnimation]);
 
   // Pre-fill profile info if logged in
   useEffect(() => {
@@ -429,14 +462,18 @@ export default function AtelierConciergeWidget() {
         <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 print:hidden flex flex-col items-end">
           <button
             onClick={handleBubbleClick}
-            className={`group flex items-center gap-2.5 px-4 py-3 rounded-full shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 border ${
+            className={`group flex items-center shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 border ${
               effectiveMode === 'WHATSAPP'
                 ? 'bg-[#25D366] text-white hover:bg-[#20bd5a] border-emerald-300/40 shadow-emerald-950/20'
                 : 'bg-bark text-parchment-50 hover:bg-bark-dark border-canvas-line/80 shadow-bark/30'
+            } ${
+              isMobileCollapsed
+                ? 'w-12 h-12 p-0 justify-center rounded-full sm:w-auto sm:h-auto sm:px-4 sm:py-3 sm:gap-2.5'
+                : 'px-4 py-3 gap-2.5 rounded-full'
             }`}
             aria-label={effectiveMode === 'WHATSAPP' ? 'Chat on WhatsApp' : 'Studio Assistance'}
           >
-            <div className="relative flex items-center justify-center">
+            <div className="relative flex items-center justify-center flex-shrink-0">
               {effectiveMode === 'WHATSAPP' ? (
                 <Phone size={19} className="text-white fill-current" />
               ) : (
@@ -445,18 +482,24 @@ export default function AtelierConciergeWidget() {
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-bark animate-pulse" />
             </div>
 
-            <div className="flex flex-col text-left leading-tight pr-0.5">
+            <div
+              className={`flex flex-col text-left leading-tight pr-0.5 transition-all duration-300 overflow-hidden ${
+                isMobileCollapsed
+                  ? 'max-w-0 opacity-0 sm:max-w-xs sm:opacity-100 sm:block'
+                  : 'max-w-xs opacity-100'
+              }`}
+            >
               {effectiveMode === 'WHATSAPP' ? (
                 <>
-                  <span className="text-[11px] font-semibold tracking-wide uppercase sm:hidden">WhatsApp</span>
-                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline">WhatsApp Studio</span>
+                  <span className="text-[11px] font-semibold tracking-wide uppercase sm:hidden whitespace-nowrap">WhatsApp</span>
+                  <span className="text-xs uppercase tracking-wider font-semibold hidden sm:inline whitespace-nowrap">WhatsApp Studio</span>
                 </>
               ) : (
                 <>
-                  <span className="text-[11px] font-serif font-medium tracking-wide sm:hidden">Artisan Chat</span>
+                  <span className="text-[11px] font-serif font-medium tracking-wide sm:hidden whitespace-nowrap">Artisan Chat</span>
                   <div className="hidden sm:block">
-                    <span className="text-xs font-serif font-medium text-parchment-50 block leading-tight">Atelier Concierge</span>
-                    <span className="text-[9px] uppercase tracking-wider text-rose-200 font-mono">Live in Studio</span>
+                    <span className="text-xs font-serif font-medium text-parchment-50 block leading-tight whitespace-nowrap">Atelier Concierge</span>
+                    <span className="text-[9px] uppercase tracking-wider text-rose-200 font-mono whitespace-nowrap">Live in Studio</span>
                   </div>
                 </>
               )}
@@ -470,22 +513,39 @@ export default function AtelierConciergeWidget() {
         <>
           {/* Mobile Backdrop Overlay */}
           <div
-            className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-50 animate-fade-in"
-            onClick={() => setIsChatOpen(false)}
+            className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-50 transition-opacity"
+            style={{ opacity: chatBackdropOpacity }}
+            onClick={closeChatWithAnimation}
           />
 
           {/* Chat Container */}
-          <div className="fixed inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 w-full sm:w-[410px] h-[86vh] sm:h-[620px] max-h-[92vh] sm:max-h-[85vh] bg-parchment-50 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-canvas-line/80 flex flex-col overflow-hidden animate-slide-up z-50">
-            {/* Mobile Sheet Drag Indicator */}
+          <div
+            style={chatSheetStyle}
+            className={`fixed inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 w-full sm:w-[410px] h-[86vh] sm:h-[620px] max-h-[92vh] sm:max-h-[85vh] bg-parchment-50 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-canvas-line/80 flex flex-col overflow-hidden z-50 ${
+              !isChatDragging ? 'animate-slide-up' : ''
+            }`}
+          >
+            {/* Mobile Sheet Drag Indicator Bar (Interactive Swipe-Down Area) */}
             <div
-              className="sm:hidden pt-2 pb-1 bg-bark flex justify-center cursor-pointer"
-              onClick={() => setIsChatOpen(false)}
+              className="sm:hidden pt-3 pb-1.5 bg-bark flex justify-center cursor-grab active:cursor-grabbing select-none touch-none"
+              onTouchStart={handleChatTouchStart}
+              onTouchMove={handleChatTouchMove}
+              onTouchEnd={handleChatTouchEnd}
             >
-              <div className="w-10 h-1 bg-white/30 rounded-full" />
+              <div
+                className={`h-1 rounded-full transition-all duration-150 ${
+                  isChatDragging ? 'w-12 bg-white/60 scale-y-125' : 'w-10 bg-white/30'
+                }`}
+              />
             </div>
 
-            {/* Header */}
-            <div className="px-4 py-3 bg-bark text-parchment-50 flex items-center justify-between border-b border-white/10">
+            {/* Header (Also Swipeable) */}
+            <div
+              className="px-4 py-3 bg-bark text-parchment-50 flex items-center justify-between border-b border-white/10 select-none touch-none"
+              onTouchStart={handleChatTouchStart}
+              onTouchMove={handleChatTouchMove}
+              onTouchEnd={handleChatTouchEnd}
+            >
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-rose/20 border border-rose/30 flex items-center justify-center text-rose-200 font-serif text-sm font-semibold shadow-inner">
@@ -518,7 +578,8 @@ export default function AtelierConciergeWidget() {
                   <span className="hidden xs:inline">WhatsApp</span>
                 </a>
                 <button
-                  onClick={() => setIsChatOpen(false)}
+                  type="button"
+                  onClick={closeChatWithAnimation}
                   className="w-8 h-8 rounded-full flex items-center justify-center text-parchment-50/70 hover:text-parchment-50 hover:bg-white/10 transition-colors"
                   aria-label="Close concierge window"
                 >
