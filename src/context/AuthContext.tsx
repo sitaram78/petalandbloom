@@ -2,12 +2,15 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 
+export type StaffRole = 'customer' | 'super_admin' | 'admin' | 'operations' | 'support' | 'marketing';
+
 export interface CustomerProfile {
   id: string;
   email: string | null;
   phone: string | null;
   full_name: string | null;
-  role: 'customer' | 'admin' | 'super_admin';
+  role: StaffRole;
+  permissions?: string[];
   referral_code: string | null;
   referred_by: string | null;
   created_at: string;
@@ -27,6 +30,8 @@ interface AuthContextType {
   loyalty: LoyaltyAccount | null;
   loading: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
+  isStaff: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUpWithEmail: (email: string, password: string, fullName: string, phone: string, referredByCode?: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -55,7 +60,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (profileErr) {
         console.warn('Error fetching profile:', profileErr.message);
       } else if (profileData) {
-        setProfile(profileData as CustomerProfile);
+        const isFounder = ['admin@thepetalandbloom.in', 'sitaramnayak8763@gmail.com'].includes((currentUser.email || '').toLowerCase().trim());
+        const role = isFounder
+          ? 'super_admin'
+          : (profileData.role || currentUser.app_metadata?.role || currentUser.user_metadata?.role || 'customer');
+
+        const permissions = Array.isArray(profileData.permissions) && profileData.permissions.length > 0
+          ? profileData.permissions
+          : (Array.isArray(currentUser.app_metadata?.permissions) && currentUser.app_metadata.permissions.length > 0
+             ? currentUser.app_metadata.permissions
+             : []);
+
+        setProfile({
+          ...profileData,
+          role,
+          permissions,
+        } as CustomerProfile);
       }
 
       // 2. Fetch Loyalty Account
@@ -181,7 +201,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+  const isFounder = ['admin@thepetalandbloom.in', 'sitaramnayak8763@gmail.com'].includes((user?.email || '').toLowerCase().trim());
+  const isSuperAdmin = profile?.role === 'super_admin' || isFounder;
+  const isAdmin = profile?.role === 'admin' || isSuperAdmin;
+  const isStaff = isSuperAdmin || ['admin', 'operations', 'support', 'marketing'].includes(profile?.role || '');
 
   return (
     <AuthContext.Provider
@@ -192,6 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loyalty,
         loading,
         isAdmin,
+        isSuperAdmin,
+        isStaff,
         signInWithEmail,
         signUpWithEmail,
         signOut,

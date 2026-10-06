@@ -20,8 +20,11 @@ import {
   ArrowRight,
   Package,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { useRBAC } from '@/hooks/useRBAC';
+import type { PermissionKey } from '@/utils/rbac';
 
 interface CommandPaletteModalProps {
   isOpen: boolean;
@@ -36,10 +39,12 @@ interface PaletteItem {
   icon: React.ReactNode;
   action: () => void;
   badge?: string;
+  requiredPermission?: PermissionKey;
 }
 
 export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteModalProps) {
   const navigate = useNavigate();
+  const { can } = useRBAC();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
@@ -81,6 +86,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <BarChart3 size={18} className="text-amber-600" />,
       action: () => { navigate('/admin/reports'); onClose(); },
+      requiredPermission: 'analytics.read',
     },
     {
       id: 'nav-orders',
@@ -89,6 +95,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <Truck size={18} className="text-emerald-700" />,
       action: () => { navigate('/admin/orders'); onClose(); },
+      requiredPermission: 'orders.read',
     },
     {
       id: 'nav-customers',
@@ -97,6 +104,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <Users size={18} className="text-purple-700" />,
       action: () => { navigate('/admin/customers'); onClose(); },
+      requiredPermission: 'customers.read',
     },
     {
       id: 'nav-messages',
@@ -105,6 +113,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <MessageCircle size={18} className="text-sky-700" />,
       action: () => { navigate('/admin/messages'); onClose(); },
+      requiredPermission: 'messages.manage',
     },
     {
       id: 'nav-reviews',
@@ -113,6 +122,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <Star size={18} className="text-amber-500" />,
       action: () => { navigate('/admin/reviews'); onClose(); },
+      requiredPermission: 'reviews.moderate',
     },
     {
       id: 'nav-editor',
@@ -122,6 +132,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       icon: <Plus size={18} className="text-rose-deep" />,
       action: () => { navigate('/admin/editor'); onClose(); },
       badge: 'Action',
+      requiredPermission: 'products.write',
     },
     {
       id: 'nav-settings',
@@ -130,6 +141,16 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <SlidersHorizontal size={18} className="text-ink" />,
       action: () => { navigate('/admin/settings'); onClose(); },
+      requiredPermission: 'settings.manage',
+    },
+    {
+      id: 'nav-team',
+      title: 'Studio Team & Access Control',
+      subtitle: 'Manage staff roles, grant fine-grained permissions, and invite members',
+      category: 'Navigation',
+      icon: <ShieldCheck size={18} className="text-purple-700" />,
+      action: () => { navigate('/admin/settings?tab=team'); onClose(); },
+      requiredPermission: 'staff.manage',
     },
     {
       id: 'nav-coupons',
@@ -138,6 +159,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <Ticket size={18} className="text-teal-700" />,
       action: () => { navigate('/admin/coupons'); onClose(); },
+      requiredPermission: 'coupons.manage',
     },
     {
       id: 'nav-influencers',
@@ -146,6 +168,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <Sparkles size={18} className="text-rose" />,
       action: () => { navigate('/admin/influencers'); onClose(); },
+      requiredPermission: 'influencers.manage',
     },
     {
       id: 'nav-abandoned',
@@ -154,6 +177,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <ShoppingBag size={18} className="text-orange-700" />,
       action: () => { navigate('/admin/abandoned-carts'); onClose(); },
+      requiredPermission: 'orders.read',
     },
     {
       id: 'nav-assets',
@@ -162,6 +186,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <Palette size={18} className="text-indigo-700" />,
       action: () => { navigate('/admin/assets'); onClose(); },
+      requiredPermission: 'assets.manage',
     },
     {
       id: 'nav-navigation',
@@ -170,6 +195,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <GripVertical size={18} className="text-bark" />,
       action: () => { navigate('/admin/navigation'); onClose(); },
+      requiredPermission: 'navigation.manage',
     },
     {
       id: 'nav-audit',
@@ -178,6 +204,7 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
       category: 'Navigation',
       icon: <FileText size={18} className="text-ink-light" />,
       action: () => { navigate('/admin/audit-logs'); onClose(); },
+      requiredPermission: 'audit.read',
     },
     {
       id: 'action-view-store',
@@ -204,7 +231,12 @@ export default function CommandPaletteModal({ isOpen, onClose }: CommandPaletteM
     badge: ord.order_status,
   }));
 
-  const allItems = [...staticItems, ...orderItems];
+  const permittedStaticItems = staticItems.filter((item) => {
+    if (!item.requiredPermission) return true;
+    return can(item.requiredPermission);
+  });
+  const permittedOrderItems = can('orders.read') ? orderItems : [];
+  const allItems = [...permittedStaticItems, ...permittedOrderItems];
 
   // Filter items by search query
   const filteredItems = allItems.filter((item) => {

@@ -21,7 +21,9 @@ import {
   Zap,
   ShieldCheck,
   CreditCard,
+  Users,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useNotification } from '@/context/NotificationContext';
 import AdminLayout from '@/components/AdminLayout';
 import { removeCache } from '@/utils/cache';
@@ -35,6 +37,8 @@ import {
 } from '@/context/StoreSettingsContext';
 import OccasionMarquee from '@/components/OccasionMarquee';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import { useRBAC } from '@/hooks/useRBAC';
+import AdminTeamManager from '@/components/admin/AdminTeamManager';
 
 interface Category {
   id: string;
@@ -43,13 +47,25 @@ interface Category {
   display_order: number;
 }
 
-type SettingsTab = 'profile' | 'commerce' | 'logistics' | 'categories';
+type SettingsTab = 'profile' | 'commerce' | 'logistics' | 'categories' | 'team';
 
 export default function AdminSettings() {
   const { showNotification } = useNotification();
+  const { can } = useRBAC();
   const { settings, updateSettings, loading: settingsLoading } = useStoreSettings();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const tabParam = searchParams.get('tab') as SettingsTab | null;
+  const initialTab: SettingsTab = tabParam && ['profile', 'commerce', 'logistics', 'categories', 'team'].includes(tabParam)
+    ? tabParam
+    : 'profile';
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+  const handleTabChange = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    setSearchParams(tab === 'profile' ? {} : { tab });
+  };
 
   // Company Profile Form State
   const [profileForm, setProfileForm] = useState({
@@ -375,7 +391,7 @@ export default function AdminSettings() {
         <div className="flex border-b border-canvas-line mb-8 gap-4 overflow-x-auto">
           <button
             type="button"
-            onClick={() => setActiveTab('profile')}
+            onClick={() => handleTabChange('profile')}
             className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'profile'
                 ? 'border-bark text-bark'
@@ -387,7 +403,7 @@ export default function AdminSettings() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('commerce')}
+            onClick={() => handleTabChange('commerce')}
             className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'commerce'
                 ? 'border-bark text-bark'
@@ -399,7 +415,7 @@ export default function AdminSettings() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('logistics')}
+            onClick={() => handleTabChange('logistics')}
             className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'logistics'
                 ? 'border-bark text-bark'
@@ -411,7 +427,7 @@ export default function AdminSettings() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('categories')}
+            onClick={() => handleTabChange('categories')}
             className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
               activeTab === 'categories'
                 ? 'border-bark text-bark'
@@ -421,6 +437,20 @@ export default function AdminSettings() {
             <SlidersHorizontal size={15} className="text-rose" />
             Category Manager ({categories.length})
           </button>
+          {can('staff.manage') && (
+            <button
+              type="button"
+              onClick={() => handleTabChange('team')}
+              className={`pb-3 text-xs uppercase tracking-wider font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'team'
+                  ? 'border-bark text-bark'
+                  : 'border-transparent text-ink-light hover:text-ink'
+              }`}
+            >
+              <Users size={15} className="text-rose" />
+              Studio Team &amp; Access Control
+            </button>
+          )}
         </div>
 
         {/* ========================================================================= */}
@@ -1545,6 +1575,13 @@ export default function AdminSettings() {
               )}
             </div>
           </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 5: STUDIO TEAM & ACCESS CONTROL                                       */}
+        {/* ========================================================================= */}
+        {activeTab === 'team' && can('staff.manage') && (
+          <AdminTeamManager />
         )}
       </main>
     </AdminLayout>

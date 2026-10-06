@@ -10,9 +10,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
   }
 
-  // 1. Authenticate Staff Member
+  // 1. Authenticate Staff Member with orders.update_status capability
   const authUser = await requireAuth(req, res, {
-    allowedRoles: ['super_admin', 'admin', 'operations'],
+    requiredPermission: 'orders.update_status',
   });
   if (!authUser) return;
 
@@ -28,6 +28,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!orderId || !newStatus) {
       return res.status(400).json({ success: false, message: 'orderId and newStatus are required.' });
+    }
+
+    if (newStatus === 'CANCELLED') {
+      const hasCancelPerm =
+        authUser.role === 'super_admin' ||
+        authUser.role === 'admin' ||
+        authUser.role === 'operations' ||
+        (Array.isArray(authUser.permissions) && authUser.permissions.includes('orders.cancel'));
+      if (!hasCancelPerm) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: Missing capability permission "orders.cancel" to cancel an order.',
+        });
+      }
     }
 
     // 2. Fetch existing order (safely checking UUID vs order_number)

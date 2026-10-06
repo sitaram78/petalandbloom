@@ -9,9 +9,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
   }
 
-  // 1. Authenticate Staff Member (Admins or Super Admins)
+  // 1. Authenticate Staff Member with customers.adjust_points capability
   const authUser = await requireAuth(req, res, {
-    allowedRoles: ['super_admin', 'admin'],
+    requiredPermission: 'customers.adjust_points',
   });
   if (!authUser) return;
 

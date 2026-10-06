@@ -1,12 +1,66 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from './supabaseServer';
 
-export type UserRole = 'super_admin' | 'admin' | 'operations' | 'support' | 'customer';
+export type UserRole = 'super_admin' | 'admin' | 'operations' | 'support' | 'marketing' | 'customer';
+
+export const ROLE_DEFAULT_PERMISSIONS: Record<UserRole, string[]> = {
+  super_admin: ['*'],
+  admin: [
+    'orders.read',
+    'orders.update_status',
+    'orders.assign_carrier',
+    'orders.cancel',
+    'customers.read',
+    'customers.adjust_points',
+    'messages.manage',
+    'reviews.moderate',
+    'products.read',
+    'products.write',
+    'products.delete',
+    'inventory.adjust',
+    'coupons.manage',
+    'influencers.manage',
+    'analytics.read',
+    'assets.manage',
+    'navigation.manage',
+    'settings.manage',
+    'audit.read',
+    'staff.manage',
+  ],
+  operations: [
+    'orders.read',
+    'orders.update_status',
+    'orders.assign_carrier',
+    'orders.cancel',
+    'products.read',
+    'products.write',
+    'inventory.adjust',
+    'assets.manage',
+    'navigation.manage',
+  ],
+  support: [
+    'orders.read',
+    'customers.read',
+    'customers.adjust_points',
+    'products.read',
+    'messages.manage',
+    'reviews.moderate',
+  ],
+  marketing: [
+    'analytics.read',
+    'coupons.manage',
+    'influencers.manage',
+    'assets.manage',
+    'products.read',
+  ],
+  customer: [],
+};
 
 export interface AuthenticatedUser {
   id: string;
   email: string;
   role: UserRole;
+  permissions?: string[];
   full_name?: string;
   phone?: string;
 }
@@ -86,12 +140,12 @@ export async function verifyAuth(req: VercelRequest): Promise<AuthResult> {
       }
     }
 
-    // Fetch verified profile role from database
+    // Fetch verified profile role and permissions from database
     let profile: any = null;
     try {
       const { data: profData } = await supabaseAdmin
         .from('profiles')
-        .select('id, email, full_name, phone, role')
+        .select('*')
         .eq('id', authUser.id)
         .maybeSingle();
       profile = profData;
@@ -99,15 +153,37 @@ export async function verifyAuth(req: VercelRequest): Promise<AuthResult> {
       console.warn('[Auth Middleware] Profile lookup warning:', profErr);
     }
 
-    const role: UserRole = (profile?.role as UserRole) || 
-      (authUser.user_metadata?.role as UserRole) || 
-      (authUser.email === 'admin@thepetalandbloom.in' ? 'admin' : 'customer');
+    const email = (authUser.email || profile?.email || '').toLowerCase().trim();
+    const isFounder = ['admin@thepetalandbloom.in', 'sitaramnayak8763@gmail.com'].includes(email);
+
+    const metaRole = authUser.app_metadata?.role as UserRole;
+    const dbRole = profile?.role as UserRole;
+
+    let role: UserRole = 'customer';
+    if (isFounder) {
+      role = 'super_admin';
+    } else if (dbRole && dbRole !== 'admin') {
+      role = dbRole;
+    } else if (metaRole) {
+      role = metaRole;
+    } else if (dbRole) {
+      role = dbRole;
+    } else if (authUser.user_metadata?.role) {
+      role = authUser.user_metadata.role as UserRole;
+    }
+
+    const customPermissions = [
+      ...(Array.isArray(profile?.permissions) ? profile.permissions : []),
+      ...(Array.isArray(authUser.app_metadata?.permissions) ? authUser.app_metadata.permissions : []),
+      ...(Array.isArray(authUser.user_metadata?.permissions) ? authUser.user_metadata.permissions : []),
+    ];
 
     return {
       user: {
         id: authUser.id,
-        email: authUser.email || profile?.email || '',
+        email: email || authUser.email || profile?.email || '',
         role,
+        permissions: Array.from(new Set(customPermissions)),
         full_name: profile?.full_name || authUser.user_metadata?.full_name,
         phone: profile?.phone || authUser.user_metadata?.phone,
       },
@@ -133,6 +209,7 @@ export async function requireAuth(
   options?: {
     allowedRoles?: UserRole[];
     requireSuperAdmin?: boolean;
+    requiredPermission?: string;
   }
 ): Promise<AuthenticatedUser | null> {
   const result = await verifyAuth(req);
@@ -162,6 +239,28 @@ export async function requireAuth(
       error: errorMsg,
     });
     return null;
+  }
+
+  if (options?.requiredPermission) {
+    const hasCustomPerms = Array.isArray(user.permissions) && user.permissions.length > 0;
+    const effectivePermissions = hasCustomPerms
+      ? user.permissions!
+      : (ROLE_DEFAULT_PERMISSIONS[user.role] || []);
+
+    const hasPerm =
+      user.role === 'super_admin' ||
+      effectivePermissions.includes('*') ||
+      effectivePermissions.includes(options.requiredPermission);
+
+    if (!hasPerm) {
+      const errorMsg = `Forbidden: Missing required capability permission "${options.requiredPermission}".`;
+      res.status(403).json({
+        success: false,
+        message: errorMsg,
+        error: errorMsg,
+      });
+      return null;
+    }
   }
 
   if (options?.allowedRoles && options.allowedRoles.length > 0) {

@@ -103,20 +103,57 @@ function AppContent() {
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route element={<AdminRoute />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
-            <Route path="/admin/reports" element={<AdminReports />} />
-            <Route path="/admin/orders" element={<AdminOrders />} />
-            <Route path="/admin/customers" element={<AdminCustomers />} />
-            <Route path="/admin/messages" element={<AdminMessages />} />
-            <Route path="/admin/reviews" element={<AdminReviews />} />
-            <Route path="/admin/navigation" element={<AdminNavigation />} />
-            <Route path="/admin/editor" element={<AdminEditor />} />
-            <Route path="/admin/assets" element={<AdminAssets />} />
-            <Route path="/admin/settings" element={<AdminSettings />} />
-            <Route path="/admin/coupons" element={<AdminCoupons />} />
-            <Route path="/admin/influencers" element={<AdminInfluencers />} />
-            <Route path="/admin/abandoned-carts" element={<AdminAbandonedCarts />} />
-            <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
-            <Route path="/admin/occasions" element={<AdminOccasions />} />
+
+            {/* Capability-Protected Operational Routes */}
+            <Route element={<AdminRoute requiredPermission="analytics.read" />}>
+              <Route path="/admin/reports" element={<AdminReports />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="orders.read" />}>
+              <Route path="/admin/orders" element={<AdminOrders />} />
+              <Route path="/admin/abandoned-carts" element={<AdminAbandonedCarts />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="customers.read" />}>
+              <Route path="/admin/customers" element={<AdminCustomers />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="messages.manage" />}>
+              <Route path="/admin/messages" element={<AdminMessages />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="reviews.moderate" />}>
+              <Route path="/admin/reviews" element={<AdminReviews />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="navigation.manage" />}>
+              <Route path="/admin/navigation" element={<AdminNavigation />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="products.write" />}>
+              <Route path="/admin/editor" element={<AdminEditor />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="assets.manage" />}>
+              <Route path="/admin/assets" element={<AdminAssets />} />
+              <Route path="/admin/occasions" element={<AdminOccasions />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="settings.manage" />}>
+              <Route path="/admin/settings" element={<AdminSettings />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="coupons.manage" />}>
+              <Route path="/admin/coupons" element={<AdminCoupons />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="influencers.manage" />}>
+              <Route path="/admin/influencers" element={<AdminInfluencers />} />
+            </Route>
+
+            <Route element={<AdminRoute requiredPermission="audit.read" />}>
+              <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
+            </Route>
           </Route>
         </Routes>
         </Suspense>

@@ -10,8 +10,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ success: false, message: 'Method not allowed. Use POST.' });
   }
 
-  // Enforce staff/logistics authentication
-  const authUser = await requireAuth(req, res, { allowedRoles: ['super_admin', 'admin', 'operations'] });
+  // Enforce staff/logistics authentication with orders.assign_carrier capability
+  const authUser = await requireAuth(req, res, { requiredPermission: 'orders.assign_carrier' });
   if (!authUser) return;
 
   try {

@@ -52,6 +52,7 @@ import {
   AdminKanbanBoard,
   type KanbanColumn,
 } from '@/components/admin/view-system';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface AdminOrderItem {
   id: string;
@@ -117,6 +118,7 @@ const ORDER_STATUSES = [
 ];
 
 export default function AdminOrders() {
+  const { can } = useRBAC();
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -239,6 +241,22 @@ export default function AdminOrders() {
   const handleUpdateOrderStatus = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder) return;
+
+    if (!can('orders.update_status')) {
+      showNotification('Access Denied: You do not have permission to update order status.', 'error');
+      return;
+    }
+
+    if (newStatus === 'CANCELLED' && !can('orders.cancel')) {
+      showNotification('Access Denied: You do not have permission to cancel orders.', 'error');
+      return;
+    }
+
+    if (awbNumber.trim() && !can('orders.assign_carrier')) {
+      showNotification('Access Denied: You do not have permission to assign carrier tracking numbers.', 'error');
+      return;
+    }
+
     setIsUpdating(true);
 
     try {
@@ -337,6 +355,14 @@ export default function AdminOrders() {
   };
 
   const handleQuickStatusTransition = async (order: AdminOrder, targetStatus: string) => {
+    if (!can('orders.update_status')) {
+      showNotification('Access Denied: You do not have permission to transition order statuses.', 'error');
+      return;
+    }
+    if (targetStatus === 'CANCELLED' && !can('orders.cancel')) {
+      showNotification('Access Denied: You do not have permission to cancel orders.', 'error');
+      return;
+    }
     setIsUpdating(true);
     try {
       const res = await authFetch('/api/admin/orders/update-status', {
@@ -367,6 +393,10 @@ export default function AdminOrders() {
     bookingNote: string
   ) => {
     if (!selectedOrder) return;
+    if (!can('orders.assign_carrier')) {
+      showNotification('Access Denied: You do not have permission to assign carriers or tracking numbers.', 'error');
+      return;
+    }
     setIsUpdating(true);
     try {
       const finalTrackingUrl = generateTrackingUrl(bookingCarrier, bookingAwb);
@@ -489,6 +519,14 @@ export default function AdminOrders() {
   };
 
   const handleBatchStatusTransition = async (targetStatus: string, actionName: string) => {
+    if (!can('orders.update_status')) {
+      showNotification('Access Denied: You do not have permission to transition order statuses.', 'error');
+      return;
+    }
+    if (targetStatus === 'CANCELLED' && !can('orders.cancel')) {
+      showNotification('Access Denied: You do not have permission to cancel orders.', 'error');
+      return;
+    }
     const targets = orders.filter((o) => selectedOrderIds.includes(o.id));
     if (targets.length === 0) return;
 
@@ -529,6 +567,10 @@ export default function AdminOrders() {
   };
 
   const handleBatchExportCSV = () => {
+    if (!can('orders.read')) {
+      showNotification('Access Denied: You do not have permission to export orders.', 'error');
+      return;
+    }
     const selectedOrders = orders.filter((o) => selectedOrderIds.includes(o.id));
     if (selectedOrders.length === 0) return;
 
@@ -589,6 +631,11 @@ export default function AdminOrders() {
   };
 
   const exportDispatchManifest = () => {
+    if (!can('orders.read')) {
+      showNotification('Access Denied: You do not have permission to export dispatch manifests.', 'error');
+      return;
+    }
+
     const headers = [
       'Order #',
       'Order Date',
@@ -647,6 +694,11 @@ export default function AdminOrders() {
   };
 
   const exportFinancialSummary = () => {
+    if (!can('analytics.read')) {
+      showNotification('Access Denied: You do not have permission to export financial sales summaries.', 'error');
+      return;
+    }
+
     const headers = [
       'Order #',
       'Date & Time',
@@ -821,27 +873,39 @@ export default function AdminOrders() {
               subtext: 'Completed orders',
             },
           ]}
-          primaryAction={{
-            label: 'Record New Order',
-            icon: <Plus size={15} />,
-            onClick: () => setShowCreateOrderModal(true),
-            title: 'Record a new or historical offline customer order',
-          }}
+          primaryAction={
+            can('orders.update_status')
+              ? {
+                  label: 'Record New Order',
+                  icon: <Plus size={15} />,
+                  onClick: () => setShowCreateOrderModal(true),
+                  title: 'Record a new or historical offline customer order',
+                }
+              : undefined
+          }
           secondaryActions={[
-            {
-              label: 'Dispatch Manifest',
-              icon: <Download size={14} className="text-rose" />,
-              onClick: exportDispatchManifest,
-              disabled: filteredOrders.length === 0,
-              title: 'Export logistics manifest for courier dispatch',
-            },
-            {
-              label: 'Financial Summary',
-              icon: <Download size={14} className="text-emerald-700" />,
-              onClick: exportFinancialSummary,
-              disabled: filteredOrders.length === 0,
-              title: 'Export financial accounting summary',
-            },
+            ...(can('orders.read')
+              ? [
+                  {
+                    label: 'Dispatch Manifest',
+                    icon: <Download size={14} className="text-rose" />,
+                    onClick: exportDispatchManifest,
+                    disabled: filteredOrders.length === 0,
+                    title: 'Export logistics manifest for courier dispatch',
+                  },
+                ]
+              : []),
+            ...(can('analytics.read')
+              ? [
+                  {
+                    label: 'Financial Summary',
+                    icon: <Download size={14} className="text-emerald-700" />,
+                    onClick: exportFinancialSummary,
+                    disabled: filteredOrders.length === 0,
+                    title: 'Export financial accounting summary',
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -1159,45 +1223,49 @@ export default function AdminOrders() {
                       <MessageCircle size={14} />
                       Request Payment on WhatsApp
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickStatusTransition(selectedOrder, 'PAYMENT_CONFIRMED')}
-                      disabled={isUpdating}
-                      className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs disabled:opacity-50 cursor-pointer"
-                    >
-                      <CheckCircle2 size={14} />
-                      Confirm Payment Received ({formatPrice(selectedOrder.total_in_paise / 100)})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (window.confirm(`Are you sure you want to cancel order #${selectedOrder.order_number}? Any redeemed loyalty points will be restored.`)) {
-                          setIsUpdating(true);
-                          try {
-                            const res = await authFetch('/api/orders/cancel', {
-                              method: 'POST',
-                              body: JSON.stringify({
-                                orderId: selectedOrder.id,
-                                reason: 'Payment not received within settlement window',
-                              }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok || !data.success) throw new Error(data.message || 'Failed to cancel order');
-                            showNotification(`Order #${selectedOrder.order_number} cancelled`, 'success');
-                            setSelectedOrder(null);
-                            await fetchOrders();
-                          } catch (err: any) {
-                            showNotification(err.message, 'error');
-                          } finally {
-                            setIsUpdating(false);
+                    {can('orders.update_status') && (
+                      <button
+                        type="button"
+                        onClick={() => handleQuickStatusTransition(selectedOrder, 'PAYMENT_CONFIRMED')}
+                        disabled={isUpdating}
+                        className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-sm text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs disabled:opacity-50 cursor-pointer"
+                      >
+                        <CheckCircle2 size={14} />
+                        Confirm Payment Received ({formatPrice(selectedOrder.total_in_paise / 100)})
+                      </button>
+                    )}
+                    {can('orders.cancel') && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm(`Are you sure you want to cancel order #${selectedOrder.order_number}? Any redeemed loyalty points will be restored.`)) {
+                            setIsUpdating(true);
+                            try {
+                              const res = await authFetch('/api/orders/cancel', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                  orderId: selectedOrder.id,
+                                  reason: 'Payment not received within settlement window',
+                                }),
+                              });
+                              const data = await res.json();
+                              if (!res.ok || !data.success) throw new Error(data.message || 'Failed to cancel order');
+                              showNotification(`Order #${selectedOrder.order_number} cancelled`, 'success');
+                              setSelectedOrder(null);
+                              await fetchOrders();
+                            } catch (err: any) {
+                              showNotification(err.message, 'error');
+                            } finally {
+                              setIsUpdating(false);
+                            }
                           }
-                        }
-                      }}
-                      disabled={isUpdating}
-                      className="px-3 py-2 border border-red-300 text-red-700 hover:bg-red-50 rounded-sm text-xs font-medium transition-all ml-auto disabled:opacity-50 cursor-pointer"
-                    >
-                      Cancel Order
-                    </button>
+                        }}
+                        disabled={isUpdating}
+                        className="px-3 py-2 border border-red-300 text-red-700 hover:bg-red-50 rounded-sm text-xs font-medium transition-all ml-auto disabled:opacity-50 cursor-pointer"
+                      >
+                        Cancel Order
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1231,14 +1299,16 @@ export default function AdminOrders() {
                   <FileText size={13} className="text-rose" />
                   Print 4×6 Slip
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCourierModal(true)}
-                  className="px-3.5 py-1.5 bg-bark text-linen hover:bg-rose-deep rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
-                >
-                  <Truck size={13} />
-                  Courier Dispatch Prep
-                </button>
+                {can('orders.assign_carrier') && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCourierModal(true)}
+                    className="px-3.5 py-1.5 bg-bark text-linen hover:bg-rose-deep rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <Truck size={13} />
+                    Courier Dispatch Prep
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => openWhatsAppForOrder(selectedOrder)}
@@ -1435,112 +1505,128 @@ export default function AdminOrders() {
               )}
 
               {/* Status Update Form */}
-              <form onSubmit={handleUpdateOrderStatus} className="bg-canvas/30 p-5 rounded-sm border border-canvas-line space-y-4">
-                <h4 className="heading-serif text-lg text-bark">Update Order & Dispatch</h4>
+              {can('orders.update_status') ? (
+                <form onSubmit={handleUpdateOrderStatus} className="bg-canvas/30 p-5 rounded-sm border border-canvas-line space-y-4">
+                  <h4 className="heading-serif text-lg text-bark">Update Order & Dispatch</h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
-                      Order Status
-                    </label>
-                    <select
-                      value={newStatus}
-                      onChange={(e) => setNewStatus(e.target.value)}
-                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-                    >
-                      <option value="PENDING_PAYMENT">Pending Payment (PENDING_PAYMENT)</option>
-                      <option value="PAYMENT_CONFIRMED">Confirmed (Paid)</option>
-                      <option value="PROCESSING">PROCESSING (In Crafting)</option>
-                      <option value="PACKED">PACKED (Ready to Ship)</option>
-                      <option value="SHIPPED">SHIPPED (Handed to Carrier)</option>
-                      <option value="DELIVERED">DELIVERED</option>
-                      <option value="CANCELLED">CANCELLED</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
-                      Carrier Partner
-                    </label>
-                    <select
-                      value={carrier}
-                      onChange={(e) => setCarrier(e.target.value as CarrierType)}
-                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-                    >
-                      {SUPPORTED_CARRIERS.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs uppercase tracking-wider text-bark font-medium">
-                        AWB / Tracking Number
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                        Order Status
                       </label>
-                      {awbNumber.trim() && (
-                        <button
-                          type="button"
-                          onClick={() => fetchAdminLiveTracking(awbNumber, true)}
-                          className="text-[10px] text-rose hover:text-rose-deep font-medium flex items-center gap-1 cursor-pointer"
-                          title="Query live Delhivery tracking"
-                        >
-                          <RefreshCw size={10} className={adminTrackingLoading ? 'animate-spin' : ''} />
-                          Check Live
-                        </button>
-                      )}
+                      <select
+                        value={newStatus}
+                        onChange={(e) => setNewStatus(e.target.value)}
+                        className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      >
+                        <option value="PENDING_PAYMENT">Pending Payment (PENDING_PAYMENT)</option>
+                        <option value="PAYMENT_CONFIRMED">Confirmed (Paid)</option>
+                        <option value="PROCESSING">PROCESSING (In Crafting)</option>
+                        <option value="PACKED">PACKED (Ready to Ship)</option>
+                        <option value="SHIPPED">SHIPPED (Handed to Carrier)</option>
+                        <option value="DELIVERED">DELIVERED</option>
+                        {can('orders.cancel') && (
+                          <option value="CANCELLED">CANCELLED</option>
+                        )}
+                      </select>
                     </div>
-                    <input
-                      type="text"
-                      value={awbNumber}
-                      onChange={(e) => setAwbNumber(e.target.value)}
-                      placeholder="e.g. 142385920194"
-                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark font-mono"
-                    />
+
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                        Carrier Partner {!can('orders.assign_carrier') && '(Restricted)'}
+                      </label>
+                      <select
+                        value={carrier}
+                        disabled={!can('orders.assign_carrier')}
+                        onChange={(e) => setCarrier(e.target.value as CarrierType)}
+                        className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark disabled:opacity-60"
+                      >
+                        {SUPPORTED_CARRIERS.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
-                      Status Change Note (Internal or Customer)
-                    </label>
-                    <input
-                      type="text"
-                      value={statusNote}
-                      onChange={(e) => setStatusNote(e.target.value)}
-                      placeholder="e.g. Bouquet packed in atelier archival box"
-                      className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
-                    />
-                  </div>
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs uppercase tracking-wider text-bark font-medium">
+                          AWB / Tracking Number {!can('orders.assign_carrier') && '(Restricted)'}
+                        </label>
+                        {awbNumber.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => fetchAdminLiveTracking(awbNumber, true)}
+                            className="text-[10px] text-rose hover:text-rose-deep font-medium flex items-center gap-1 cursor-pointer"
+                            title="Query live Delhivery tracking"
+                          >
+                            <RefreshCw size={10} className={adminTrackingLoading ? 'animate-spin' : ''} />
+                            Check Live
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={awbNumber}
+                        disabled={!can('orders.assign_carrier')}
+                        onChange={(e) => setAwbNumber(e.target.value)}
+                        placeholder="e.g. 142385920194"
+                        className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark font-mono disabled:opacity-60"
+                      />
+                    </div>
 
-                <div className="flex justify-end gap-3 pt-3 border-t border-canvas-line">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedOrder(null)}
-                    className="px-4 py-2 border border-canvas-line text-xs uppercase tracking-wider font-medium text-ink hover:bg-canvas/30 rounded-sm"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isUpdating}
-                    className="px-6 py-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-medium rounded-sm flex items-center gap-2 transition-all disabled:opacity-50"
-                  >
-                    {isUpdating ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Saving Changes...
-                      </>
-                    ) : (
-                      'Save & Notify'
-                    )}
-                  </button>
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                        Status Change Note (Internal or Customer)
+                      </label>
+                      <input
+                        type="text"
+                        value={statusNote}
+                        onChange={(e) => setStatusNote(e.target.value)}
+                        placeholder="e.g. Bouquet packed in atelier archival box"
+                        className="w-full px-3 py-2 bg-linen border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-bark"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-3 border-t border-canvas-line">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrder(null)}
+                      className="px-4 py-2 border border-canvas-line text-xs uppercase tracking-wider font-medium text-ink hover:bg-canvas/30 rounded-sm"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isUpdating}
+                      className="px-6 py-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-medium rounded-sm flex items-center gap-2 transition-all disabled:opacity-50"
+                    >
+                      {isUpdating ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Saving Changes...
+                        </>
+                      ) : (
+                        'Save & Notify'
+                      )}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="bg-canvas/20 p-4 rounded-sm border border-canvas-line flex items-center justify-between text-xs text-ink-light">
+                  <div className="flex items-center gap-2">
+                    <Package size={15} className="text-ink-light/70" />
+                    <span>Order fulfillment updates and courier dispatches are read-only for your role.</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 border border-canvas-line rounded bg-canvas">
+                    Read-Only
+                  </span>
                 </div>
-              </form>
+              )}
             </div>
           )}
         </AdminEntityDrawer>
@@ -1609,7 +1695,7 @@ export default function AdminOrders() {
 
               {/* Action Buttons: Full-width touch friendly row */}
               <div className="flex items-center gap-2">
-                {eligibleForPaymentConfirm.length > 0 && (
+                {can('orders.update_status') && eligibleForPaymentConfirm.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleBatchStatusTransition('PAYMENT_CONFIRMED', 'Confirm Paid')}
@@ -1622,7 +1708,7 @@ export default function AdminOrders() {
                   </button>
                 )}
 
-                {eligibleForCrafting.length > 0 && (
+                {can('orders.update_status') && eligibleForCrafting.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleBatchStatusTransition('PROCESSING', 'Start Crafting')}
@@ -1635,7 +1721,7 @@ export default function AdminOrders() {
                   </button>
                 )}
 
-                {eligibleForPacked.length > 0 && (
+                {can('orders.update_status') && eligibleForPacked.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleBatchStatusTransition('PACKED', 'Mark Packed')}
@@ -1648,15 +1734,17 @@ export default function AdminOrders() {
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handleBatchExportCSV}
-                  className="py-2.5 px-3.5 bg-white/15 active:bg-white/25 text-linen rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-98 flex-shrink-0"
-                  title="Export selected orders to CSV"
-                >
-                  <Download size={13} />
-                  <span>CSV</span>
-                </button>
+                {can('orders.read') && (
+                  <button
+                    type="button"
+                    onClick={handleBatchExportCSV}
+                    className="py-2.5 px-3.5 bg-white/15 active:bg-white/25 text-linen rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-98 flex-shrink-0"
+                    title="Export selected orders to CSV"
+                  >
+                    <Download size={13} />
+                    <span>CSV</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1672,7 +1760,7 @@ export default function AdminOrders() {
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                {eligibleForPaymentConfirm.length > 0 && (
+                {can('orders.update_status') && eligibleForPaymentConfirm.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleBatchStatusTransition('PAYMENT_CONFIRMED', 'Confirm Paid')}
@@ -1685,7 +1773,7 @@ export default function AdminOrders() {
                   </button>
                 )}
 
-                {eligibleForCrafting.length > 0 && (
+                {can('orders.update_status') && eligibleForCrafting.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleBatchStatusTransition('PROCESSING', 'Start Crafting')}
@@ -1698,7 +1786,7 @@ export default function AdminOrders() {
                   </button>
                 )}
 
-                {eligibleForPacked.length > 0 && (
+                {can('orders.update_status') && eligibleForPacked.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleBatchStatusTransition('PACKED', 'Mark Packed')}
@@ -1711,15 +1799,17 @@ export default function AdminOrders() {
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handleBatchExportCSV}
-                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-linen rounded-full text-xs font-medium flex items-center gap-1.5 transition-all whitespace-nowrap shadow-sm hover:scale-102 active:scale-98"
-                  title="Export selected orders to CSV"
-                >
-                  <Download size={12} />
-                  <span>Export CSV</span>
-                </button>
+                {can('orders.read') && (
+                  <button
+                    type="button"
+                    onClick={handleBatchExportCSV}
+                    className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-linen rounded-full text-xs font-medium flex items-center gap-1.5 transition-all whitespace-nowrap shadow-sm hover:scale-102 active:scale-98"
+                    title="Export selected orders to CSV"
+                  >
+                    <Download size={12} />
+                    <span>Export CSV</span>
+                  </button>
+                )}
 
                 <button
                   type="button"

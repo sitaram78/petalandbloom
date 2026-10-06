@@ -27,6 +27,7 @@ import {
   AdminKanbanBoard,
   type KanbanColumn,
 } from '@/components/admin/view-system';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface AdminReview {
   id: string;
@@ -44,6 +45,7 @@ interface AdminReview {
 }
 
 export default function AdminReviews() {
+  const { can } = useRBAC();
   const { showNotification } = useNotification();
   const [reviews, setReviews] = useState<AdminReview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +90,11 @@ export default function AdminReviews() {
   }, []);
 
   const handleModerate = async (reviewId: string, action: 'approve' | 'unapprove' | 'delete') => {
+    if (!can('reviews.moderate')) {
+      showNotification('Access Denied: You do not have permission to moderate reviews.', 'error');
+      return;
+    }
+
     if (action === 'delete' && !window.confirm('Are you sure you want to permanently delete this review?')) {
       return;
     }
@@ -357,37 +364,41 @@ export default function AdminReviews() {
                         <ChevronRight size={13} />
                       </button>
 
-                      {r.is_approved ? (
-                        <button
-                          type="button"
-                          disabled={isActioning}
-                          onClick={() => handleModerate(r.id, 'unapprove')}
-                          className="px-3 py-1.5 border border-canvas-line text-xs font-medium text-ink-light hover:text-bark rounded-sm flex items-center gap-1.5 transition-colors"
-                        >
-                          <EyeOff size={13} />
-                          Unpublish
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={isActioning}
-                          onClick={() => handleModerate(r.id, 'approve')}
-                          className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-linen text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-colors shadow-xs"
-                        >
-                          <CheckCircle2 size={13} />
-                          Approve
-                        </button>
-                      )}
+                      {can('reviews.moderate') && (
+                        <>
+                          {r.is_approved ? (
+                            <button
+                              type="button"
+                              disabled={isActioning}
+                              onClick={() => handleModerate(r.id, 'unapprove')}
+                              className="px-3 py-1.5 border border-canvas-line text-xs font-medium text-ink-light hover:text-bark rounded-sm flex items-center gap-1.5 transition-colors"
+                            >
+                              <EyeOff size={13} />
+                              Unpublish
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isActioning}
+                              onClick={() => handleModerate(r.id, 'approve')}
+                              className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-linen text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-colors shadow-xs"
+                            >
+                              <CheckCircle2 size={13} />
+                              Approve
+                            </button>
+                          )}
 
-                      <button
-                        type="button"
-                        disabled={isActioning}
-                        onClick={() => handleModerate(r.id, 'delete')}
-                        className="p-1.5 text-red-600 hover:text-red-700 border border-red-200 rounded-sm hover:bg-red-50 transition-colors"
-                        title="Delete review"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                          <button
+                            type="button"
+                            disabled={isActioning}
+                            onClick={() => handleModerate(r.id, 'delete')}
+                            className="p-1.5 text-red-600 hover:text-red-700 border border-red-200 rounded-sm hover:bg-red-50 transition-colors"
+                            title="Delete review"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -440,7 +451,7 @@ export default function AdminReviews() {
           }
           widthClass="max-w-2xl"
           footerActions={
-            selectedReview && (
+            selectedReview && can('reviews.moderate') && (
               <div className="flex items-center gap-3 w-full justify-between">
                 <button
                   type="button"

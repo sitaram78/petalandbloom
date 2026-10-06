@@ -22,6 +22,7 @@ import { formatPrice } from '@/data/products';
 import { fetchOccasions, createOccasion, type Occasion } from '@/services/occasionService';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface ProductForm {
   name: string;
@@ -89,6 +90,7 @@ function ProductPreview({ product }: { product: ProductForm }) {
 }
 
 export default function AdminEditor() {
+  const { can } = useRBAC();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { loading: contextLoading, refreshProducts } = useProducts();
@@ -299,6 +301,10 @@ export default function AdminEditor() {
 
   const saveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!can('products.write')) {
+      setError('Access Denied: You do not have permission to create or modify catalog pieces.');
+      return;
+    }
     setSaving(true);
     setError('');
     setIsSaved(false);
@@ -439,14 +445,16 @@ export default function AdminEditor() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsBulkImportOpen(true)}
-              className="px-4 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
-            >
-              <Upload size={14} className="text-rose" />
-              Bulk Import CSV
-            </button>
+            {can('products.write') && (
+              <button
+                type="button"
+                onClick={() => setIsBulkImportOpen(true)}
+                className="px-4 py-2 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
+              >
+                <Upload size={14} className="text-rose" />
+                Bulk Import CSV
+              </button>
+            )}
           </div>
         </header>
 
@@ -852,7 +860,8 @@ export default function AdminEditor() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || isSaved}
+                  disabled={saving || isSaved || !can('products.write')}
+                  title={!can('products.write') ? 'Product editing is restricted to authorized roles' : undefined}
                   className={`px-8 py-3 flex items-center gap-2 text-sm shadow-soft transition-all duration-500 ${
                     isSaved
                       ? 'bg-green-600 text-white hover:bg-green-700'

@@ -30,9 +30,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
 
-    // Ownership & privilege check: only staff or the customer who placed this order can cancel
-    const isStaff = authUser.role === 'super_admin' || authUser.role === 'admin' || authUser.role === 'operations';
-    if (!isStaff && order.customer_id !== authUser.id) {
+    // Ownership & privilege check: only staff with 'orders.cancel' capability or the customer who placed this order can cancel
+    const hasCancelPerm =
+      authUser.role === 'super_admin' ||
+      authUser.role === 'admin' ||
+      authUser.role === 'operations' ||
+      (Array.isArray(authUser.permissions) && authUser.permissions.includes('orders.cancel'));
+    const isOwnerCustomer = Boolean(order.customer_id && order.customer_id === authUser.id);
+
+    if (!hasCancelPerm && !isOwnerCustomer) {
       return res.status(403).json({
         success: false,
         message: 'Forbidden: You do not have permission to cancel this order.',

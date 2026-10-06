@@ -31,6 +31,7 @@ import {
   AdminViewToolbar,
   AdminEntityDrawer,
 } from '@/components/admin/view-system';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface CustomerProfile {
   id: string;
@@ -51,6 +52,7 @@ interface CustomerProfile {
 }
 
 export default function AdminCustomers() {
+  const { can } = useRBAC();
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
@@ -182,6 +184,11 @@ export default function AdminCustomers() {
     e.preventDefault();
     if (!selectedCustomer) return;
 
+    if (!can('customers.adjust_points')) {
+      alert('Access Denied: You do not have permission to adjust customer loyalty points.');
+      return;
+    }
+
     setIsAdjustingPoints(true);
 
     try {
@@ -213,6 +220,11 @@ export default function AdminCustomers() {
   };
 
   const exportCustomersCSV = () => {
+    if (!can('customers.export')) {
+      alert('Access Denied: You do not have permission to export customer CRM database.');
+      return;
+    }
+
     const headers = ['Full Name', 'Phone', 'Email', 'Role', 'Tier', 'Petal Points', 'Lifetime Earned', 'Orders Count', 'Total Spent (INR)', 'Referral Code', 'Joined Date'];
     const rows = filteredCustomers.map(c => [
       `"${c.full_name || ''}"`,
@@ -303,12 +315,17 @@ export default function AdminCustomers() {
             },
           ]}
           secondaryActions={[
-            {
-              label: 'Export CSV',
-              icon: <Download size={14} />,
-              onClick: exportCustomersCSV,
-              disabled: filteredCustomers.length === 0,
-            },
+            ...(can('customers.export')
+              ? [
+                  {
+                    label: 'Export CSV',
+                    icon: <Download size={14} />,
+                    onClick: exportCustomersCSV,
+                    disabled: filteredCustomers.length === 0,
+                    title: 'Download customer CRM database in CSV format',
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -589,61 +606,73 @@ export default function AdminCustomers() {
                   </div>
 
                   {/* Points Adjustment Form */}
-                  <div className="bg-canvas/30 p-5 rounded-sm border border-canvas-line">
-                    <h3 className="font-serif text-lg text-bark mb-2 flex items-center gap-2">
-                      <Gift size={18} className="text-rose" /> Adjust Loyalty Points (Admin Override)
-                    </h3>
-                    <p className="text-xs text-ink-light mb-4">
-                      Credit points for goodwill or order compensation, or debit points for manual returns.
-                    </p>
+                  {can('customers.adjust_points') ? (
+                    <div className="bg-canvas/30 p-5 rounded-sm border border-canvas-line">
+                      <h3 className="font-serif text-lg text-bark mb-2 flex items-center gap-2">
+                        <Gift size={18} className="text-rose" /> Adjust Loyalty Points (Admin Override)
+                      </h3>
+                      <p className="text-xs text-ink-light mb-4">
+                        Credit points for goodwill or order compensation, or debit points for manual returns.
+                      </p>
 
-                    <form onSubmit={handleAdjustPoints} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider text-bark font-semibold mb-1">Action</label>
-                        <select
-                          value={pointsType}
-                          onChange={(e: any) => setPointsType(e.target.value)}
-                          className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
-                        >
-                          <option value="ADD">+ Credit Points</option>
-                          <option value="DEDUCT">- Deduct Points</option>
-                        </select>
-                      </div>
+                      <form onSubmit={handleAdjustPoints} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wider text-bark font-semibold mb-1">Action</label>
+                          <select
+                            value={pointsType}
+                            onChange={(e: any) => setPointsType(e.target.value)}
+                            className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
+                          >
+                            <option value="ADD">+ Credit Points</option>
+                            <option value="DEDUCT">- Deduct Points</option>
+                          </select>
+                        </div>
 
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider text-bark font-semibold mb-1">Points Amount</label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="5000"
-                          value={pointsDelta}
-                          onChange={(e) => setPointsDelta(Number(e.target.value))}
-                          className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
-                        />
-                      </div>
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wider text-bark font-semibold mb-1">Points Amount</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="5000"
+                            value={pointsDelta}
+                            onChange={(e) => setPointsDelta(Number(e.target.value))}
+                            className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wider text-bark font-semibold mb-1">Reason / Note</label>
-                        <input
-                          type="text"
-                          value={adjustmentReason}
-                          onChange={(e) => setAdjustmentReason(e.target.value)}
-                          placeholder="e.g. Goodwill credit"
-                          className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
-                        />
-                      </div>
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wider text-bark font-semibold mb-1">Reason / Note</label>
+                          <input
+                            type="text"
+                            value={adjustmentReason}
+                            onChange={(e) => setAdjustmentReason(e.target.value)}
+                            placeholder="e.g. Goodwill credit"
+                            className="w-full p-2 bg-linen border border-canvas-line rounded-sm text-xs"
+                          />
+                        </div>
 
-                      <div>
-                        <button
-                          type="submit"
-                          disabled={isAdjustingPoints}
-                          className="w-full p-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-semibold rounded-sm transition-all disabled:opacity-50"
-                        >
-                          {isAdjustingPoints ? 'Updating...' : 'Apply Points'}
-                        </button>
+                        <div>
+                          <button
+                            type="submit"
+                            disabled={isAdjustingPoints}
+                            className="w-full p-2 bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-semibold rounded-sm transition-all disabled:opacity-50"
+                          >
+                            {isAdjustingPoints ? 'Updating...' : 'Apply Points'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  ) : (
+                    <div className="bg-canvas/20 p-4 rounded-sm border border-canvas-line flex items-center justify-between text-xs text-ink-light">
+                      <div className="flex items-center gap-2">
+                        <Gift size={15} className="text-ink-light/70" />
+                        <span>Loyalty points ledger adjustments are restricted to staff with permission.</span>
                       </div>
-                    </form>
-                  </div>
+                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 border border-canvas-line rounded bg-canvas">
+                        Read-Only
+                      </span>
+                    </div>
+                  )}
 
                   {/* Customer Orders */}
                   <div>

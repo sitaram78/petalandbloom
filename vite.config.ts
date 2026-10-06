@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
+import fs from 'node:fs';
 
 /**
  * Local development middleware that maps /api/* requests
@@ -19,7 +20,13 @@ function apiDevMiddleware(): Plugin {
           const parsedUrl = new URL(req.url, 'http://localhost:5173');
           const pathname = parsedUrl.pathname;
           const routePath = pathname.replace(/^\/api\//, '');
-          const modulePath = `./api/${routePath}.ts`;
+          let modulePath = `./api/${routePath}.ts`;
+          if (!fs.existsSync(modulePath)) {
+            const indexPath = `./api/${routePath}/index.ts`;
+            if (fs.existsSync(indexPath)) {
+              modulePath = indexPath;
+            }
+          }
 
           let body: any = {};
           if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {

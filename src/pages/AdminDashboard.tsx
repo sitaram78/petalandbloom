@@ -21,6 +21,7 @@ import {
   Ticket,
   Upload,
   Download,
+  MessageCircle,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useProducts } from '@/context/ProductContext';
@@ -33,6 +34,7 @@ import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
 import AtelierAreaChart, { ChartDataPoint } from '@/components/admin/charts/AtelierAreaChart';
 import AtelierDonutChart, { DonutSegment } from '@/components/admin/charts/AtelierDonutChart';
 import AtelierSparkline from '@/components/admin/charts/AtelierSparkline';
+import { useRBAC } from '@/hooks/useRBAC';
 
 interface OrderSummary {
   id: string;
@@ -46,6 +48,7 @@ interface OrderSummary {
 }
 
 export default function AdminDashboard() {
+  const { can } = useRBAC();
   const { products, loading: productsLoading, refreshProducts } = useProducts();
   const [searchQuery, setSearchQuery] = useState('');
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -173,6 +176,11 @@ export default function AdminDashboard() {
   });
 
   const handleDeleteProduct = async (code: string) => {
+    if (!can('products.delete')) {
+      alert('Access Denied: You do not have permission to delete catalog pieces.');
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete product ${code}? This action cannot be undone.`)) {
       return;
     }
@@ -202,6 +210,11 @@ export default function AdminDashboard() {
   };
 
   const exportCatalogCSV = () => {
+    if (!can('products.read')) {
+      alert('Access Denied: You do not have permission to export the catalog dataset.');
+      return;
+    }
+
     const headers = [
       'code',
       'name',
@@ -268,24 +281,38 @@ export default function AdminDashboard() {
 
           <Reveal delay={100}>
             <div className="flex flex-wrap items-center gap-3">
-              <Link
-                to="/admin/orders"
-                className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
-              >
-                <Truck size={16} /> Manage Orders
-              </Link>
-              <Link
-                to="/admin/customers"
-                className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
-              >
-                <Users size={16} /> Patrons CRM
-              </Link>
-              <Link
-                to="/admin/editor"
-                className="btn-primary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium shadow-soft"
-              >
-                <Plus size={16} /> Create Piece
-              </Link>
+              {can('orders.read') && (
+                <Link
+                  to="/admin/orders"
+                  className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
+                >
+                  <Truck size={16} /> Manage Orders
+                </Link>
+              )}
+              {can('customers.read') && (
+                <Link
+                  to="/admin/customers"
+                  className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
+                >
+                  <Users size={16} /> Patrons CRM
+                </Link>
+              )}
+              {can('messages.manage') && (
+                <Link
+                  to="/admin/messages"
+                  className="btn-secondary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium text-bark hover:text-rose shadow-soft"
+                >
+                  <MessageCircle size={16} /> Live Assistance
+                </Link>
+              )}
+              {can('products.write') && (
+                <Link
+                  to="/admin/editor"
+                  className="btn-primary px-5 py-2.5 flex items-center gap-2 text-xs uppercase tracking-wider font-medium shadow-soft"
+                >
+                  <Plus size={16} /> Create Piece
+                </Link>
+              )}
             </div>
           </Reveal>
         </header>
@@ -543,31 +570,37 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              <button
-                onClick={exportCatalogCSV}
-                className="px-3 py-1.5 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
-                title="Export catalog dataset to CSV"
-              >
-                <Download size={13} className="text-emerald-700" />
-                Export CSV
-              </button>
+              {can('products.read') && (
+                <button
+                  onClick={exportCatalogCSV}
+                  className="px-3 py-1.5 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
+                  title="Export catalog dataset to CSV"
+                >
+                  <Download size={13} className="text-emerald-700" />
+                  Export CSV
+                </button>
+              )}
 
-              <button
-                onClick={() => setIsBulkImportOpen(true)}
-                className="px-3 py-1.5 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
-                title="Bulk import or update catalog from CSV"
-              >
-                <Upload size={13} className="text-rose" />
-                Bulk Import
-              </button>
+              {can('products.write') && (
+                <button
+                  onClick={() => setIsBulkImportOpen(true)}
+                  className="px-3 py-1.5 bg-linen border border-canvas-line text-xs font-medium text-bark hover:border-bark rounded-sm flex items-center gap-1.5 transition-all"
+                  title="Bulk import or update catalog from CSV"
+                >
+                  <Upload size={13} className="text-rose" />
+                  Bulk Import
+                </button>
+              )}
 
-              <Link
-                to="/admin/editor"
-                className="px-3.5 py-1.5 bg-ink text-white hover:bg-bark text-xs font-medium uppercase tracking-wider rounded-sm flex items-center gap-1.5 transition-all shadow-soft"
-              >
-                <Plus size={14} className="text-rose" />
-                Add Piece
-              </Link>
+              {can('products.write') && (
+                <Link
+                  to="/admin/editor"
+                  className="px-3.5 py-1.5 bg-ink text-white hover:bg-bark text-xs font-medium uppercase tracking-wider rounded-sm flex items-center gap-1.5 transition-all shadow-soft"
+                >
+                  <Plus size={14} className="text-rose" />
+                  Add Piece
+                </Link>
+              )}
             </div>
           </div>
 
@@ -628,20 +661,27 @@ export default function AdminDashboard() {
 
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Link
-                          to={`/admin/editor?code=${p.code}`}
-                          className="px-3 py-1.5 bg-canvas border border-canvas-line hover:border-bark text-bark rounded-sm transition-colors text-xs font-medium"
-                        >
-                          Edit
-                        </Link>
-                        <button
-                          onClick={() => handleDeleteProduct(p.code)}
-                          disabled={isDeleting === p.code}
-                          className="p-1.5 text-rose/60 hover:text-rose hover:bg-rose/10 rounded-sm transition-colors disabled:opacity-50"
-                          title="Delete piece"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {can('products.write') && (
+                          <Link
+                            to={`/admin/editor?code=${p.code}`}
+                            className="px-3 py-1.5 bg-canvas border border-canvas-line hover:border-bark text-bark rounded-sm transition-colors text-xs font-medium"
+                          >
+                            Edit
+                          </Link>
+                        )}
+                        {can('products.delete') && (
+                          <button
+                            onClick={() => handleDeleteProduct(p.code)}
+                            disabled={isDeleting === p.code}
+                            className="p-1.5 text-rose/60 hover:text-rose hover:bg-rose/10 rounded-sm transition-colors disabled:opacity-50"
+                            title="Delete piece"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                        {!can('products.write') && !can('products.delete') && (
+                          <span className="text-[11px] text-ink-light italic">Read-Only</span>
+                        )}
                       </div>
                     </td>
                   </tr>

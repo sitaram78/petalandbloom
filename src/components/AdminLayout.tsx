@@ -25,9 +25,13 @@ import {
   Search,
   ExternalLink,
   Store,
+  ShieldCheck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import CommandPaletteModal from '@/components/admin/CommandPaletteModal';
+import { useRBAC } from '@/hooks/useRBAC';
+import { useAuth } from '@/context/AuthContext';
+import type { PermissionKey } from '@/utils/rbac';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -58,11 +62,14 @@ interface NavGroup {
     icon: React.ReactNode;
     badgeCount?: number;
     badgeColor?: string;
+    requiredPermission?: PermissionKey;
   }>;
 }
 
 export default function AdminLayout({ children, activePage }: AdminLayoutProps) {
   const navigate = useNavigate();
+  const { can, roleMeta } = useRBAC();
+  const { profile } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -147,6 +154,7 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           title: 'Reports & Analytics',
           path: '/admin/reports',
           icon: <BarChart3 size={17} />,
+          requiredPermission: 'analytics.read',
         },
       ],
     },
@@ -160,24 +168,28 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           icon: <Truck size={17} />,
           badgeCount: pendingOrdersCount,
           badgeColor: 'bg-emerald-600 text-white',
+          requiredPermission: 'orders.read',
         },
         {
           id: 'abandoned-carts',
           title: 'Abandoned Checkouts',
           path: '/admin/abandoned-carts',
           icon: <ShoppingBag size={17} />,
+          requiredPermission: 'orders.read',
         },
         {
           id: 'editor',
           title: 'Add New Piece',
           path: '/admin/editor',
           icon: <Plus size={17} />,
+          requiredPermission: 'products.write',
         },
         {
           id: 'occasions',
           title: 'Occasions & Festivals',
           path: '/admin/occasions',
           icon: <Sparkles size={17} />,
+          requiredPermission: 'assets.manage',
         },
       ],
     },
@@ -189,6 +201,7 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           title: 'Patrons & CRM',
           path: '/admin/customers',
           icon: <Users size={17} />,
+          requiredPermission: 'customers.read',
         },
         {
           id: 'messages',
@@ -197,6 +210,7 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           icon: <MessageCircle size={17} />,
           badgeCount: unreadMessagesCount,
           badgeColor: 'bg-rose text-white',
+          requiredPermission: 'messages.manage',
         },
         {
           id: 'reviews',
@@ -205,18 +219,21 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           icon: <Star size={17} />,
           badgeCount: pendingReviewsCount,
           badgeColor: 'bg-amber-500 text-ink',
+          requiredPermission: 'reviews.moderate',
         },
         {
           id: 'influencers',
           title: 'Ambassadors & Creators',
           path: '/admin/influencers',
           icon: <Sparkles size={17} />,
+          requiredPermission: 'influencers.manage',
         },
         {
           id: 'coupons',
           title: 'Coupons & Promos',
           path: '/admin/coupons',
           icon: <Ticket size={17} />,
+          requiredPermission: 'coupons.manage',
         },
       ],
     },
@@ -228,28 +245,52 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           title: 'Company Settings',
           path: '/admin/settings',
           icon: <SlidersHorizontal size={17} />,
+          requiredPermission: 'settings.manage',
+        },
+        {
+          id: 'team',
+          title: 'Team & Permissions',
+          path: '/admin/settings?tab=team',
+          icon: <ShieldCheck size={17} />,
+          requiredPermission: 'staff.manage',
         },
         {
           id: 'assets',
           title: 'Studio Visuals',
           path: '/admin/assets',
           icon: <Palette size={17} />,
+          requiredPermission: 'assets.manage',
         },
         {
           id: 'navigation',
           title: 'Navigation Manager',
           path: '/admin/navigation',
           icon: <GripVertical size={17} />,
+          requiredPermission: 'navigation.manage',
         },
         {
           id: 'audit-logs',
           title: 'Audit Logs',
           path: '/admin/audit-logs',
           icon: <FileText size={17} />,
+          requiredPermission: 'audit.read',
         },
       ],
     },
   ];
+
+  // Dynamically filter navigation hubs based on authenticated capabilities
+  const visibleNavGroups = React.useMemo(() => {
+    return navGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (!item.requiredPermission) return true;
+          return can(item.requiredPermission);
+        }),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [navGroups, can]);
 
   return (
     <div className="min-h-screen bg-parchment-50 flex">
@@ -312,7 +353,7 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
 
         {/* Categorized Navigation Hubs */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-5 custom-scrollbar">
-          {navGroups.map((group, gIdx) => (
+          {visibleNavGroups.map((group, gIdx) => (
             <div key={gIdx} className="space-y-1">
               {!isCollapsed ? (
                 <p className="px-3 text-[10px] uppercase tracking-wider font-semibold text-white/40 mb-1.5">
@@ -429,10 +470,20 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
             <div className="h-4 w-px bg-canvas-line" />
 
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-bark text-linen flex items-center justify-center font-bold text-xs">
-                PB
+              <div className="w-7 h-7 rounded-full bg-bark text-linen flex items-center justify-center font-bold text-xs flex-shrink-0">
+                {profile?.full_name ? profile.full_name.charAt(0).toUpperCase() : 'PB'}
               </div>
-              <span className="font-medium text-bark">Studio Admin</span>
+              <div className="flex flex-col text-left">
+                <span className="font-medium text-bark leading-tight truncate max-w-[120px]">
+                  {profile?.full_name || 'Studio Staff'}
+                </span>
+                <span className="text-[10px] text-ink-light leading-none">
+                  {profile?.email || 'Logged in'}
+                </span>
+              </div>
+              <span className={`ml-1 px-2 py-0.5 rounded text-[10px] uppercase font-semibold border ${roleMeta.badgeClass}`}>
+                {roleMeta.label}
+              </span>
             </div>
           </div>
         </header>
