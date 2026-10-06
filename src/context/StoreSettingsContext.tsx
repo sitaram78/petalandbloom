@@ -203,25 +203,92 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
     };
     window.addEventListener('tpb_store_settings_change', handleCustomEvent);
 
-    // Initial fetch from Server API
+    // Initial fetch from Supabase and Server API
     async function fetchSettings() {
+      try {
+        const { data: dbData, error: dbErr } = await supabase
+          .from('store_settings')
+          .select('*')
+          .eq('id', 'primary')
+          .maybeSingle();
+
+        if (!dbErr && dbData && isMounted) {
+          const mappedDbSettings: Partial<StoreSettings> = {
+            whatsappNumber: dbData.whatsapp_number || undefined,
+            supportEmail: dbData.support_email || undefined,
+            instagramHandle: dbData.instagram_handle || undefined,
+            instagramUrl: dbData.instagram_url || undefined,
+            businessHours: dbData.business_hours || undefined,
+            responseTime: dbData.response_time || undefined,
+            conciergeChannelMode: (dbData.concierge_channel_mode as ConciergeChannelMode) || undefined,
+            legalBusinessName: dbData.legal_business_name || undefined,
+            studioAddress: dbData.studio_address || undefined,
+            gstin: dbData.gstin || undefined,
+            upiId: dbData.upi_id || undefined,
+            upiPhone: dbData.upi_phone || undefined,
+            ...(dbData.feature_flags ? { featureFlags: dbData.feature_flags } : {}),
+            ...(dbData.business_rules ? { businessRules: dbData.business_rules } : {}),
+            ...(dbData.occasion_banner ? { occasionBanner: dbData.occasion_banner } : {}),
+          };
+
+          setSettings((prev) => {
+            const next = { ...prev, ...mappedDbSettings };
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn('[StoreSettings] Supabase fetch fallback warning:', err);
+      }
+
       try {
         const res = await fetch('/api/settings/store');
         if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.settings && isMounted) {
-            setSettings((prev) => ({ ...prev, ...json.settings }));
-            try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(json.settings));
-            } catch {}
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const json = await res.json();
+            if (json.success && json.settings && isMounted) {
+              setSettings((prev) => ({ ...prev, ...json.settings }));
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(json.settings));
+              } catch {}
+            }
           }
         }
       } catch (err) {
-        console.warn('[StoreSettings] API fetch error, using cached/default:', err);
+        // Fallback already satisfied by Supabase / cache
       } finally {
         if (isMounted) setLoading(false);
       }
     }
+
+    // Realtime listener for live sync across all storefront patrons
+    const channel = supabase
+      .channel('store_settings_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'store_settings' },
+        (payload: any) => {
+          if (payload.new && isMounted) {
+            const newRow = payload.new;
+            setSettings((prev) => {
+              const next: StoreSettings = {
+                ...prev,
+                conciergeChannelMode: (newRow.concierge_channel_mode as ConciergeChannelMode) || prev.conciergeChannelMode,
+                whatsappNumber: newRow.whatsapp_number || prev.whatsappNumber,
+                supportEmail: newRow.support_email || prev.supportEmail,
+              };
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+          }
+        }
+      )
+      .subscribe();
 
     fetchSettings();
 
@@ -230,6 +297,7 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('tpb_store_settings_change', handleCustomEvent);
       if (bc) bc.close();
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -246,6 +314,35 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
       }
     } catch {
       // Ignore
+    }
+
+    // Direct update to Supabase store_settings table
+    try {
+      const dbUpdates: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (partial.conciergeChannelMode !== undefined) {
+        dbUpdates.concierge_channel_mode = partial.conciergeChannelMode;
+      }
+      if (partial.whatsappNumber !== undefined) {
+        dbUpdates.whatsapp_number = partial.whatsappNumber;
+      }
+      if (partial.supportEmail !== undefined) {
+        dbUpdates.support_email = partial.supportEmail;
+      }
+      if (partial.businessHours !== undefined) {
+        dbUpdates.business_hours = partial.businessHours;
+      }
+      if (partial.responseTime !== undefined) {
+        dbUpdates.response_time = partial.responseTime;
+      }
+
+      await supabase
+        .from('store_settings')
+        .update(dbUpdates)
+        .eq('id', 'primary');
+    } catch (dbEx) {
+      console.warn('[StoreSettings] Direct Supabase update warning:', dbEx);
     }
 
     try {

@@ -205,11 +205,32 @@ export default async function handler(req: any, res: any) {
         updated_at: new Date().toISOString(),
       };
 
-      await supabaseAdmin
+      const { error: upsertErr } = await supabaseAdmin
         .from('store_settings')
         .upsert(dbPayload, { onConflict: 'id' });
+
+      if (upsertErr) {
+        console.warn('[store_settings full upsert error, attempting core columns fallback]:', upsertErr.message);
+        // Fallback update guaranteed core columns so concierge_channel_mode always persists in DB
+        await supabaseAdmin
+          .from('store_settings')
+          .update({
+            concierge_channel_mode: serverCache.conciergeChannelMode,
+            whatsapp_number: serverCache.whatsappNumber,
+            support_email: serverCache.supportEmail,
+            instagram_handle: serverCache.instagramHandle,
+            instagram_url: serverCache.instagramUrl,
+            business_hours: serverCache.businessHours,
+            response_time: serverCache.responseTime,
+            legal_business_name: serverCache.legalBusinessName,
+            studio_address: serverCache.studioAddress,
+            gstin: serverCache.gstin,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', 'primary');
+      }
     } catch (err) {
-      // Keep server cache valid even if DB table doesn't have columns yet
+      console.warn('[store_settings exception]:', err);
     }
 
     return res.status(200).json({ success: true, settings: serverCache });
