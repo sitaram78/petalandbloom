@@ -250,12 +250,20 @@ create table if not exists public.coupons (
   is_influencer boolean not null default false,
   influencer_name text,
   commission_percent numeric(5, 2) default 0,
+  scope_type text not null default 'ALL' check (scope_type in ('ALL', 'CATEGORIES', 'SPECIFIC_PRODUCTS', 'PRICE_TIER', 'OCCASION', 'CUSTOM_COMPOUND')),
+  applicable_categories text[] not null default '{}',
+  applicable_product_codes text[] not null default '{}',
+  applicable_occasions text[] not null default '{}',
+  min_product_price_in_paise integer not null default 0 check (min_product_price_in_paise >= 0),
+  min_spend_mode text not null default 'ELIGIBLE_ITEMS_ONLY' check (min_spend_mode in ('ELIGIBLE_ITEMS_ONLY', 'CART_TOTAL')),
+  cart_mix_mode text not null default 'ALLOW_MIXED' check (cart_mix_mode in ('ALLOW_MIXED', 'STRICT_EXCLUSIVE')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_coupons_code on public.coupons(code);
 create index if not exists idx_coupons_active on public.coupons(active);
+create index if not exists idx_coupons_scope_type on public.coupons(scope_type);
 
 drop trigger if exists tr_coupons_updated_at on public.coupons;
 create trigger tr_coupons_updated_at

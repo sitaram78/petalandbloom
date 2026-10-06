@@ -471,6 +471,11 @@ export default function CartDrawer() {
                         <p className="text-sm font-medium text-rose mt-2">
                           {item.priceLabel || formatPrice(item.price)}
                         </p>
+                        {appliedCoupon && appliedCoupon.eligibleProductCodes?.includes(item.code) && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-xs mt-1">
+                            <Tag size={10} className="text-emerald-700" /> Eligible for {appliedCoupon.code}
+                          </span>
+                        )}
                         <div className="flex items-center gap-4 mt-3">
                           <div className="flex items-center border border-silk bg-parchment-50 rounded-sm">
                             <button
@@ -556,9 +561,19 @@ export default function CartDrawer() {
                           </div>
                           {couponMessage && <p className="text-xs text-rose">{couponMessage}</p>}
                           {appliedCoupon && (
-                            <div className="flex justify-between items-center text-xs text-sage-dark bg-sage/10 p-2.5 rounded-sm">
-                              <span>{appliedCoupon.code} applied (-₹{appliedCoupon.discountInRupees})</span>
-                              <button type="button" onClick={removeCoupon} className="underline hover:text-rose text-[11px]">Remove</button>
+                            <div className="flex flex-col gap-1 text-xs text-sage-dark bg-emerald-50/70 border border-emerald-200/60 p-2.5 rounded-sm">
+                              <div className="flex justify-between items-center">
+                                <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
+                                  <Tag size={12} className="text-emerald-700" />
+                                  {appliedCoupon.code} applied (-₹{appliedCoupon.discountInRupees})
+                                </span>
+                                <button type="button" onClick={removeCoupon} className="underline hover:text-rose text-[11px]">Remove</button>
+                              </div>
+                              {appliedCoupon.eligibleItemsCount && appliedCoupon.eligibleItemsCount > 0 ? (
+                                <p className="text-[10px] text-emerald-700 leading-tight">
+                                  Applied to {appliedCoupon.eligibleItemsCount} eligible {appliedCoupon.eligibleItemsCount === 1 ? 'item' : 'items'} in your bag.
+                                </p>
+                              ) : null}
                             </div>
                           )}
                         </div>
@@ -621,7 +636,7 @@ export default function CartDrawer() {
                       </div>
                       {discountAmount > 0 && (
                         <div className="flex justify-between text-sage-dark">
-                          <span>Discount</span>
+                          <span>Discount {appliedCoupon?.code ? `(${appliedCoupon.code})` : ''}</span>
                           <span>-{formatPrice(discountAmount)}</span>
                         </div>
                       )}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import type { Product } from '@/data/products';
 import { formatPrice } from '@/data/products';
 import { cartEnquiryMessage, buildWhatsAppLink } from '@/utils/whatsapp';
@@ -10,7 +10,11 @@ export interface AppliedCoupon {
   code: string;
   discountInRupees: number;
   discountPercent?: number;
+  discountType?: 'PERCENT' | 'FLAT';
   description?: string;
+  eligibleProductCodes?: string[];
+  eligibleItemsCount?: number;
+  eligibleSubtotalInRupees?: number;
 }
 
 export interface CartItem {
@@ -188,6 +192,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code: normalizedCode,
+            items: items.map((i) => ({ code: i.code, quantity: i.quantity })),
             cartSubtotalInPaise: Math.round(totalPrice * 100),
             customerPhone: cleanPhone || undefined,
           }),
@@ -202,21 +207,86 @@ export function CartProvider({ children }: { children: ReactNode }) {
           code: data.code,
           discountInRupees: data.discountInRupees,
           discountPercent: data.discountType === 'PERCENT' ? data.discountValue : undefined,
+          discountType: data.discountType,
           description: data.description,
+          eligibleProductCodes: data.eligibleProductCodes || [],
+          eligibleItemsCount: data.eligibleItemsCount || 0,
+          eligibleSubtotalInRupees: data.eligibleSubtotalInPaise ? data.eligibleSubtotalInPaise / 100 : undefined,
         });
 
+        const countNote = data.eligibleItemsCount ? ` on ${data.eligibleItemsCount} eligible items` : '';
         return {
           success: true,
-          message: `Coupon ${data.code} applied! (-₹${data.discountInRupees})`,
+          message: `Coupon ${data.code} applied! (-₹${data.discountInRupees}${countNote})`,
         };
       } catch (err: any) {
         return { success: false, message: 'Could not validate coupon.' };
       }
     },
-    [totalPrice]
+    [items, totalPrice]
   );
 
   const removeCoupon = useCallback(() => setAppliedCoupon(null), []);
+
+  // Auto-revalidate applied coupon when cart items mutate (item removal, quantity changes)
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    if (!appliedCoupon) return;
+    if (items.length === 0) {
+      setAppliedCoupon(null);
+      return;
+    }
+
+    let isMounted = true;
+    const revalidate = async () => {
+      try {
+        const res = await fetch('/api/coupons/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: appliedCoupon.code,
+            items: items.map((i) => ({ code: i.code, quantity: i.quantity })),
+            cartSubtotalInPaise: Math.round(totalPrice * 100),
+          }),
+        });
+
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (!data.success) {
+          setAppliedCoupon(null);
+          showNotification(
+            `Coupon ${appliedCoupon.code} was removed: ${data.message || 'Cart no longer meets promotion criteria.'}`,
+            'warning'
+          );
+        } else {
+          setAppliedCoupon({
+            code: data.code,
+            discountInRupees: data.discountInRupees,
+            discountPercent: data.discountType === 'PERCENT' ? data.discountValue : undefined,
+            discountType: data.discountType,
+            description: data.description,
+            eligibleProductCodes: data.eligibleProductCodes || [],
+            eligibleItemsCount: data.eligibleItemsCount || 0,
+            eligibleSubtotalInRupees: data.eligibleSubtotalInPaise ? data.eligibleSubtotalInPaise / 100 : undefined,
+          });
+        }
+      } catch (err) {
+        // Silently preserve on transient network error
+      }
+    };
+
+    revalidate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [items, totalPrice, showNotification]);
 
   // Initiate real Cashfree checkout
   const initiateCheckout = useCallback(

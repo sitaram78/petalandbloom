@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
 import { createCashfreePGOrder } from '../lib/cashfreeServer';
 import { getCachedStoreSettings } from '../settings/store';
+import { evaluateCoupon } from '../lib/couponEngine';
 
 interface CheckoutItemRequest {
   code: string;
@@ -96,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const { data: dbProducts, error: prodError } = await supabaseAdmin
         .from('products')
-        .select('id, code, name, price_in_paise, inventory_count, is_active, images')
+        .select('id, code, name, price_in_paise, inventory_count, is_active, images, category_slug, occasions')
         .in('code', queryCodes);
 
       if (prodError) {
@@ -218,38 +219,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      if (!couponErr && coupon) {
-        const isNotExpired = !coupon.expires_at || new Date(coupon.expires_at) > new Date();
-        const underLimit = coupon.usage_limit === null || coupon.usage_count < coupon.usage_limit;
-        const meetsMinOrder = subtotalInPaise >= (coupon.min_order_in_paise || 0);
+      if (couponErr || !coupon) {
+        return res.status(400).json({
+          success: false,
+          message: `The coupon code '${normalizedCode}' is invalid or no longer active.`,
+        });
+      }
 
-        let underPerCustomerLimit = true;
-        if (coupon.per_customer_limit && coupon.per_customer_limit > 0 && cleanPhone) {
-          const { count, error: countErr } = await supabaseAdmin
-            .from('coupon_redemptions')
-            .select('id', { count: 'exact', head: true })
-            .eq('coupon_id', coupon.id)
-            .ilike('customer_phone', `%${cleanPhone}%`);
+      if (coupon.per_customer_limit && coupon.per_customer_limit > 0 && cleanPhone) {
+        const { count, error: countErr } = await supabaseAdmin
+          .from('coupon_redemptions')
+          .select('id', { count: 'exact', head: true })
+          .eq('coupon_id', coupon.id)
+          .ilike('customer_phone', `%${cleanPhone}%`);
 
-          if (!countErr && count !== null && count >= coupon.per_customer_limit) {
-            underPerCustomerLimit = false;
-          }
-        }
-
-        if (isNotExpired && underLimit && underPerCustomerLimit && meetsMinOrder) {
-          validatedCouponId = coupon.id;
-          validatedCouponCode = coupon.code;
-
-          if (coupon.discount_type === 'PERCENT') {
-            const rawDiscount = Math.round((subtotalInPaise * coupon.discount_value) / 100);
-            discountInPaise = coupon.max_discount_in_paise
-              ? Math.min(rawDiscount, coupon.max_discount_in_paise)
-              : rawDiscount;
-          } else {
-            discountInPaise = Math.min(subtotalInPaise, coupon.discount_value);
-          }
+        if (!countErr && count !== null && count >= coupon.per_customer_limit) {
+          return res.status(400).json({
+            success: false,
+            message: 'You have already redeemed this promotional code the maximum number of times.',
+          });
         }
       }
+
+      const evaluation = evaluateCoupon({
+        coupon,
+        items: catalogItems.map((i) => ({ code: i.code, quantity: i.quantity })),
+        productsMap: productMap,
+        cartSubtotalInPaise: subtotalInPaise,
+      });
+
+      if (!evaluation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: evaluation.message || 'The applied coupon is no longer valid for your cart items. Please review your order.',
+        });
+      }
+
+      if (evaluation.discountInPaise <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'The applied coupon provides zero discount for the selected items.',
+        });
+      }
+
+      validatedCouponId = coupon.id;
+      validatedCouponCode = coupon.code;
+      discountInPaise = evaluation.discountInPaise;
     }
 
     // 4. Loyalty Points Redemption (if authenticated customer)

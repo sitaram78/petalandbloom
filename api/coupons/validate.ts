@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../lib/supabaseServer';
 import { getCachedStoreSettings } from '../settings/store';
+import { evaluateCoupon, CatalogProductMeta } from '../lib/couponEngine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -13,7 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ success: false, message: 'Coupons and promotional discounts are currently paused.' });
     }
 
-    const { code, cartSubtotalInPaise, customerPhone, customerEmail } = req.body || {};
+    const { code, items, cartSubtotalInPaise, customerPhone, customerEmail } = req.body || {};
 
     if (!code || typeof code !== 'string') {
       return res.status(400).json({ success: false, message: 'Coupon code is required.' });
@@ -55,14 +56,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ success: false, message: 'Invalid coupon code.' });
     }
 
-    if (coupon.expires_at && new Date(coupon.expires_at) <= new Date()) {
-      return res.status(400).json({ success: false, message: 'This coupon has expired.' });
-    }
-
-    if (coupon.usage_limit !== null && coupon.usage_count >= coupon.usage_limit) {
-      return res.status(400).json({ success: false, message: 'This coupon has reached its total usage limit.' });
-    }
-
     // Enforce per-customer usage limit (e.g. single-use coupons)
     if (coupon.per_customer_limit && coupon.per_customer_limit > 0 && customerPhone) {
       const cleanPhone = String(customerPhone).replace(/\D/g, '').slice(-10);
@@ -82,32 +75,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    if (subtotal < (coupon.min_order_in_paise || 0)) {
-      const minOrderRupees = (coupon.min_order_in_paise || 0) / 100;
-      return res.status(400).json({
-        success: false,
-        message: `This coupon requires a minimum order of ₹${minOrderRupees}.`,
-      });
+    // Build product map if items array is provided
+    const productsMap = new Map<string, CatalogProductMeta>();
+    if (Array.isArray(items) && items.length > 0) {
+      const rawCodes = items.map((i: any) => (i.code || '').trim()).filter(Boolean);
+      const queryCodes = Array.from(new Set([
+        ...rawCodes,
+        ...rawCodes.map((c) => c.toUpperCase()),
+        ...rawCodes.map((c) => c.toLowerCase()),
+      ]));
+
+      const { data: dbProducts } = await supabaseAdmin
+        .from('products')
+        .select('id, code, name, price_in_paise, category_slug, occasions, is_active')
+        .in('code', queryCodes);
+
+      if (dbProducts) {
+        for (const p of dbProducts) {
+          productsMap.set(p.code, p);
+          productsMap.set(p.code.toUpperCase(), p);
+          productsMap.set(p.code.toLowerCase(), p);
+        }
+      }
     }
 
-    let discountInPaise = 0;
-    if (coupon.discount_type === 'PERCENT') {
-      const rawDiscount = Math.round((subtotal * coupon.discount_value) / 100);
-      discountInPaise = coupon.max_discount_in_paise
-        ? Math.min(rawDiscount, coupon.max_discount_in_paise)
-        : rawDiscount;
-    } else {
-      discountInPaise = Math.min(subtotal, coupon.discount_value);
+    // Evaluate coupon using the centralized zero-leakage engine
+    const evaluation = evaluateCoupon({
+      coupon,
+      items: Array.isArray(items) ? items : undefined,
+      productsMap: productsMap.size > 0 ? productsMap : undefined,
+      cartSubtotalInPaise: subtotal,
+    });
+
+    if (!evaluation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: evaluation.message || 'This coupon cannot be applied to your cart.',
+      });
     }
 
     return res.status(200).json({
       success: true,
       code: coupon.code,
-      discountType: coupon.discount_type,
-      discountValue: coupon.discount_value,
-      discountInPaise,
-      discountInRupees: discountInPaise / 100,
-      description: coupon.description || `${coupon.discount_value}% off your order`,
+      discountType: evaluation.discountType,
+      discountValue: evaluation.discountValue,
+      discountInPaise: evaluation.discountInPaise,
+      discountInRupees: evaluation.discountInRupees,
+      eligibleProductCodes: evaluation.eligibleProductCodes,
+      eligibleItemsCount: evaluation.eligibleItemsCount,
+      description:
+        evaluation.description ||
+        coupon.description ||
+        (coupon.discount_type === 'PERCENT'
+          ? `${coupon.discount_value}% off eligible items`
+          : `Flat ₹${Math.round(evaluation.discountInRupees)} off`),
     });
   } catch (err: any) {
     console.error('[Coupon Validation Error]', err);

@@ -4,6 +4,9 @@
  */
 
 export type CouponDiscountType = 'PERCENT' | 'FLAT';
+export type CouponScopeType = 'ALL' | 'CATEGORIES' | 'SPECIFIC_PRODUCTS' | 'PRICE_TIER' | 'OCCASION' | 'CUSTOM_COMPOUND';
+export type CouponMinSpendMode = 'ELIGIBLE_ITEMS_ONLY' | 'CART_TOTAL';
+export type CouponCartMixMode = 'ALLOW_MIXED' | 'STRICT_EXCLUSIVE';
 
 export interface Coupon {
   id: string;
@@ -23,6 +26,13 @@ export interface Coupon {
   influencer_name?: string | null;
   commission_percent?: number;
   commission_paid_inr?: number;
+  scope_type?: CouponScopeType;
+  applicable_categories?: string[];
+  applicable_product_codes?: string[];
+  applicable_occasions?: string[];
+  min_product_price_in_paise?: number;
+  min_spend_mode?: CouponMinSpendMode;
+  cart_mix_mode?: CouponCartMixMode;
 }
 
 export interface CouponValidationInput {
@@ -104,8 +114,9 @@ export function calculateCouponDiscount(
       ? Math.min(calculated, coupon.max_discount_in_paise)
       : calculated;
   } else {
-    // FLAT discount (discount_value is stored either in rupees or paise, standardizing to paise)
-    const flatAmount = coupon.discount_value > 1000 ? coupon.discount_value : coupon.discount_value * 100;
+    // FLAT discount: In Petal & Bloom, flat discounts are stored in paise (e.g. ₹10 = 1,000 paise).
+    // If raw rupees (< 100) are ever provided, normalize to paise; otherwise preserve paise.
+    const flatAmount = coupon.discount_value < 100 ? coupon.discount_value * 100 : coupon.discount_value;
     discountInPaise = Math.min(cartSubtotalInPaise, flatAmount);
   }
 
