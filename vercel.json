@@ -1,8 +1,20 @@
 {
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/admin/staff/(.*)", "destination": "/api/staff" },
+    { "source": "/api/admin/staff", "destination": "/api/staff" },
+    { "source": "/api/admin/orders/(.*)", "destination": "/api/orders" },
+    { "source": "/api/orders/(.*)", "destination": "/api/orders" },
+    { "source": "/api/checkout/(.*)", "destination": "/api/checkout" },
+    { "source": "/api/coupons/(.*)", "destination": "/api/checkout" },
+    { "source": "/api/payments/(.*)", "destination": "/api/payments" },
+    { "source": "/api/assistance/(.*)", "destination": "/api/assistance" },
+    { "source": "/api/reviews/(.*)", "destination": "/api/reviews" },
+    { "source": "/api/account/(.*)", "destination": "/api/account" },
+    { "source": "/api/admin/customers/(.*)", "destination": "/api/customers" },
+    { "source": "/api/shipping/(.*)", "destination": "/api/shipping" },
+    { "source": "/api/settings/(.*)", "destination": "/api/settings" },
+    { "source": "/api/audit/(.*)", "destination": "/api/audit" },
+    { "source": "/api/sitemap", "destination": "/api/settings" },
+    { "source": "/((?!api/.*).*)", "destination": "/index.html" }
   ]
 }
