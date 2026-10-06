@@ -247,20 +247,33 @@ export default function ProductBulkImportModal({
     setApplying(true);
 
     try {
-      const recordsToUpsert = parsedRows.map((r) => ({
-        code: r.code,
-        name: r.name,
-        category: r.category,
-        price: r.price,
-        compare_at_price: r.compareAtPrice || null,
-        description: r.description,
-        preparation_days: r.preparationDays,
-        made_to_order: r.madeToOrder,
-        bestseller: r.bestseller,
-        featured: r.featured,
-        customisable: r.customisable,
-        images: r.images.length > 0 ? r.images : ['https://images.unsplash.com/photo-1561181286-d3fee7d55364?auto=format&fit=crop&q=80&w=800'],
-      }));
+      const recordsToUpsert = parsedRows.map((r) => {
+        const priceInPaise = Math.round(Number(r.price) * 100);
+        const compareAtPriceInPaise = r.compareAtPrice && Number(r.compareAtPrice) > 0
+          ? Math.round(Number(r.compareAtPrice) * 100)
+          : null;
+        const slug = (r.code || r.name)
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '');
+
+        return {
+          code: r.code.trim(),
+          name: r.name.trim(),
+          slug,
+          category_slug: r.category || 'flowers',
+          price_in_paise: priceInPaise,
+          compare_at_price_in_paise: compareAtPriceInPaise,
+          description: r.description,
+          preparation_days: r.preparationDays || '3–5 days',
+          is_made_to_order: !!r.madeToOrder,
+          is_bestseller: !!r.bestseller,
+          is_featured: !!r.featured,
+          is_customisable: !!r.customisable,
+          images: r.images.length > 0 ? r.images : ['https://images.unsplash.com/photo-1561181286-d3fee7d55364?auto=format&fit=crop&q=80&w=800'],
+        };
+      });
 
       // Upsert into Supabase products table
       const { error: upsertError } = await supabase.from('products').upsert(recordsToUpsert, {

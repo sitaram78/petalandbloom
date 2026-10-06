@@ -217,16 +217,20 @@ export default function AdminEditor() {
             setForm({
               name: data.name || '',
               code: data.code || '',
-              category: data.category || 'flowers',
-              price: data.price || 0,
-              compareAtPrice: data.compare_at_price || undefined,
+              category: data.category_slug || data.category || 'flowers',
+              price: data.price_in_paise !== undefined && data.price_in_paise !== null
+                ? Math.round(data.price_in_paise / 100)
+                : (data.price || 0),
+              compareAtPrice: data.compare_at_price_in_paise !== undefined && data.compare_at_price_in_paise !== null
+                ? Math.round(data.compare_at_price_in_paise / 100)
+                : (data.compare_at_price || undefined),
               description: data.description || '',
               longDescription: data.long_description || '',
-              bestseller: !!data.bestseller,
-              featured: !!data.featured,
-              customisable: !!data.customisable,
-              madeToOrder: !!data.made_to_order,
-              images: Array.isArray(data.images) ? data.images : [''],
+              bestseller: !!(data.is_bestseller ?? data.bestseller),
+              featured: !!(data.is_featured ?? data.featured),
+              customisable: !!(data.is_customisable ?? data.customisable),
+              madeToOrder: !!(data.is_made_to_order ?? data.made_to_order),
+              images: Array.isArray(data.images) && data.images.length > 0 ? data.images : [''],
               occasions: Array.isArray(data.occasions) ? data.occasions : [''],
               recipients: Array.isArray(data.recipients) ? data.recipients : [''],
               colors: Array.isArray(data.colors) ? data.colors : [''],
@@ -300,29 +304,45 @@ export default function AdminEditor() {
     setIsSaved(false);
 
     try {
-      if (form.compareAtPrice !== undefined && form.compareAtPrice <= form.price) {
+      if (form.compareAtPrice !== undefined && form.compareAtPrice > 0 && form.compareAtPrice <= form.price) {
         throw new Error('Compare-at price must be higher than the selling price.');
       }
 
-      const payload = {
-        name: form.name,
-        code: form.code,
-        category: form.category,
-        price: form.price,
-        compare_at_price: form.compareAtPrice || null,
+      const priceInPaise = Math.round(Number(form.price) * 100);
+      const compareAtPriceInPaise = form.compareAtPrice && Number(form.compareAtPrice) > 0
+        ? Math.round(Number(form.compareAtPrice) * 100)
+        : null;
+
+      const slug = (form.code || form.name)
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+
+      const payload: Record<string, any> = {
+        name: form.name.trim(),
+        code: form.code.trim(),
+        category_slug: form.category || 'flowers',
+        price_in_paise: priceInPaise,
+        compare_at_price_in_paise: compareAtPriceInPaise,
         description: form.description,
-        long_description: form.longDescription,
-        bestseller: form.bestseller,
-        featured: form.featured,
-        customisable: form.customisable,
-        made_to_order: form.madeToOrder,
-        images: form.images.filter(img => img !== ''),
-        occasions: form.occasions.filter(o => o !== ''),
-        colors: form.colors.filter(c => c !== ''),
-        whats_included: form.whatsIncluded.filter(w => w !== ''),
-        preparation_days: form.preparationDays,
-        bouquet_size: form.bouquetSize,
+        long_description: form.longDescription || null,
+        is_bestseller: !!form.bestseller,
+        is_featured: !!form.featured,
+        is_customisable: !!form.customisable,
+        is_made_to_order: !!form.madeToOrder,
+        images: form.images.filter(img => img && img.trim() !== ''),
+        occasions: form.occasions.filter(o => o && o.trim() !== ''),
+        recipients: form.recipients.filter(r => r && r.trim() !== ''),
+        colors: form.colors.filter(c => c && c.trim() !== ''),
+        whats_included: form.whatsIncluded.filter(w => w && w.trim() !== ''),
+        preparation_days: form.preparationDays || '3-5 days',
+        bouquet_size: form.bouquetSize || null,
       };
+
+      if (!isEditMode) {
+        payload.slug = slug;
+      }
 
       if (isEditMode) {
         const { error: updateError, data: updateData } = await supabase
