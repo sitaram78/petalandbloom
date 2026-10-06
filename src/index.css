@@ -159,3 +159,11 @@
   opacity: 1;
   transform: translateY(0);
 }
+
+/* iOS-grade bottom sheet slide-up animation */
+
+
+.animate-slide-up {
+  animation: slideUpSheet 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

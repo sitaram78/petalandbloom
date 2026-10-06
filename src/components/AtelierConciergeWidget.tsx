@@ -72,15 +72,17 @@ export default function AtelierConciergeWidget() {
     } catch {}
   };
 
-  // Mobile Swipe Down to Close gesture hook
+  // Mobile Swipe Down to Close gesture hook (120fps direct GPU engine)
   const {
+    sheetRef: chatSheetRef,
+    backdropRef: chatBackdropRef,
     handleTouchStart: handleChatTouchStart,
     handleTouchMove: handleChatTouchMove,
     handleTouchEnd: handleChatTouchEnd,
     triggerCloseWithAnimation: closeChatWithAnimation,
     sheetStyle: chatSheetStyle,
-    backdropOpacity: chatBackdropOpacity,
     isDragging: isChatDragging,
+    isPastThreshold: isChatPastThreshold,
   } = useSwipeDownToClose({
     onClose: handleCloseChat,
     threshold: 75,
@@ -513,13 +515,14 @@ export default function AtelierConciergeWidget() {
         <>
           {/* Mobile Backdrop Overlay */}
           <div
-            className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-50 transition-opacity"
-            style={{ opacity: chatBackdropOpacity }}
+            ref={chatBackdropRef}
+            className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-50"
             onClick={closeChatWithAnimation}
           />
 
           {/* Chat Container */}
           <div
+            ref={chatSheetRef}
             style={chatSheetStyle}
             className={`fixed inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-6 sm:right-6 w-full sm:w-[410px] h-[86vh] sm:h-[620px] max-h-[92vh] sm:max-h-[85vh] bg-parchment-50 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-canvas-line/80 flex flex-col overflow-hidden z-50 ${
               !isChatDragging ? 'animate-slide-up' : ''
@@ -534,7 +537,11 @@ export default function AtelierConciergeWidget() {
             >
               <div
                 className={`h-1 rounded-full transition-all duration-150 ${
-                  isChatDragging ? 'w-12 bg-white/60 scale-y-125' : 'w-10 bg-white/30'
+                  isChatPastThreshold
+                    ? 'w-14 bg-rose-300 scale-y-125'
+                    : isChatDragging
+                    ? 'w-12 bg-white/70 scale-y-110'
+                    : 'w-10 bg-white/30'
                 }`}
               />
             </div>

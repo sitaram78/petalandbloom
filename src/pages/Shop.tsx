@@ -56,15 +56,17 @@ export default function ShopPage() {
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Swipe Down to Dismiss hook for Mobile Filter Drawer
+  // Swipe Down to Dismiss hook for Mobile Filter Drawer (120fps direct GPU engine)
   const {
+    sheetRef: filterSheetRef,
+    backdropRef: filterBackdropRef,
     handleTouchStart: handleFilterTouchStart,
     handleTouchMove: handleFilterTouchMove,
     handleTouchEnd: handleFilterTouchEnd,
     triggerCloseWithAnimation: closeFilterDrawer,
     sheetStyle: filterSheetStyle,
-    backdropOpacity: filterBackdropOpacity,
     isDragging: isFilterDragging,
+    isPastThreshold: isFilterPastThreshold,
   } = useSwipeDownToClose({
     onClose: () => setIsFilterDrawerOpen(false),
     threshold: 75,
@@ -681,14 +683,15 @@ export default function ShopPage() {
         <div className="fixed inset-0 z-50 sm:hidden">
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-bark/60 backdrop-blur-sm transition-opacity"
-            style={{ opacity: filterBackdropOpacity }}
+            ref={filterBackdropRef}
+            className="fixed inset-0 bg-bark/60 backdrop-blur-sm"
             onClick={closeFilterDrawer}
             aria-hidden="true"
           />
 
           {/* Slide-Up Sheet Container */}
           <div
+            ref={filterSheetRef}
             role="dialog"
             aria-modal="true"
             aria-label="Filter and sort creations"
@@ -706,7 +709,11 @@ export default function ShopPage() {
             >
               <div
                 className={`h-1.5 rounded-full transition-all duration-150 ${
-                  isFilterDragging ? 'w-12 bg-bark/45 scale-y-110' : 'w-10 bg-bark/20'
+                  isFilterPastThreshold
+                    ? 'w-14 bg-rose/80 scale-y-125'
+                    : isFilterDragging
+                    ? 'w-12 bg-bark/50 scale-y-110'
+                    : 'w-10 bg-bark/20'
                 }`}
               />
             </div>
