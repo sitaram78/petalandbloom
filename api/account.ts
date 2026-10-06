@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import signupHandler from './_handlers/account/signup';
-import recoverHandler from './_handlers/account/recover';
-import linkOrdersHandler from './_handlers/account/link-orders';
+import signupHandler from '../server/handlers/account/signup';
+import recoverHandler from '../server/handlers/account/recover';
+import linkOrdersHandler from '../server/handlers/account/link-orders';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';

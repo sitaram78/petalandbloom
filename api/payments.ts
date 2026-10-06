@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import verifyPaymentHandler from './_handlers/payments/verify';
-import refundPaymentHandler from './_handlers/payments/refund';
-import webhookPaymentHandler from './_handlers/payments/cashfree-webhook';
+import verifyPaymentHandler from '../server/handlers/payments/verify';
+import refundPaymentHandler from '../server/handlers/payments/refund';
+import webhookPaymentHandler from '../server/handlers/payments/cashfree-webhook';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';

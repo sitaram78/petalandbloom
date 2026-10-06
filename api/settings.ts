@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import storeSettingsHandler from './_handlers/settings/store';
-import sitemapHandler from './_handlers/sitemap';
+import storeSettingsHandler from '../server/handlers/settings/store';
+import sitemapHandler from '../server/handlers/sitemap';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';
