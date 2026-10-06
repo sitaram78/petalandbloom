@@ -22,6 +22,8 @@ import {
   Copy,
   Check,
   ChevronRight,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { supabase } from '@/lib/supabaseClient';
@@ -95,6 +97,11 @@ export default function AdminMessages() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [isSending, setIsSending] = useState(false);
+
+  // Clear Chat & Free Database Quota State
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [deleteEntireConversation, setDeleteEntireConversation] = useState(false);
+  const [isClearingChat, setIsClearingChat] = useState(false);
 
   // Patron Context & Order History Drawer State
   const [patronOrders, setPatronOrders] = useState<any[]>([]);
@@ -248,6 +255,14 @@ export default function AdminMessages() {
       }
     });
 
+    // Realtime chat cleared broadcast listener
+    msgChannel.on('broadcast', { event: 'CHAT_CLEARED' }, () => {
+      if (!isMounted) return;
+      setMessages([]);
+      fetchConversations(true);
+      setIsCustomerTyping(false);
+    });
+
     // Engine 2: PostgreSQL WAL Changes (Fail-safe persistence sync)
     msgChannel.on(
       'postgres_changes',
@@ -268,6 +283,21 @@ export default function AdminMessages() {
       }
     );
 
+    msgChannel.on(
+      'postgres_changes',
+      {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'assistance_messages',
+        filter: `conversation_id=eq.${selectedConv.id}`,
+      },
+      () => {
+        if (!isMounted) return;
+        setMessages([]);
+        fetchConversations(true);
+      }
+    );
+
     msgChannel.subscribe();
     channelRef.current = msgChannel;
 
@@ -282,7 +312,12 @@ export default function AdminMessages() {
       try {
         bc = new BroadcastChannel('tpb_assistance_channel');
         bc.onmessage = (event) => {
-          if (event.data?.type === 'NEW_MESSAGE' && isMounted) {
+          if (event.data?.type === 'CHAT_CLEARED' && event.data.conversation_id === selectedConv?.id) {
+            if (isMounted) {
+              setMessages([]);
+              fetchConversations(true);
+            }
+          } else if (event.data?.type === 'NEW_MESSAGE' && isMounted) {
             if (event.data.message?.conversation_id === selectedConv?.id) {
               const newMsg = event.data.message as MessageItem;
               setMessages((prev) => {
@@ -446,7 +481,7 @@ export default function AdminMessages() {
     }
   };
 
-  const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleReplyChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setReplyText(e.target.value);
     if (channelRef.current) {
       channelRef.current.send({
@@ -490,6 +525,119 @@ export default function AdminMessages() {
       window.open(`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
     } else {
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    }
+  };
+
+  // Clear chat messages and permanently reclaim Supabase database storage
+  const handleClearChat = async () => {
+    if (!selectedConv?.id) return;
+    setIsClearingChat(true);
+
+    const convId = selectedConv.id;
+    try {
+      if (deleteEntireConversation) {
+        // 1. Physically delete all message rows from Supabase assistance_messages table
+        const { error: msgErr } = await supabase
+          .from('assistance_messages')
+          .delete()
+          .eq('conversation_id', convId);
+
+        if (msgErr) console.warn('[Supabase assistance_messages delete warning]:', msgErr.message);
+
+        // 2. Physically delete conversation row from Supabase assistance_conversations table
+        const { error: convErr } = await supabase
+          .from('assistance_conversations')
+          .delete()
+          .eq('id', convId);
+
+        if (convErr) console.warn('[Supabase assistance_conversations delete warning]:', convErr.message);
+
+        // 3. Purge from server backend cache & API
+        try {
+          await fetch(`/api/assistance/conversations?id=${encodeURIComponent(convId)}`, {
+            method: 'DELETE',
+          });
+        } catch {}
+
+        // 4. Broadcast CHAT_CLEARED to realtime subscribers
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'CHAT_CLEARED',
+            payload: { conversation_id: convId },
+          });
+        }
+
+        // 5. Broadcast to same-origin tabs
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const bc = new BroadcastChannel('tpb_assistance_channel');
+            bc.postMessage({ type: 'CHAT_CLEARED', conversation_id: convId });
+            bc.close();
+          } catch {}
+        }
+
+        setMessages([]);
+        setSelectedConv(null);
+        await fetchConversations(true);
+        showNotification(
+          'Conversation thread and all messages permanently purged. Supabase storage reclaimed!',
+          'success'
+        );
+      } else {
+        // 1. Physically delete all message rows from Supabase assistance_messages table
+        const { error: msgErr } = await supabase
+          .from('assistance_messages')
+          .delete()
+          .eq('conversation_id', convId);
+
+        if (msgErr) console.warn('[Supabase assistance_messages delete warning]:', msgErr.message);
+
+        // 2. Call server backend DELETE endpoint
+        try {
+          await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(convId)}`, {
+            method: 'DELETE',
+          });
+        } catch {}
+
+        // 3. Clear preview in Supabase assistance_conversations table
+        await supabase
+          .from('assistance_conversations')
+          .update({ last_message_preview: null })
+          .eq('id', convId);
+
+        // 4. Broadcast CHAT_CLEARED via Supabase Realtime channel
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'CHAT_CLEARED',
+            payload: { conversation_id: convId },
+          });
+        }
+
+        // 5. Broadcast to same-origin tabs
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const bc = new BroadcastChannel('tpb_assistance_channel');
+            bc.postMessage({ type: 'CHAT_CLEARED', conversation_id: convId });
+            bc.close();
+          } catch {}
+        }
+
+        setMessages([]);
+        await fetchConversations(true);
+        showNotification(
+          'Chat history purged! All messages deleted from Supabase and database storage freed.',
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('Failed to clear chat:', err);
+      showNotification('Failed to clear chat: ' + err.message, 'error');
+    } finally {
+      setIsClearingChat(false);
+      setShowClearModal(false);
+      setDeleteEntireConversation(false);
     }
   };
 
@@ -579,17 +727,17 @@ export default function AdminMessages() {
                 filteredConversations.map((conv) => {
                   const isSelected = selectedConv?.id === conv.id;
                   return (
-                    <button
+                    <div
                       key={conv.id}
-                      onClick={() => {
-                        setSelectedConv(conv);
-                        setMobileActiveView('chat');
-                      }}
-                      className={`w-full p-4 text-left transition-colors flex flex-col gap-1.5 ${
+                      className={`group relative w-full p-4 text-left transition-colors flex flex-col gap-1.5 cursor-pointer ${
                         isSelected
                           ? 'bg-rose/5 border-l-4 border-l-rose'
                           : 'hover:bg-canvas/20'
                       }`}
+                      onClick={() => {
+                        setSelectedConv(conv);
+                        setMobileActiveView('chat');
+                      }}
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-xs text-bark truncate">
@@ -607,25 +755,41 @@ export default function AdminMessages() {
                         {conv.last_message_preview || conv.subject}
                       </p>
 
-                      <div className="flex items-center gap-2 mt-1">
-                        <span
-                          className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
-                            conv.status === 'PENDING_ADMIN'
-                              ? 'bg-amber-100 text-amber-800'
-                              : conv.status === 'RESOLVED'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-sky-100 text-sky-800'
-                          }`}
-                        >
-                          {conv.status.replace('_', ' ')}
-                        </span>
-                        {conv.customer_phone && (
-                          <span className="text-[10px] text-ink-light font-mono">
-                            +91 {conv.customer_phone}
+                      <div className="flex items-center justify-between mt-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                              conv.status === 'PENDING_ADMIN'
+                                ? 'bg-amber-100 text-amber-800'
+                                : conv.status === 'RESOLVED'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-sky-100 text-sky-800'
+                            }`}
+                          >
+                            {conv.status.replace('_', ' ')}
                           </span>
-                        )}
+                          {conv.customer_phone && (
+                            <span className="text-[10px] text-ink-light font-mono">
+                              +91 {conv.customer_phone}
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedConv(conv);
+                            setDeleteEntireConversation(true);
+                            setShowClearModal(true);
+                          }}
+                          className="p-1 rounded text-ink-light/50 hover:text-rose hover:bg-rose/10 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Delete thread and purge messages from Supabase"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
@@ -715,6 +879,19 @@ export default function AdminMessages() {
                         <span>Resolve</span>
                       </button>
                     )}
+
+                    {/* Clear Chat / Free Supabase Storage */}
+                    <button
+                      onClick={() => {
+                        setDeleteEntireConversation(false);
+                        setShowClearModal(true);
+                      }}
+                      className="px-2.5 sm:px-3 py-1.5 border border-rose/30 text-rose-700 bg-rose/5 hover:bg-rose/15 rounded-sm text-xs font-medium flex items-center gap-1.5 transition-colors"
+                      title="Clear messages and free Supabase database storage"
+                    >
+                      <Trash2 size={12} className="text-rose" />
+                      <span className="hidden sm:inline">Clear Chat</span>
+                    </button>
                   </div>
                 </div>
 
@@ -943,6 +1120,91 @@ export default function AdminMessages() {
           </div>
         </div>
       </div>
+
+      {/* Purge Chat & Free Supabase Storage Modal */}
+      {showClearModal && selectedConv && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-bark/60 backdrop-blur-xs">
+          <div className="bg-white rounded-lg shadow-elevation border border-canvas-line max-w-md w-full p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-full bg-rose/10 text-rose flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-serif font-semibold text-bark text-base">
+                  {deleteEntireConversation ? 'Delete Conversation & Free Storage' : 'Purge Chat & Reclaim Storage'}
+                </h3>
+                <p className="text-xs text-ink-light leading-relaxed">
+                  {deleteEntireConversation ? (
+                    <>
+                      Permanently delete this entire conversation thread and all messages for{' '}
+                      <strong className="text-bark">{selectedConv.customer_name}</strong>?
+                    </>
+                  ) : (
+                    <>
+                      Clear all messages for{' '}
+                      <strong className="text-bark">{selectedConv.customer_name}</strong> while keeping the conversation thread?
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded text-xs text-amber-900 space-y-1.5">
+              <p className="font-medium flex items-center gap-1.5 text-amber-950">
+                <AlertTriangle size={13} className="text-amber-600 flex-shrink-0" />
+                <span>Supabase Free Tier Quota Reclaim:</span>
+              </p>
+              <p className="text-[11px] text-amber-800 leading-normal">
+                This executes an immediate SQL <code className="bg-amber-100/80 px-1 py-0.5 rounded text-[10px] font-mono">DELETE</code> on Supabase table <code className="bg-amber-100/80 px-1 py-0.5 rounded text-[10px] font-mono">assistance_messages</code>, permanently freeing database storage quota.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-canvas-line">
+              <label className="flex items-center gap-2.5 cursor-pointer text-xs text-bark select-none">
+                <input
+                  type="checkbox"
+                  checked={deleteEntireConversation}
+                  onChange={(e) => setDeleteEntireConversation(e.target.checked)}
+                  className="w-4 h-4 rounded text-rose border-canvas-line focus:ring-rose"
+                />
+                <span className="font-medium">Also delete the entire conversation thread from inbox</span>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isClearingChat}
+                onClick={() => {
+                  setShowClearModal(false);
+                  setDeleteEntireConversation(false);
+                }}
+                className="px-3.5 py-1.5 text-xs text-ink-light hover:text-ink border border-canvas-line rounded-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isClearingChat}
+                onClick={handleClearChat}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-rose hover:bg-rose-dark rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {isClearingChat ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Freeing Storage...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} />
+                    <span>{deleteEntireConversation ? 'Delete Thread & Data' : 'Clear All Messages'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

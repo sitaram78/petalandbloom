@@ -5,6 +5,11 @@ export interface CacheItem<T> {
 
 const DEFAULT_TTL = 60 * 60 * 1000; // 1 hour
 
+export const PRODUCTS_CACHE = 'products_cache';
+export const CATEGORIES_CACHE = 'categories_cache';
+export const SITE_ASSETS_CACHE = 'site_assets_cache';
+export const NAV_LINKS_CACHE = 'nav_links_cache';
+
 export function setCache<T>(key: string, data: T, ttl: number = DEFAULT_TTL): void {
   const item: CacheItem<T> = {
     data,

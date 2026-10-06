@@ -434,7 +434,8 @@ export default function AdminOccasions() {
       const result = await bulkLinkProductsToOccasion(
         linkingOccasion.slug,
         toLink,
-        toUnlink
+        toUnlink,
+        linkingOccasion.name
       );
 
       logAudit({

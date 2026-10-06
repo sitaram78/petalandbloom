@@ -22,14 +22,25 @@ function apiDevMiddleware(): Plugin {
           const routePath = pathname.replace(/^\/api\//, '');
           let modulePath = `./api/${routePath}.ts`;
           if (!fs.existsSync(modulePath)) {
-            const indexPath = `./api/${routePath}/index.ts`;
-            if (fs.existsSync(indexPath)) {
-              modulePath = indexPath;
+            const domain = routePath.split('/')[0];
+            const candidates = [
+              `./server/api/${routePath}.ts`,
+              `./server/api/${domain}.ts`,
+              `./server/handlers/${routePath}.ts`,
+              `./api/${routePath}.js`,
+              `./api/${domain}.js`,
+              `./api/${routePath}/index.ts`,
+            ];
+            for (const cand of candidates) {
+              if (fs.existsSync(cand)) {
+                modulePath = cand;
+                break;
+              }
             }
           }
 
           let body: any = {};
-          if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+          if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH' || req.method === 'DELETE') {
             const buffers: Buffer[] = [];
             for await (const chunk of req) {
               buffers.push(chunk);

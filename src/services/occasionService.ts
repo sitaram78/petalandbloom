@@ -62,25 +62,95 @@ export function generateSlug(name: string): string {
 }
 
 /**
+ * Canonical alphanumeric normalization (strips all non-alphanumeric chars).
+ * e.g. "Valentine's Day" -> "valentinesday"
+ *      "valentines-day"  -> "valentinesday"
+ *      "Diwali & Festive"-> "diwalifestive"
+ *      "Mother's Day"    -> "mothersday"
+ */
+export function normalizeOccasionString(str: string): string {
+  if (!str) return '';
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Common occasion aliases mapping to handle historical or conversational variants.
+ */
+const OCCASION_ALIASES: Record<string, string[]> = {
+  valentines: ['valentines', 'valentinesday', 'valentine'],
+  valentinesday: ['valentines', 'valentinesday', 'valentine'],
+  mothersday: ['mothersday', 'mothers', 'mom'],
+  rakhi: ['rakhi', 'rakshabandhan'],
+  rakshabandhan: ['rakhi', 'rakshabandhan'],
+  wedding: ['wedding', 'weddings', 'weddingsceremonies'],
+  weddingsceremonies: ['wedding', 'weddings', 'weddingsceremonies'],
+  diwali: ['diwali', 'diwalifestive', 'deepavali'],
+  diwalifestive: ['diwali', 'diwalifestive', 'deepavali'],
+  friendship: ['friendship', 'friendshipday'],
+  friendshipday: ['friendship', 'friendshipday'],
+};
+
+/**
+ * Checks if a specific occasion tag matches a target occasion (by slug and/or name).
+ */
+export function isOccasionMatch(
+  tag: string,
+  targetSlug: string,
+  targetName?: string
+): boolean {
+  if (!tag) return false;
+  const cleanTag = tag.toLowerCase().trim();
+  const cleanSlug = (targetSlug || '').toLowerCase().trim();
+  const cleanName = (targetName || '').toLowerCase().trim();
+
+  // 1. Exact lowercase match
+  if (cleanTag === cleanSlug || (cleanName && cleanTag === cleanName)) {
+    return true;
+  }
+
+  // 2. Canonical alphanumeric match (handles hyphens, apostrophes, ampersands, spaces)
+  const normTag = normalizeOccasionString(cleanTag);
+  const normSlug = normalizeOccasionString(cleanSlug);
+  const normName = normalizeOccasionString(cleanName);
+
+  if (!normTag) return false;
+  if (normSlug && normTag === normSlug) return true;
+  if (normName && normTag === normName) return true;
+
+  // 3. Known alias dictionary match
+  const aliasesForSlug = (normSlug && OCCASION_ALIASES[normSlug]) || [];
+  const aliasesForName = (normName && OCCASION_ALIASES[normName]) || [];
+  if (aliasesForSlug.includes(normTag) || aliasesForName.includes(normTag)) {
+    return true;
+  }
+
+  // 4. Prefix stem matching for tokens of length >= 4
+  if (normSlug.length >= 4 && (normSlug.startsWith(normTag) || normTag.startsWith(normSlug))) {
+    return true;
+  }
+  if (normName.length >= 4 && (normName.startsWith(normTag) || normTag.startsWith(normName))) {
+    return true;
+  }
+
+  // 5. Substring tokens (e.g. "valentine" in "valentines-day")
+  if (cleanTag.length >= 4 && (cleanSlug.includes(cleanTag) || (cleanName && cleanName.includes(cleanTag)))) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Checks if a product's occasions array matches a target occasion (by slug or name).
  */
-export function productMatchesOccasion(productOccasions: string[] | undefined, target: Occasion): boolean {
+export function productMatchesOccasion(
+  productOccasions: string[] | undefined,
+  target: Occasion | { slug: string; name?: string }
+): boolean {
   if (!productOccasions || productOccasions.length === 0) return false;
-  const targetSlug = target.slug.toLowerCase().trim();
-  const targetName = target.name.toLowerCase().trim();
-
-  return productOccasions.some((occ) => {
-    if (!occ) return false;
-    const cleanOcc = occ.toLowerCase().trim();
-    return (
-      cleanOcc === targetSlug ||
-      cleanOcc === targetName ||
-      cleanOcc.includes(targetSlug) ||
-      targetSlug.includes(cleanOcc) ||
-      cleanOcc.includes(targetName) ||
-      targetName.includes(cleanOcc)
-    );
-  });
+  return productOccasions.some((occ) =>
+    isOccasionMatch(occ, target.slug, target.name)
+  );
 }
 
 /**
@@ -170,8 +240,8 @@ export async function createOccasion(input: {
   name: string;
   slug?: string;
   emoji?: string;
-  description?: string;
-  banner_image_url?: string;
+  description?: string | null;
+  banner_image_url?: string | null;
   is_active?: boolean;
   display_order?: number;
 }): Promise<Occasion> {
@@ -286,7 +356,8 @@ export async function fetchProductsForOccasionLinking(): Promise<CatalogProductF
 export async function bulkLinkProductsToOccasion(
   targetOccasionSlug: string,
   productCodesToLink: string[],
-  productCodesToUnlink: string[] = []
+  productCodesToUnlink: string[] = [],
+  targetOccasionName?: string
 ): Promise<{ linkedCount: number; unlinkedCount: number }> {
   let linkedCount = 0;
   let unlinkedCount = 0;
@@ -304,8 +375,8 @@ export async function bulkLinkProductsToOccasion(
 
     for (const prod of prodsToLink || []) {
       const currentOccs: string[] = prod.occasions || [];
-      const alreadyHas = currentOccs.some(
-        (o) => o.toLowerCase().trim() === targetSlug
+      const alreadyHas = currentOccs.some((o) =>
+        isOccasionMatch(o, targetSlug, targetOccasionName)
       );
 
       if (!alreadyHas) {
@@ -331,20 +402,34 @@ export async function bulkLinkProductsToOccasion(
 
     for (const prod of prodsToUnlink || []) {
       const currentOccs: string[] = prod.occasions || [];
-      const hasOcc = currentOccs.some(
-        (o) => o.toLowerCase().trim() === targetSlug
+      // Strip any tag matching target occasion (e.g. "Valentine's Day", "valentines", "valentines-day")
+      const nextOccs = currentOccs.filter(
+        (o) => !isOccasionMatch(o, targetSlug, targetOccasionName)
       );
 
-      if (hasOcc) {
-        const nextOccs = currentOccs.filter(
-          (o) => o.toLowerCase().trim() !== targetSlug
-        );
+      if (nextOccs.length !== currentOccs.length) {
         const { error: updErr } = await supabase
           .from('products')
           .update({ occasions: nextOccs })
           .eq('code', prod.code);
 
         if (!updErr) unlinkedCount++;
+      } else {
+        // Fallback: in case exact case mismatch or extra whitespace was stored
+        const cleanName = (targetOccasionName || '').toLowerCase().trim();
+        const fallbackNext = currentOccs.filter((o) => {
+          const c = o.toLowerCase().trim();
+          return c !== targetSlug && c !== cleanName;
+        });
+
+        if (fallbackNext.length !== currentOccs.length) {
+          const { error: updErr } = await supabase
+            .from('products')
+            .update({ occasions: fallbackNext })
+            .eq('code', prod.code);
+
+          if (!updErr) unlinkedCount++;
+        }
       }
     }
   }

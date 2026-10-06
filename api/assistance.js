@@ -158,6 +158,31 @@ async function handler(req, res) {
     }
     return res.status(200).json({ success: true, conversation: newConv });
   }
+  if (req.method === "DELETE") {
+    const parsedUrl = new URL(req.url, "http://localhost:5173");
+    const convId = parsedUrl.searchParams.get("id") || parsedUrl.searchParams.get("conversation_id") || req.body && (typeof req.body === "string" ? JSON.parse(req.body).id : req.body.id);
+    if (!convId) {
+      return res.status(400).json({ error: "Conversation id is required" });
+    }
+    try {
+      const { error: msgErr } = await supabaseAdmin.from("assistance_messages").delete().eq("conversation_id", convId);
+      if (msgErr) {
+        console.warn("[assistance_messages DB cascade delete warning]:", msgErr.message);
+      }
+      const { error: convErr } = await supabaseAdmin.from("assistance_conversations").delete().eq("id", convId);
+      if (convErr) {
+        console.warn("[assistance_conversations DB delete warning]:", convErr.message);
+      }
+      conversationsCache = conversationsCache.filter((c) => c.id !== convId);
+      return res.status(200).json({
+        success: true,
+        message: "Conversation and all associated messages permanently deleted. Storage freed."
+      });
+    } catch (err) {
+      console.warn("[assistance_conversations DB delete exception]:", err?.message || err);
+      return res.status(500).json({ error: err?.message || "Failed to delete conversation" });
+    }
+  }
   return res.status(405).json({ error: "Method not allowed" });
 }
 
@@ -351,6 +376,32 @@ async function handler2(req, res) {
       console.warn("[assistance_messages DB exception]:", err?.message || err);
     }
     return res.status(200).json({ success: true, message: newMsg });
+  }
+  if (req.method === "DELETE") {
+    const rawConvId = conversationId || req.body && (typeof req.body === "string" ? JSON.parse(req.body).conversation_id : req.body.conversation_id);
+    if (!rawConvId) {
+      return res.status(400).json({ error: "conversation_id is required" });
+    }
+    try {
+      const { error: delErr } = await supabaseAdmin.from("assistance_messages").delete().eq("conversation_id", rawConvId);
+      if (delErr) {
+        console.warn("[assistance_messages DB delete error]:", delErr.message);
+      }
+      delete messagesCache[rawConvId];
+      await supabaseAdmin.from("assistance_conversations").update({ last_message_preview: null }).eq("id", rawConvId);
+      const convList = getConversationsCache();
+      const conv = convList.find((c) => c.id === rawConvId);
+      if (conv) {
+        conv.last_message_preview = null;
+      }
+      return res.status(200).json({
+        success: true,
+        message: "All messages deleted from Supabase. Storage successfully freed."
+      });
+    } catch (err) {
+      console.warn("[assistance_messages DB delete exception]:", err?.message || err);
+      return res.status(500).json({ error: err?.message || "Failed to delete messages" });
+    }
   }
   return res.status(405).json({ error: "Method not allowed" });
 }

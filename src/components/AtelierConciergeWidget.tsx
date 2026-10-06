@@ -175,6 +175,13 @@ export default function AtelierConciergeWidget() {
       }
     });
 
+    // Realtime chat cleared listener (instantly clears messages when admin purges chat)
+    msgChannel.on('broadcast', { event: 'CHAT_CLEARED' }, () => {
+      if (!isMounted) return;
+      setMessages([]);
+      setIsArtisanTyping(false);
+    });
+
     // Engine 2: PostgreSQL WAL Changes (Fail-safe persistence sync)
     msgChannel.on(
       'postgres_changes',
@@ -195,6 +202,20 @@ export default function AtelierConciergeWidget() {
       }
     );
 
+    msgChannel.on(
+      'postgres_changes',
+      {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'assistance_messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      () => {
+        if (!isMounted) return;
+        setMessages([]);
+      }
+    );
+
     msgChannel.subscribe();
     channelRef.current = msgChannel;
 
@@ -211,7 +232,11 @@ export default function AtelierConciergeWidget() {
       try {
         bc = new BroadcastChannel('tpb_assistance_channel');
         bc.onmessage = (event) => {
-          if (event.data?.type === 'NEW_MESSAGE' && event.data.message?.conversation_id === conversationId) {
+          if (event.data?.type === 'CHAT_CLEARED' && event.data.conversation_id === conversationId) {
+            if (isMounted) {
+              setMessages([]);
+            }
+          } else if (event.data?.type === 'NEW_MESSAGE' && event.data.message?.conversation_id === conversationId) {
             const newMsg = event.data.message as ChatMessage;
             if (isMounted) {
               setMessages((prev) => {
@@ -674,7 +699,7 @@ export default function AtelierConciergeWidget() {
                 </button>
               </form>
               <div className="mt-1.5 flex items-center justify-between px-2 text-[10px] text-ink-light/60">
-                <span>Handcrafted with love in Jaipur</span>
+                <span>Handcrafted with love in Odisha</span>
                 <span className="font-mono text-[9px]">End-to-End Concierge</span>
               </div>
             </div>

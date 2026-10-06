@@ -26,7 +26,7 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import { useNotification } from '@/context/NotificationContext';
 import AdminLayout from '@/components/AdminLayout';
-import { removeCache } from '@/utils/cache';
+import { removeCache, CATEGORIES_CACHE } from '@/utils/cache';
 import {
   useStoreSettings,
   ConciergeChannelMode,
