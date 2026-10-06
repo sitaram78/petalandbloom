@@ -57,6 +57,195 @@ var supabaseAdmin = new Proxy({}, {
   }
 });
 
+// server/lib/authMiddleware.ts
+var ROLE_DEFAULT_PERMISSIONS = {
+  super_admin: ["*"],
+  admin: [
+    "orders.read",
+    "orders.update_status",
+    "orders.assign_carrier",
+    "orders.cancel",
+    "customers.read",
+    "customers.adjust_points",
+    "messages.manage",
+    "reviews.moderate",
+    "products.read",
+    "products.write",
+    "products.delete",
+    "inventory.adjust",
+    "coupons.manage",
+    "influencers.manage",
+    "analytics.read",
+    "assets.manage",
+    "navigation.manage",
+    "settings.manage",
+    "audit.read",
+    "staff.manage"
+  ],
+  operations: [
+    "orders.read",
+    "orders.update_status",
+    "orders.assign_carrier",
+    "orders.cancel",
+    "products.read",
+    "products.write",
+    "inventory.adjust",
+    "assets.manage",
+    "navigation.manage"
+  ],
+  support: [
+    "orders.read",
+    "customers.read",
+    "customers.adjust_points",
+    "products.read",
+    "messages.manage",
+    "reviews.moderate"
+  ],
+  marketing: [
+    "analytics.read",
+    "coupons.manage",
+    "influencers.manage",
+    "assets.manage",
+    "products.read"
+  ],
+  customer: []
+};
+async function verifyAuth(req) {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  if (!authHeader || typeof authHeader !== "string") {
+    return {
+      user: null,
+      error: "Authentication required. Missing Authorization header.",
+      status: 401
+    };
+  }
+  const parts = authHeader.trim().split(" ");
+  if (parts.length !== 2 || parts[0].toLowerCase() !== "bearer") {
+    return {
+      user: null,
+      error: 'Invalid Authorization header format. Expected "Bearer <token>".',
+      status: 401
+    };
+  }
+  const token = parts[1];
+  if (!token) {
+    return {
+      user: null,
+      error: "Empty authentication token provided.",
+      status: 401
+    };
+  }
+  try {
+    let authUser = null;
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || "Invalid, expired, or untrusted session token.",
+        status: 401
+      };
+    }
+    authUser = data.user;
+    let profile = null;
+    try {
+      const { data: profData } = await supabaseAdmin.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+      profile = profData;
+    } catch (profErr) {
+      console.warn("[Auth Middleware] Profile lookup warning:", profErr);
+    }
+    const email = (authUser.email || profile?.email || "").toLowerCase().trim();
+    const isFounder = ["admin@thepetalandbloom.in", "sitaramnayak8763@gmail.com"].includes(email);
+    const metaRole = authUser.app_metadata?.role;
+    const dbRole = profile?.role;
+    let role = "customer";
+    if (isFounder) {
+      role = "super_admin";
+    } else if (dbRole && dbRole !== "admin") {
+      role = dbRole;
+    } else if (metaRole) {
+      role = metaRole;
+    } else if (dbRole) {
+      role = dbRole;
+    } else if (authUser.user_metadata?.role) {
+      role = authUser.user_metadata.role;
+    }
+    const customPermissions = [
+      ...Array.isArray(profile?.permissions) ? profile.permissions : [],
+      ...Array.isArray(authUser.app_metadata?.permissions) ? authUser.app_metadata.permissions : [],
+      ...Array.isArray(authUser.user_metadata?.permissions) ? authUser.user_metadata.permissions : []
+    ];
+    return {
+      user: {
+        id: authUser.id,
+        email: email || authUser.email || profile?.email || "",
+        role,
+        permissions: Array.from(new Set(customPermissions)),
+        full_name: profile?.full_name || authUser.user_metadata?.full_name,
+        phone: profile?.phone || authUser.user_metadata?.phone
+      },
+      status: 200
+    };
+  } catch (err) {
+    console.error("[Auth Middleware Verification Exception]:", err);
+    return {
+      user: null,
+      error: "Authentication verification service error.",
+      status: 500
+    };
+  }
+}
+async function requireAuth(req, res, options) {
+  const result = await verifyAuth(req);
+  if (!result.user) {
+    const errorMsg = result.error || "Authentication required.";
+    res.status(result.status).json({
+      success: false,
+      message: errorMsg,
+      error: errorMsg
+    });
+    return null;
+  }
+  const { user } = result;
+  if (user.role === "super_admin") {
+    return user;
+  }
+  if (options?.requireSuperAdmin) {
+    const errorMsg = "Forbidden: This action requires Super Admin privileges.";
+    res.status(403).json({
+      success: false,
+      message: errorMsg,
+      error: errorMsg
+    });
+    return null;
+  }
+  if (options?.requiredPermission) {
+    const hasCustomPerms = Array.isArray(user.permissions) && user.permissions.length > 0;
+    const effectivePermissions = hasCustomPerms ? user.permissions : ROLE_DEFAULT_PERMISSIONS[user.role] || [];
+    const hasPerm = effectivePermissions.includes("*") || effectivePermissions.includes(options.requiredPermission);
+    if (!hasPerm) {
+      const errorMsg = `Forbidden: Missing required capability permission "${options.requiredPermission}".`;
+      res.status(403).json({
+        success: false,
+        message: errorMsg,
+        error: errorMsg
+      });
+      return null;
+    }
+  }
+  if (options?.allowedRoles && options.allowedRoles.length > 0) {
+    if (!options.allowedRoles.includes(user.role)) {
+      const errorMsg = `Forbidden: User role "${user.role}" does not have permission to perform this action.`;
+      res.status(403).json({
+        success: false,
+        message: errorMsg,
+        error: errorMsg
+      });
+      return null;
+    }
+  }
+  return user;
+}
+
 // server/handlers/assistance/conversations.ts
 function isValidUUID(val) {
   if (!val || typeof val !== "string") return false;
@@ -118,6 +307,11 @@ function getConversationsCache() {
 async function handler(req, res) {
   res.setHeader("Content-Type", "application/json");
   if (req.method === "GET") {
+    const authUser = await requireAuth(req, res, {
+      requiredPermission: "messages.manage",
+      allowedRoles: ["super_admin", "admin", "support"]
+    });
+    if (!authUser) return;
     try {
       const { data, error } = await supabaseAdmin.from("assistance_conversations").select("*").order("last_message_at", { ascending: false });
       if (!error && data && data.length > 0) {
@@ -159,6 +353,11 @@ async function handler(req, res) {
     return res.status(200).json({ success: true, conversation: newConv });
   }
   if (req.method === "DELETE") {
+    const authUser = await requireAuth(req, res, {
+      requiredPermission: "messages.manage",
+      allowedRoles: ["super_admin", "admin", "support"]
+    });
+    if (!authUser) return;
     const parsedUrl = new URL(req.url, "http://localhost:5173");
     const convId = parsedUrl.searchParams.get("id") || parsedUrl.searchParams.get("conversation_id") || req.body && (typeof req.body === "string" ? JSON.parse(req.body).id : req.body.id);
     if (!convId) {
@@ -319,11 +518,25 @@ async function handler2(req, res) {
     const targetConvId = isValidUUID2(rawConvId) ? rawConvId : crypto2.randomUUID();
     const cleanText = String(payload.message_text).trim().slice(0, 2e3);
     const msgId = isValidUUID2(payload.id) ? payload.id : crypto2.randomUUID();
+    let senderType = "CUSTOMER";
+    let senderName = payload.sender_name || "Visitor";
+    if (payload.sender_type === "ADMIN") {
+      const authUser = await requireAuth(req, res, {
+        requiredPermission: "messages.manage",
+        allowedRoles: ["super_admin", "admin", "support"]
+      });
+      if (!authUser) return;
+      senderType = "ADMIN";
+      senderName = authUser.full_name || authUser.email || "Studio Artisan";
+    } else if (payload.sender_type === "BOT") {
+      senderType = "BOT";
+      senderName = "Atelier Concierge";
+    }
     const newMsg = {
       id: msgId,
       conversation_id: targetConvId,
-      sender_type: payload.sender_type || "CUSTOMER",
-      sender_name: payload.sender_name || "Visitor",
+      sender_type: senderType,
+      sender_name: senderName,
       message_text: cleanText,
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -378,6 +591,11 @@ async function handler2(req, res) {
     return res.status(200).json({ success: true, message: newMsg });
   }
   if (req.method === "DELETE") {
+    const authUser = await requireAuth(req, res, {
+      requiredPermission: "messages.manage",
+      allowedRoles: ["super_admin", "admin", "support"]
+    });
+    if (!authUser) return;
     const rawConvId = conversationId || req.body && (typeof req.body === "string" ? JSON.parse(req.body).conversation_id : req.body.conversation_id);
     if (!rawConvId) {
       return res.status(400).json({ error: "conversation_id is required" });

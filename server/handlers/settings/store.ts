@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../lib/supabaseServer';
-import { requireAuth } from '../../lib/authMiddleware';
+import { requireAuth, verifyAuth } from '../../lib/authMiddleware';
 
 export interface StoreFeatureFlags {
   enableLoyalty: boolean;
@@ -148,7 +148,31 @@ export default async function handler(req: any, res: any) {
       // Return serverCache on table missing / DB offline
     }
 
-    return res.status(200).json({ success: true, settings: serverCache });
+    // Check if requester is an authenticated staff member before disclosing logistics secrets
+    let isStaff = false;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user && ['super_admin', 'admin', 'operations'].includes(auth.user.role)) {
+          isStaff = true;
+        }
+      } catch {}
+    }
+
+    if (isStaff) {
+      return res.status(200).json({ success: true, settings: serverCache });
+    }
+
+    // Public sanitized settings returned to storefront
+    const sanitizedSettings = {
+      ...serverCache,
+      shiprocketEmail: '',
+      shiprocketPassword: '',
+      delhiveryApiKey: '',
+    };
+
+    return res.status(200).json({ success: true, settings: sanitizedSettings });
   }
 
   if (req.method === 'POST' || req.method === 'PUT') {

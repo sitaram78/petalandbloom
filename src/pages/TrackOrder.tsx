@@ -7,6 +7,7 @@ import LiveCourierJourney from '@/components/LiveCourierJourney';
 import AtelierButton from '@/components/AtelierButton';
 import SEO from '@/components/SEO';
 import { formatPrice } from '@/data/products';
+import { authFetch } from '@/lib/apiClient';
 
 export default function TrackOrder() {
   const [searchParams] = useSearchParams();
@@ -40,7 +41,7 @@ export default function TrackOrder() {
       setError(null);
 
       try {
-        const res = await fetch('/api/orders/track', {
+        const res = await authFetch('/api/orders/track', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

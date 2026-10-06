@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+import { requireAuth } from '../../lib/authMiddleware';
 
 function isValidUUID(val?: string | null): boolean {
   if (!val || typeof val !== 'string') return false;
@@ -83,6 +84,13 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'GET') {
+    // Only authenticated staff with messages.manage capability can view all customer conversations
+    const authUser = await requireAuth(req, res, {
+      requiredPermission: 'messages.manage',
+      allowedRoles: ['super_admin', 'admin', 'support'],
+    });
+    if (!authUser) return;
+
     try {
       const { data, error } = await supabaseAdmin
         .from('assistance_conversations')
@@ -136,6 +144,13 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === 'DELETE') {
+    // Only authenticated staff with messages.manage capability can delete conversations
+    const authUser = await requireAuth(req, res, {
+      requiredPermission: 'messages.manage',
+      allowedRoles: ['super_admin', 'admin', 'support'],
+    });
+    if (!authUser) return;
+
     const parsedUrl = new URL(req.url, 'http://localhost:5173');
     const convId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('conversation_id') ||
       (req.body && (typeof req.body === 'string' ? JSON.parse(req.body).id : req.body.id));

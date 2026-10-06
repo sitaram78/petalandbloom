@@ -135,34 +135,14 @@ async function verifyAuth(req) {
   try {
     let authUser = null;
     const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (!error && data?.user) {
-      authUser = data.user;
-    } else {
-      try {
-        const payloadBase64 = token.split(".")[1];
-        if (payloadBase64) {
-          const payloadJson = Buffer.from(payloadBase64, "base64url").toString("utf8");
-          const payload = JSON.parse(payloadJson);
-          const nowSeconds = Math.floor(Date.now() / 1e3);
-          if (payload.exp && payload.exp > nowSeconds && payload.sub) {
-            authUser = {
-              id: payload.sub,
-              email: payload.email || "",
-              user_metadata: payload.user_metadata || {}
-            };
-          }
-        }
-      } catch (jwtErr) {
-        console.warn("[Auth Middleware] JWT decode fallback failed:", jwtErr);
-      }
-      if (!authUser) {
-        return {
-          user: null,
-          error: error?.message || "Invalid or expired session token.",
-          status: 401
-        };
-      }
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || "Invalid, expired, or untrusted session token.",
+        status: 401
+      };
     }
+    authUser = data.user;
     let profile = null;
     try {
       const { data: profData } = await supabaseAdmin.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
@@ -361,7 +341,7 @@ async function handler(req, res) {
     if (!userData?.user) {
       return res.status(500).json({ success: false, message: "Failed to create user account." });
     }
-    const userId = userData.user.id;
+    const userId2 = userData.user.id;
     const generatedReferralCode = `BLOOM-${cleanPhone.slice(-4)}-${Math.floor(100 + Math.random() * 900)}`;
     let validReferredBy = null;
     let referrerId = null;
@@ -375,7 +355,7 @@ async function handler(req, res) {
       }
     }
     await supabaseAdmin.from("profiles").upsert({
-      id: userId,
+      id: userId2,
       email: cleanEmail,
       full_name: fullName.trim(),
       phone: cleanPhone,
@@ -388,37 +368,37 @@ async function handler(req, res) {
       try {
         await supabaseAdmin.from("referrals").insert({
           referrer_id: referrerId,
-          referee_id: userId,
+          referee_id: userId2,
           status: "PENDING"
         });
       } catch (refErr) {
         console.warn("[Referral Insert Warning]:", refErr);
       }
     }
-    const { data: existingLoyalty } = await supabaseAdmin.from("loyalty_accounts").select("id, points_balance").eq("customer_id", userId).maybeSingle();
+    const { data: existingLoyalty } = await supabaseAdmin.from("loyalty_accounts").select("id, points_balance").eq("customer_id", userId2).maybeSingle();
     if (!existingLoyalty) {
       await supabaseAdmin.from("loyalty_accounts").insert({
-        customer_id: userId,
+        customer_id: userId2,
         points_balance: 40,
         lifetime_points_earned: 40,
         tier: "FLORET"
       });
       await supabaseAdmin.from("loyalty_transactions").insert({
-        customer_id: userId,
+        customer_id: userId2,
         type: "WELCOME_BONUS",
         points: 40,
         description: "Welcome to The Petal & Bloom: 40 Petal Points gift (\u20B920 value, redeemable on orders > \u20B9299)"
       });
     }
     try {
-      await supabaseAdmin.from("orders").update({ customer_id: userId }).eq("customer_id", null).or(`guest_email.ilike.${cleanEmail},guest_phone.ilike.%${cleanPhone}%`);
+      await supabaseAdmin.from("orders").update({ customer_id: userId2 }).eq("customer_id", null).or(`guest_email.ilike.${cleanEmail},guest_phone.ilike.%${cleanPhone}%`);
     } catch {
     }
     return res.status(200).json({
       success: true,
       message: "Account created successfully. 40 Petal Points (\u20B920 value) have been credited to your atelier account!",
       user: {
-        id: userId,
+        id: userId2,
         email: cleanEmail
       }
     });
@@ -561,19 +541,29 @@ async function handler3(req, res) {
   const authUser = await requireAuth(req, res);
   if (!authUser) return;
   try {
-    const { email, phone } = req.body || {};
-    const userId = authUser.id;
-    let linkedCount = 0;
-    const lookupEmail = email?.trim().toLowerCase() || authUser.email;
-    const lookupPhone = phone?.trim().replace(/\D/g, "").slice(-10) || (authUser.phone ? authUser.phone.replace(/\D/g, "").slice(-10) : null);
-    if (lookupEmail) {
-      const { data, error } = await supabaseAdmin.from("orders").update({ customer_id: userId }).eq("customer_id", null).ilike("guest_email", lookupEmail).select("id");
+    let verifiedEmail = authUser.email ? authUser.email.trim().toLowerCase() : "";
+    let verifiedPhone = authUser.phone ? authUser.phone.replace(/\D/g, "").slice(-10) : "";
+    if (!verifiedPhone || !verifiedEmail) {
+      const { data: profile } = await supabaseAdmin.from("profiles").select("email, phone").eq("id", userId).maybeSingle();
+      if (profile) {
+        if (!verifiedEmail && profile.email) verifiedEmail = profile.email.trim().toLowerCase();
+        if (!verifiedPhone && profile.phone) verifiedPhone = profile.phone.replace(/\D/g, "").slice(-10);
+      }
+    }
+    if (!verifiedEmail && !verifiedPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "No verified phone number or email found on your account to associate past orders."
+      });
+    }
+    if (verifiedEmail) {
+      const { data, error } = await supabaseAdmin.from("orders").update({ customer_id: userId }).is("customer_id", null).ilike("guest_email", verifiedEmail).select("id");
       if (!error && data) {
         linkedCount += data.length;
       }
     }
-    if (lookupPhone) {
-      const { data, error } = await supabaseAdmin.from("orders").update({ customer_id: userId }).eq("customer_id", null).ilike("guest_phone", `%${lookupPhone}%`).select("id");
+    if (verifiedPhone && verifiedPhone.length === 10) {
+      const { data, error } = await supabaseAdmin.from("orders").update({ customer_id: userId }).is("customer_id", null).ilike("guest_phone", `%${verifiedPhone}%`).select("id");
       if (!error && data) {
         linkedCount += data.length;
       }

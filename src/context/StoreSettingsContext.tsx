@@ -244,7 +244,7 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
       }
 
       try {
-        const res = await fetch('/api/settings/store');
+        const res = await authFetch('/api/settings/store');
         if (res.ok) {
           const contentType = res.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {

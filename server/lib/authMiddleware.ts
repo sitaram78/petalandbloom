@@ -109,36 +109,15 @@ export async function verifyAuth(req: VercelRequest): Promise<AuthResult> {
     let authUser: any = null;
     const { data, error } = await supabaseAdmin.auth.getUser(token);
 
-    if (!error && data?.user) {
-      authUser = data.user;
-    } else {
-      // If error occurred (e.g. network timeout or sandbox fetch failed), verify payload signature/expiry
-      try {
-        const payloadBase64 = token.split('.')[1];
-        if (payloadBase64) {
-          const payloadJson = Buffer.from(payloadBase64, 'base64url').toString('utf8');
-          const payload = JSON.parse(payloadJson);
-          const nowSeconds = Math.floor(Date.now() / 1000);
-          if (payload.exp && payload.exp > nowSeconds && payload.sub) {
-            authUser = {
-              id: payload.sub,
-              email: payload.email || '',
-              user_metadata: payload.user_metadata || {},
-            };
-          }
-        }
-      } catch (jwtErr) {
-        console.warn('[Auth Middleware] JWT decode fallback failed:', jwtErr);
-      }
-
-      if (!authUser) {
-        return {
-          user: null,
-          error: error?.message || 'Invalid or expired session token.',
-          status: 401,
-        };
-      }
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || 'Invalid, expired, or untrusted session token.',
+        status: 401,
+      };
     }
+
+    authUser = data.user;
 
     // Fetch verified profile role and permissions from database
     let profile: any = null;

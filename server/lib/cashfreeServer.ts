@@ -117,8 +117,12 @@ export async function createCashfreePGOrder(params: CreateOrderParams): Promise<
 export function verifyCashfreeSignature(signature: string, timestamp: string, rawBody: string): boolean {
   const config = getCashfreeConfig();
   if (!config.webhookSecret) {
-    // In developer simulation mode without secret key, allow test webhook
-    return true;
+    console.error('[Cashfree Security] Webhook rejected: CASHFREE_WEBHOOK_SECRET is not configured on server.');
+    return false;
+  }
+
+  if (!signature || !timestamp) {
+    return false;
   }
 
   try {
@@ -128,10 +132,14 @@ export function verifyCashfreeSignature(signature: string, timestamp: string, ra
       .update(payload)
       .digest('base64');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(signature, 'utf8'),
-      Buffer.from(expectedSignature, 'utf8')
-    );
+    const sigBuffer = Buffer.from(signature, 'utf8');
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+
+    if (sigBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
   } catch (err) {
     console.error('[Signature Verification Failed]', err);
     return false;

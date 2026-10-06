@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+import { requireAuth } from '../../lib/authMiddleware';
 import { getConversationsCache } from './conversations';
 
 function isValidUUID(val?: string | null): boolean {
@@ -159,11 +160,27 @@ export default async function handler(req: any, res: any) {
     const cleanText = String(payload.message_text).trim().slice(0, 2000);
     const msgId = isValidUUID(payload.id) ? payload.id : crypto.randomUUID();
 
+    let senderType: 'CUSTOMER' | 'ADMIN' | 'BOT' = 'CUSTOMER';
+    let senderName = payload.sender_name || 'Visitor';
+
+    if (payload.sender_type === 'ADMIN') {
+      const authUser = await requireAuth(req, res, {
+        requiredPermission: 'messages.manage',
+        allowedRoles: ['super_admin', 'admin', 'support'],
+      });
+      if (!authUser) return;
+      senderType = 'ADMIN';
+      senderName = authUser.full_name || authUser.email || 'Studio Artisan';
+    } else if (payload.sender_type === 'BOT') {
+      senderType = 'BOT';
+      senderName = 'Atelier Concierge';
+    }
+
     const newMsg: ServerMessage = {
       id: msgId,
       conversation_id: targetConvId,
-      sender_type: payload.sender_type || 'CUSTOMER',
-      sender_name: payload.sender_name || 'Visitor',
+      sender_type: senderType,
+      sender_name: senderName,
       message_text: cleanText,
       created_at: new Date().toISOString(),
     };
@@ -229,6 +246,13 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === 'DELETE') {
+    // Only authenticated staff with messages.manage capability can delete messages
+    const authUser = await requireAuth(req, res, {
+      requiredPermission: 'messages.manage',
+      allowedRoles: ['super_admin', 'admin', 'support'],
+    });
+    if (!authUser) return;
+
     const rawConvId = conversationId || (req.body && (typeof req.body === 'string' ? JSON.parse(req.body).conversation_id : req.body.conversation_id));
     if (!rawConvId) {
       return res.status(400).json({ error: 'conversation_id is required' });

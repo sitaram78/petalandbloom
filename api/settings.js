@@ -135,34 +135,14 @@ async function verifyAuth(req) {
   try {
     let authUser = null;
     const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (!error && data?.user) {
-      authUser = data.user;
-    } else {
-      try {
-        const payloadBase64 = token.split(".")[1];
-        if (payloadBase64) {
-          const payloadJson = Buffer.from(payloadBase64, "base64url").toString("utf8");
-          const payload = JSON.parse(payloadJson);
-          const nowSeconds = Math.floor(Date.now() / 1e3);
-          if (payload.exp && payload.exp > nowSeconds && payload.sub) {
-            authUser = {
-              id: payload.sub,
-              email: payload.email || "",
-              user_metadata: payload.user_metadata || {}
-            };
-          }
-        }
-      } catch (jwtErr) {
-        console.warn("[Auth Middleware] JWT decode fallback failed:", jwtErr);
-      }
-      if (!authUser) {
-        return {
-          user: null,
-          error: error?.message || "Invalid or expired session token.",
-          status: 401
-        };
-      }
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || "Invalid, expired, or untrusted session token.",
+        status: 401
+      };
     }
+    authUser = data.user;
     let profile = null;
     try {
       const { data: profData } = await supabaseAdmin.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
@@ -356,7 +336,27 @@ async function handler(req, res) {
       }
     } catch (err) {
     }
-    return res.status(200).json({ success: true, settings: serverCache });
+    let isStaff = false;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user && ["super_admin", "admin", "operations"].includes(auth.user.role)) {
+          isStaff = true;
+        }
+      } catch {
+      }
+    }
+    if (isStaff) {
+      return res.status(200).json({ success: true, settings: serverCache });
+    }
+    const sanitizedSettings = {
+      ...serverCache,
+      shiprocketEmail: "",
+      shiprocketPassword: "",
+      delhiveryApiKey: ""
+    };
+    return res.status(200).json({ success: true, settings: sanitizedSettings });
   }
   if (req.method === "POST" || req.method === "PUT") {
     const authUser = await requireAuth(req, res, { allowedRoles: ["super_admin", "admin"] });

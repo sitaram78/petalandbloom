@@ -31,6 +31,7 @@ import { useNotification } from '@/context/NotificationContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { formatPrice } from '@/data/products';
 import { generateUUID, isValidUUID } from '@/utils/uuid';
+import { authFetch } from '@/lib/apiClient';
 
 interface Conversation {
   id: string;
@@ -119,7 +120,7 @@ export default function AdminMessages() {
     if (!silent) setLoading(true);
     try {
       try {
-        const res = await fetch('/api/assistance/conversations');
+        const res = await authFetch('/api/assistance/conversations');
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.conversations)) {
@@ -194,7 +195,7 @@ export default function AdminMessages() {
       if (!silent) setLoadingMessages(true);
       try {
         try {
-          const res = await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(selectedConv?.id || '')}`);
+          const res = await authFetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(selectedConv?.id || '')}`);
           if (res.ok) {
             const json = await res.json();
             if (json.success && Array.isArray(json.messages) && isMounted) {
@@ -450,7 +451,7 @@ export default function AdminMessages() {
 
     // ENGINE 2: Persistent Storage via API
     try {
-      await fetch('/api/assistance/messages', {
+      await authFetch('/api/assistance/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -554,7 +555,7 @@ export default function AdminMessages() {
 
         // 3. Purge from server backend cache & API
         try {
-          await fetch(`/api/assistance/conversations?id=${encodeURIComponent(convId)}`, {
+          await authFetch(`/api/assistance/conversations?id=${encodeURIComponent(convId)}`, {
             method: 'DELETE',
           });
         } catch {}
@@ -595,7 +596,7 @@ export default function AdminMessages() {
 
         // 2. Call server backend DELETE endpoint
         try {
-          await fetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(convId)}`, {
+          await authFetch(`/api/assistance/messages?conversation_id=${encodeURIComponent(convId)}`, {
             method: 'DELETE',
           });
         } catch {}

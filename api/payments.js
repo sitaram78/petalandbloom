@@ -68,15 +68,21 @@ function getCashfreeConfig() {
 function verifyCashfreeSignature(signature, timestamp, rawBody) {
   const config = getCashfreeConfig();
   if (!config.webhookSecret) {
-    return true;
+    console.error("[Cashfree Security] Webhook rejected: CASHFREE_WEBHOOK_SECRET is not configured on server.");
+    return false;
+  }
+  if (!signature || !timestamp) {
+    return false;
   }
   try {
     const payload = `${timestamp}${rawBody}`;
     const expectedSignature = crypto.createHmac("sha256", config.webhookSecret).update(payload).digest("base64");
-    return crypto.timingSafeEqual(
-      Buffer.from(signature, "utf8"),
-      Buffer.from(expectedSignature, "utf8")
-    );
+    const sigBuffer = Buffer.from(signature, "utf8");
+    const expectedBuffer = Buffer.from(expectedSignature, "utf8");
+    if (sigBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
   } catch (err) {
     console.error("[Signature Verification Failed]", err);
     return false;
@@ -437,34 +443,14 @@ async function verifyAuth(req) {
   try {
     let authUser = null;
     const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (!error && data?.user) {
-      authUser = data.user;
-    } else {
-      try {
-        const payloadBase64 = token.split(".")[1];
-        if (payloadBase64) {
-          const payloadJson = Buffer.from(payloadBase64, "base64url").toString("utf8");
-          const payload = JSON.parse(payloadJson);
-          const nowSeconds = Math.floor(Date.now() / 1e3);
-          if (payload.exp && payload.exp > nowSeconds && payload.sub) {
-            authUser = {
-              id: payload.sub,
-              email: payload.email || "",
-              user_metadata: payload.user_metadata || {}
-            };
-          }
-        }
-      } catch (jwtErr) {
-        console.warn("[Auth Middleware] JWT decode fallback failed:", jwtErr);
-      }
-      if (!authUser) {
-        return {
-          user: null,
-          error: error?.message || "Invalid or expired session token.",
-          status: 401
-        };
-      }
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || "Invalid, expired, or untrusted session token.",
+        status: 401
+      };
     }
+    authUser = data.user;
     let profile = null;
     try {
       const { data: profData } = await supabaseAdmin.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
@@ -1181,13 +1167,14 @@ async function handler3(req, res) {
     const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
     const eventType = payload.type || payload.event_type || "PAYMENT_SUCCESS_WEBHOOK";
     const data = payload.data || payload;
-    const isSimulated = payload.is_simulated === true || data?.payment?.payment_group === "UPI_SIMULATED" || req.headers["x-simulated-event"] === "true";
-    if (!isSimulated) {
-      const isSignatureValid = verifyCashfreeSignature(signature, timestamp, rawBody);
-      if (!isSignatureValid) {
-        console.warn("[Webhook Warning] Invalid signature rejected.");
-        return res.status(401).json({ message: "Invalid webhook signature." });
-      }
+    if (!signature || !timestamp) {
+      console.warn("[Webhook Warning] Missing signature or timestamp header.");
+      return res.status(401).json({ message: "Missing x-webhook-signature or x-webhook-timestamp header." });
+    }
+    const isSignatureValid = verifyCashfreeSignature(signature, timestamp, rawBody);
+    if (!isSignatureValid) {
+      console.warn("[Webhook Warning] Invalid cryptographic signature rejected.");
+      return res.status(401).json({ message: "Invalid webhook signature." });
     }
     const orderId = data.order?.order_id || data.order_id;
     const payment = data.payment || {};

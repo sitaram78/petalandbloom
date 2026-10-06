@@ -475,34 +475,14 @@ async function verifyAuth(req) {
   try {
     let authUser = null;
     const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (!error && data?.user) {
-      authUser = data.user;
-    } else {
-      try {
-        const payloadBase64 = token.split(".")[1];
-        if (payloadBase64) {
-          const payloadJson = Buffer.from(payloadBase64, "base64url").toString("utf8");
-          const payload = JSON.parse(payloadJson);
-          const nowSeconds = Math.floor(Date.now() / 1e3);
-          if (payload.exp && payload.exp > nowSeconds && payload.sub) {
-            authUser = {
-              id: payload.sub,
-              email: payload.email || "",
-              user_metadata: payload.user_metadata || {}
-            };
-          }
-        }
-      } catch (jwtErr) {
-        console.warn("[Auth Middleware] JWT decode fallback failed:", jwtErr);
-      }
-      if (!authUser) {
-        return {
-          user: null,
-          error: error?.message || "Invalid or expired session token.",
-          status: 401
-        };
-      }
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || "Invalid, expired, or untrusted session token.",
+        status: 401
+      };
     }
+    authUser = data.user;
     let profile = null;
     try {
       const { data: profData } = await supabaseAdmin.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
@@ -1151,11 +1131,40 @@ async function handler(req, res) {
         console.warn("[Track Order Cashfree Sync Warning]:", syncErr);
       }
     }
+    let isFullyAuthorized = false;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user) {
+          const isStaff = ["super_admin", "admin", "operations", "support"].includes(auth.user.role);
+          const isOwner = Boolean(order.customer_id && order.customer_id === auth.user.id);
+          if (isStaff || isOwner) {
+            isFullyAuthorized = true;
+          }
+        }
+      } catch {
+      }
+    }
+    const storedPhone = (order.guest_phone || "").replace(/\D/g, "").slice(-10);
     if (cleanPhone) {
-      const storedPhone = (order.guest_phone || "").replace(/\D/g, "").slice(-10);
-      if (storedPhone !== cleanPhone) {
+      if (storedPhone && storedPhone === cleanPhone) {
+        isFullyAuthorized = true;
+      } else {
         return res.status(403).json({ success: false, message: "The phone number provided does not match this order." });
       }
+    }
+    let sanitizedAddress = order.shipping_address_snapshot;
+    if (!isFullyAuthorized && order.shipping_address_snapshot) {
+      const snap = order.shipping_address_snapshot;
+      const rawName = snap.recipientName || order.guest_name || "";
+      const maskedName = rawName.length > 2 ? `${rawName[0]}*** ${rawName.slice(-1)}` : "***";
+      sanitizedAddress = {
+        recipientName: maskedName,
+        city: snap.city || "",
+        state: snap.state || "",
+        pincode: snap.pincode ? `${snap.pincode.slice(0, 3)}***` : ""
+      };
     }
     const { data: items } = await supabaseAdmin.from("order_items").select("product_code, product_name, unit_price_in_paise, quantity, selected_color, gift_wrap, item_image").eq("order_id", order.id);
     const { data: history } = await supabaseAdmin.from("order_status_history").select("previous_status, new_status, note, created_at").eq("order_id", order.id).order("created_at", { ascending: true });
@@ -1189,7 +1198,8 @@ async function handler(req, res) {
         discountInRupees: order.discount_in_paise / 100,
         shippingFeeInRupees: order.shipping_fee_in_paise / 100,
         totalInRupees: order.total_in_paise / 100,
-        shippingAddress: order.shipping_address_snapshot,
+        shippingAddress: sanitizedAddress,
+        isAddressMasked: !isFullyAuthorized,
         createdAt: order.created_at,
         items: items || [],
         history: history || [],

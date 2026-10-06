@@ -16,20 +16,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!authUser) return;
 
   try {
-    const { email, phone } = req.body || {};
-    const userId = authUser.id; // Strictly bound to authenticated session
+    // Strictly bind to the authenticated caller's verified email and phone
+    let verifiedEmail = authUser.email ? authUser.email.trim().toLowerCase() : '';
+    let verifiedPhone = authUser.phone ? authUser.phone.replace(/\D/g, '').slice(-10) : '';
 
-    let linkedCount = 0;
-    const lookupEmail = email?.trim().toLowerCase() || authUser.email;
-    const lookupPhone = phone?.trim().replace(/\D/g, '').slice(-10) || (authUser.phone ? authUser.phone.replace(/\D/g, '').slice(-10) : null);
+    if (!verifiedPhone || !verifiedEmail) {
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('email, phone')
+        .eq('id', userId)
+        .maybeSingle();
 
-    // Link by email
-    if (lookupEmail) {
+      if (profile) {
+        if (!verifiedEmail && profile.email) verifiedEmail = profile.email.trim().toLowerCase();
+        if (!verifiedPhone && profile.phone) verifiedPhone = profile.phone.replace(/\D/g, '').slice(-10);
+      }
+    }
+
+    if (!verifiedEmail && !verifiedPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'No verified phone number or email found on your account to associate past orders.',
+      });
+    }
+
+    // Link by verified email
+    if (verifiedEmail) {
       const { data, error } = await supabaseAdmin
         .from('orders')
         .update({ customer_id: userId })
-        .eq('customer_id', null)
-        .ilike('guest_email', lookupEmail)
+        .is('customer_id', null)
+        .ilike('guest_email', verifiedEmail)
         .select('id');
 
       if (!error && data) {
@@ -37,13 +54,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Link by phone
-    if (lookupPhone) {
+    // Link by verified phone
+    if (verifiedPhone && verifiedPhone.length === 10) {
       const { data, error } = await supabaseAdmin
         .from('orders')
         .update({ customer_id: userId })
-        .eq('customer_id', null)
-        .ilike('guest_phone', `%${lookupPhone}%`)
+        .is('customer_id', null)
+        .ilike('guest_phone', `%${verifiedPhone}%`)
         .select('id');
 
       if (!error && data) {

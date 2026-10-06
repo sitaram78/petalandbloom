@@ -17,14 +17,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const eventType = payload.type || payload.event_type || 'PAYMENT_SUCCESS_WEBHOOK';
     const data = payload.data || payload;
 
-    // 1. Cryptographic Signature Verification (bypass only for explicitly simulated developer tests)
-    const isSimulated = payload.is_simulated === true || data?.payment?.payment_group === 'UPI_SIMULATED' || req.headers['x-simulated-event'] === 'true';
-    if (!isSimulated) {
-      const isSignatureValid = verifyCashfreeSignature(signature, timestamp, rawBody);
-      if (!isSignatureValid) {
-        console.warn('[Webhook Warning] Invalid signature rejected.');
-        return res.status(401).json({ message: 'Invalid webhook signature.' });
-      }
+    // 1. Cryptographic Signature Verification
+    if (!signature || !timestamp) {
+      console.warn('[Webhook Warning] Missing signature or timestamp header.');
+      return res.status(401).json({ message: 'Missing x-webhook-signature or x-webhook-timestamp header.' });
+    }
+
+    const isSignatureValid = verifyCashfreeSignature(signature, timestamp, rawBody);
+    if (!isSignatureValid) {
+      console.warn('[Webhook Warning] Invalid cryptographic signature rejected.');
+      return res.status(401).json({ message: 'Invalid webhook signature.' });
     }
 
     const orderId = data.order?.order_id || data.order_id;

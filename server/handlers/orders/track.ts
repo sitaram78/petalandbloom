@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../lib/supabaseServer';
 import { fetchCashfreeOrder, fetchCashfreePayments } from '../../lib/cashfreeServer';
 import { confirmOrderPayment } from '../../lib/orderPaymentService';
 import { fetchDelhiveryLiveTracking, type DelhiveryLiveTrackingResult } from '../../lib/delhiveryService';
+import { verifyAuth } from '../../lib/authMiddleware';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -92,12 +93,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Security check: Phone verification for guest or customer lookup
+    // Security check: Phone verification & address masking for privacy protection
+    let isFullyAuthorized = false;
+
+    // Check 1: Bearer token auth (Staff or Order Owner)
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user) {
+          const isStaff = ['super_admin', 'admin', 'operations', 'support'].includes(auth.user.role);
+          const isOwner = Boolean(order.customer_id && order.customer_id === auth.user.id);
+          if (isStaff || isOwner) {
+            isFullyAuthorized = true;
+          }
+        }
+      } catch {}
+    }
+
+    // Check 2: Matching 10-digit mobile number provided in lookup
+    const storedPhone = (order.guest_phone || '').replace(/\D/g, '').slice(-10);
     if (cleanPhone) {
-      const storedPhone = (order.guest_phone || '').replace(/\D/g, '').slice(-10);
-      if (storedPhone !== cleanPhone) {
+      if (storedPhone && storedPhone === cleanPhone) {
+        isFullyAuthorized = true;
+      } else {
         return res.status(403).json({ success: false, message: 'The phone number provided does not match this order.' });
       }
+    }
+
+    // Protect sensitive recipient PII if not fully authorized
+    let sanitizedAddress = order.shipping_address_snapshot;
+    if (!isFullyAuthorized && order.shipping_address_snapshot) {
+      const snap = order.shipping_address_snapshot;
+      const rawName = snap.recipientName || order.guest_name || '';
+      const maskedName = rawName.length > 2 ? `${rawName[0]}*** ${rawName.slice(-1)}` : '***';
+      sanitizedAddress = {
+        recipientName: maskedName,
+        city: snap.city || '',
+        state: snap.state || '',
+        pincode: snap.pincode ? `${snap.pincode.slice(0, 3)}***` : '',
+      };
     }
 
     // Fetch order items
@@ -159,7 +194,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         discountInRupees: order.discount_in_paise / 100,
         shippingFeeInRupees: order.shipping_fee_in_paise / 100,
         totalInRupees: order.total_in_paise / 100,
-        shippingAddress: order.shipping_address_snapshot,
+        shippingAddress: sanitizedAddress,
+        isAddressMasked: !isFullyAuthorized,
         createdAt: order.created_at,
         items: items || [],
         history: history || [],
