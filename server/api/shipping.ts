@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import adjustPointsHandler from '../server/handlers/admin/customers/adjust-points';
+import bookShipmentHandler from '../handlers/shipping/book-shipment';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  return adjustPointsHandler(req, res);
+  return bookShipmentHandler(req, res);
 }

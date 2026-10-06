@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import createOrderHandler from '../server/handlers/checkout/create-order';
-import validateCouponHandler from '../server/handlers/coupons/validate';
+import createOrderHandler from '../handlers/checkout/create-order';
+import validateCouponHandler from '../handlers/coupons/validate';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';

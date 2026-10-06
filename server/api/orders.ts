@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import trackHandler from '../server/handlers/orders/track';
-import cancelHandler from '../server/handlers/orders/cancel';
-import notifyHandler from '../server/handlers/orders/notify';
-import expirePendingHandler from '../server/handlers/orders/expire-pending';
-import createAdminOrderHandler from '../server/handlers/admin/orders/create';
-import updateStatusHandler from '../server/handlers/admin/orders/update-status';
+import trackHandler from '../handlers/orders/track';
+import cancelHandler from '../handlers/orders/cancel';
+import notifyHandler from '../handlers/orders/notify';
+import expirePendingHandler from '../handlers/orders/expire-pending';
+import createAdminOrderHandler from '../handlers/admin/orders/create';
+import updateStatusHandler from '../handlers/admin/orders/update-status';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';

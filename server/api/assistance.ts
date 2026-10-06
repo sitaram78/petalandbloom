@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import conversationsHandler from '../server/handlers/assistance/conversations';
-import messagesHandler from '../server/handlers/assistance/messages';
+import conversationsHandler from '../handlers/assistance/conversations';
+import messagesHandler from '../handlers/assistance/messages';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';

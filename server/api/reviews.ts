@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import listReviewsHandler from '../server/handlers/reviews/list';
-import submitReviewHandler from '../server/handlers/reviews/submit';
-import moderateReviewHandler from '../server/handlers/reviews/moderate';
+import listReviewsHandler from '../handlers/reviews/list';
+import submitReviewHandler from '../handlers/reviews/submit';
+import moderateReviewHandler from '../handlers/reviews/moderate';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = req.url || '';
