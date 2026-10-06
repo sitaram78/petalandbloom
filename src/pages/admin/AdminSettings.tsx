@@ -25,8 +25,15 @@ import {
 import { useNotification } from '@/context/NotificationContext';
 import AdminLayout from '@/components/AdminLayout';
 import { removeCache } from '@/utils/cache';
-import { CATEGORIES_CACHE } from '@/utils/cacheKeys';
-import { useStoreSettings, ConciergeChannelMode } from '@/context/StoreSettingsContext';
+import {
+  useStoreSettings,
+  ConciergeChannelMode,
+  DEFAULT_OCCASION_BANNER,
+  type OccasionBannerSettings,
+  type OccasionTheme,
+  type OccasionPlacement,
+} from '@/context/StoreSettingsContext';
+import OccasionMarquee from '@/components/OccasionMarquee';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 
 interface Category {
@@ -73,6 +80,9 @@ export default function AdminSettings() {
     loyaltyPointRedemptionRupees: (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100,
     minLoyaltyOrderRupees: (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100,
   });
+  const [occasionForm, setOccasionForm] = useState<OccasionBannerSettings>(
+    settings.occasionBanner || DEFAULT_OCCASION_BANNER
+  );
   const [savingCommerce, setSavingCommerce] = useState(false);
 
   // Decision 5: Logistics & Courier Form State
@@ -117,6 +127,7 @@ export default function AdminSettings() {
       loyaltyPointRedemptionRupees: (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100,
       minLoyaltyOrderRupees: (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100,
     });
+    setOccasionForm(settings.occasionBanner || DEFAULT_OCCASION_BANNER);
 
     setLogisticsForm({
       shiprocketEmail: settings.shiprocketEmail || '',
@@ -277,6 +288,7 @@ export default function AdminSettings() {
         loyaltyPointRedemptionPaise: Math.round(Number(rulesForm.loyaltyPointRedemptionRupees || 0) * 100),
         minLoyaltyOrderPaise: Math.round(Number(rulesForm.minLoyaltyOrderRupees || 0) * 100),
       },
+      occasionBanner: occasionForm,
     });
 
     if (result.success) {
@@ -287,10 +299,11 @@ export default function AdminSettings() {
         new_values: {
           featureFlags: flagsForm,
           businessRules: rulesForm,
+          occasionBanner: occasionForm,
         },
-        reason: 'Super Admin updated feature flags and commerce pricing rules',
+        reason: 'Super Admin updated feature flags, commerce pricing rules, and festive occasion banner',
       });
-      showNotification('Commerce rules & feature flags saved successfully!', 'success');
+      showNotification('Commerce rules, flags & occasion label saved successfully!', 'success');
     } else {
       showNotification('Failed to save commerce settings: ' + (result.error || 'Unknown error'), 'error');
     }
@@ -854,7 +867,189 @@ export default function AdminSettings() {
               </div>
             </div>
 
-            {/* Section 2: Pricing & Shipping Rules */}
+            {/* Section 2: Festive Occasions & Seasonal Sale Label */}
+            <div className={`p-6 rounded-sm border shadow-soft space-y-6 transition-all ${
+              occasionForm.enabled
+                ? 'bg-white border-rose/30 ring-1 ring-rose/20'
+                : 'bg-white border-canvas-line'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                    occasionForm.enabled ? 'bg-rose/15 text-rose' : 'bg-canvas text-ink-light'
+                  }`}>
+                    <Sparkles size={18} className={occasionForm.enabled ? 'text-rose' : 'text-ink-light'} />
+                  </div>
+                  <div>
+                    <h3 className="heading-serif text-lg text-bark flex items-center gap-2">
+                      Festive Occasion &amp; Seasonal Sale Label
+                      {occasionForm.enabled && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose/10 text-rose uppercase tracking-wider">
+                          Active on Storefront
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-ink-light mt-0.5">
+                      Display an infinite running marquee label across the homepage and site header during special occasions and seasonal sales.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setOccasionForm(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className="text-bark focus:outline-none self-start sm:self-auto"
+                >
+                  {occasionForm.enabled ? (
+                    <ToggleRight size={34} className="text-rose" />
+                  ) : (
+                    <ToggleLeft size={34} className="text-ink-muted" />
+                  )}
+                </button>
+              </div>
+
+              {/* Form Controls */}
+              <div className="space-y-4 pt-1">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Occasion Title */}
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                      Occasion Edition / Badge *
+                    </label>
+                    <input
+                      type="text"
+                      value={occasionForm.occasionTitle}
+                      onChange={(e) => setOccasionForm(prev => ({ ...prev, occasionTitle: e.target.value }))}
+                      placeholder="e.g. Mother's Day Special"
+                      className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                    />
+                    <span className="text-[10px] text-ink-muted mt-1 block">Highlighted pill badge in the ticker</span>
+                  </div>
+
+                  {/* Coupon Code */}
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                      Highlight Coupon Code (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={occasionForm.couponCode}
+                      onChange={(e) => setOccasionForm(prev => ({ ...prev, couponCode: e.target.value.toUpperCase() }))}
+                      placeholder="e.g. MOM15"
+                      className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs font-mono font-medium text-bark focus:outline-none focus:border-bark"
+                    />
+                    <span className="text-[10px] text-ink-muted mt-1 block">Provides 1-click copy for shoppers</span>
+                  </div>
+
+                  {/* Target URL */}
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                      Shop Destination Link
+                    </label>
+                    <input
+                      type="text"
+                      value={occasionForm.targetUrl}
+                      onChange={(e) => setOccasionForm(prev => ({ ...prev, targetUrl: e.target.value }))}
+                      placeholder="e.g. /shop or /shop?occasion=Mothers+Day"
+                      className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                    />
+                    <span className="text-[10px] text-ink-muted mt-1 block">Link opened when shoppers click Explore</span>
+                  </div>
+                </div>
+
+                {/* Marquee Text */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Running Marquee Ticker Message *
+                  </label>
+                  <input
+                    type="text"
+                    value={occasionForm.marqueeText}
+                    onChange={(e) => setOccasionForm(prev => ({ ...prev, marqueeText: e.target.value }))}
+                    placeholder="e.g. 🌸 Celebrate with Everlasting Blooms · Complimentary Studio Packaging on All Occasion Orders · Handcrafted with Love"
+                    className="w-full px-3.5 py-2.5 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                  />
+                  <span className="text-[10px] text-ink-muted mt-1 block">
+                    Continuously loops across the screen. You may use floral symbols like 🌸, ✦, 🌿.
+                  </span>
+                </div>
+
+                {/* Theme Palette & Placement */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                  {/* Theme Palette */}
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-2">
+                      Occasion Color Theme
+                    </label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {[
+                        { id: 'rose' as OccasionTheme, name: 'Blush Rose', bg: 'bg-[#FBF4F5] text-rose-deep border-rose-300' },
+                        { id: 'gold' as OccasionTheme, name: 'Festive Gold', bg: 'bg-[#FDF8EE] text-[#684812] border-amber-300' },
+                        { id: 'sage' as OccasionTheme, name: 'Sage Garden', bg: 'bg-[#F1F6EE] text-[#3E4F32] border-[#7C8B5C]/50' },
+                        { id: 'wine' as OccasionTheme, name: 'Royal Wine', bg: 'bg-[#2E151C] text-[#F8EAE3] border-[#4E2430]' },
+                        { id: 'linen' as OccasionTheme, name: 'Atelier Linen', bg: 'bg-canvas/40 text-bark border-canvas-line' },
+                      ].map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setOccasionForm(prev => ({ ...prev, theme: t.id }))}
+                          className={`p-2 rounded-sm border text-center transition-all cursor-pointer ${t.bg} ${
+                            occasionForm.theme === t.id
+                              ? 'ring-2 ring-bark shadow-xs font-semibold'
+                              : 'opacity-85 hover:opacity-100'
+                          }`}
+                        >
+                          <div className="text-[11px] leading-tight font-serif">{t.name}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Placement */}
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-2">
+                      Display Placement
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'both' as OccasionPlacement, label: 'Both (Recommended)', desc: 'Home + Header' },
+                        { id: 'home_only' as OccasionPlacement, label: 'Home Page Strip', desc: 'Hero transition only' },
+                        { id: 'site_wide' as OccasionPlacement, label: 'Site-Wide Header', desc: 'Top of all pages' },
+                      ].map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setOccasionForm(prev => ({ ...prev, placement: p.id }))}
+                          className={`p-2 rounded-sm border text-left transition-all cursor-pointer ${
+                            occasionForm.placement === p.id
+                              ? 'border-bark bg-canvas/40 ring-1 ring-bark font-semibold'
+                              : 'border-canvas-line bg-canvas/20 hover:bg-canvas/30 text-ink-light'
+                          }`}
+                        >
+                          <div className="text-xs text-bark font-medium">{p.label}</div>
+                          <div className="text-[10px] text-ink-muted">{p.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Interactive Preview Box */}
+                <div className="pt-2">
+                  <span className="block text-[11px] uppercase tracking-wider text-bark font-medium mb-1.5">
+                    Live Storefront Preview
+                  </span>
+                  <div className="rounded-sm border border-canvas-line overflow-hidden bg-parchment-50 shadow-inner">
+                    <OccasionMarquee
+                      settings={{ ...occasionForm, enabled: true }}
+                      variant="strip"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Pricing & Shipping Rules */}
             <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
               <div>
                 <h3 className="heading-serif text-lg text-bark">Shipping &amp; Packaging Rules</h3>

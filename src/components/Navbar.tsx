@@ -15,6 +15,7 @@ import { useClickOutside } from '@/hooks/useClickOutside';
 import { filterProducts } from '@/utils/productSearch';
 import { useNavigation, NavItem } from '@/context/NavigationContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
+import OccasionMarquee from '@/components/OccasionMarquee';
 
 
 export default function Navbar() {
@@ -108,6 +109,12 @@ export default function Navbar() {
             <span className="text-amber-200">✦</span>
             <span>Atelier Notice: Studio checkout is temporarily paused for scheduled maintenance. You may browse our collection; ordering will resume shortly.</span>
           </div>
+        )}
+
+        {/* Festive Occasion Site-wide Top Announcement Bar */}
+        {settings.occasionBanner?.enabled &&
+          (settings.occasionBanner.placement === 'site_wide' || settings.occasionBanner.placement === 'both') && (
+            <OccasionMarquee settings={settings.occasionBanner} variant="topbar" />
         )}
 
         <nav className="container-lux flex items-center justify-between h-16 lg:h-20">

@@ -21,6 +21,29 @@ export interface StoreBusinessRules {
   minLoyaltyOrderPaise: number;       // e.g. 29900 = ₹299
 }
 
+export type OccasionTheme = 'rose' | 'sage' | 'gold' | 'linen' | 'wine';
+export type OccasionPlacement = 'home_only' | 'site_wide' | 'both';
+
+export interface OccasionBannerSettings {
+  enabled: boolean;
+  occasionTitle: string;
+  marqueeText: string;
+  couponCode: string;
+  targetUrl: string;
+  theme: OccasionTheme;
+  placement: OccasionPlacement;
+}
+
+export const DEFAULT_OCCASION_BANNER: OccasionBannerSettings = {
+  enabled: false,
+  occasionTitle: "Mother's Day Special",
+  marqueeText: "🌸 Celebrate with Everlasting Blooms · Complimentary Studio Packaging on All Occasion Orders · Handcrafted with Love",
+  couponCode: "MOM15",
+  targetUrl: "/shop",
+  theme: "rose",
+  placement: "both",
+};
+
 const DEFAULT_FEATURE_FLAGS: StoreFeatureFlags = {
   enableLoyalty: true,
   enableCoupons: true,
@@ -66,6 +89,8 @@ const DEFAULT_SETTINGS = {
   // 4-Drawer Architecture
   featureFlags: DEFAULT_FEATURE_FLAGS,
   businessRules: DEFAULT_BUSINESS_RULES,
+  // Festive & Occasion Sale Label
+  occasionBanner: DEFAULT_OCCASION_BANNER,
 };
 
 // In-memory server fallback cache
@@ -116,6 +141,7 @@ export default async function handler(req: any, res: any) {
           pickupPincode: data.pickup_pincode || serverCache.pickupPincode,
           featureFlags: data.feature_flags ? { ...DEFAULT_FEATURE_FLAGS, ...data.feature_flags } : serverCache.featureFlags,
           businessRules: data.business_rules ? { ...DEFAULT_BUSINESS_RULES, ...data.business_rules } : serverCache.businessRules,
+          occasionBanner: data.occasion_banner ? { ...DEFAULT_OCCASION_BANNER, ...data.occasion_banner } : serverCache.occasionBanner,
         };
       }
     } catch (err) {
@@ -142,6 +168,10 @@ export default async function handler(req: any, res: any) {
       businessRules: {
         ...serverCache.businessRules,
         ...(payload.businessRules || {}),
+      },
+      occasionBanner: {
+        ...serverCache.occasionBanner,
+        ...(payload.occasionBanner || {}),
       },
     };
 
@@ -171,6 +201,7 @@ export default async function handler(req: any, res: any) {
         pickup_pincode: serverCache.pickupPincode,
         feature_flags: serverCache.featureFlags,
         business_rules: serverCache.businessRules,
+        occasion_banner: serverCache.occasionBanner,
         updated_at: new Date().toISOString(),
       };
 

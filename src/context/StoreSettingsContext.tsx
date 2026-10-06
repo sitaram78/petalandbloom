@@ -43,6 +43,29 @@ export const DEFAULT_BUSINESS_RULES: StoreBusinessRules = {
   minLoyaltyOrderPaise: 29900,
 };
 
+export type OccasionTheme = 'rose' | 'sage' | 'gold' | 'linen' | 'wine';
+export type OccasionPlacement = 'home_only' | 'site_wide' | 'both';
+
+export interface OccasionBannerSettings {
+  enabled: boolean;
+  occasionTitle: string;
+  marqueeText: string;
+  couponCode: string;
+  targetUrl: string;
+  theme: OccasionTheme;
+  placement: OccasionPlacement;
+}
+
+export const DEFAULT_OCCASION_BANNER: OccasionBannerSettings = {
+  enabled: false,
+  occasionTitle: "Mother's Day Special",
+  marqueeText: "🌸 Celebrate with Everlasting Blooms · Complimentary Studio Packaging on All Occasion Orders · Handcrafted with Love",
+  couponCode: "MOM15",
+  targetUrl: "/shop",
+  theme: "rose",
+  placement: "both",
+};
+
 export interface StoreSettings {
   whatsappNumber: string;
   supportEmail: string;
@@ -70,6 +93,8 @@ export interface StoreSettings {
   // 4-Drawer Architecture
   featureFlags: StoreFeatureFlags;
   businessRules: StoreBusinessRules;
+  // Festive & Occasion Sale Label
+  occasionBanner: OccasionBannerSettings;
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {
@@ -97,6 +122,7 @@ const DEFAULT_SETTINGS: StoreSettings = {
   pickupPincode: '560001',
   featureFlags: DEFAULT_FEATURE_FLAGS,
   businessRules: DEFAULT_BUSINESS_RULES,
+  occasionBanner: DEFAULT_OCCASION_BANNER,
 };
 
 const STORAGE_KEY = 'tpb_store_settings_cache';
@@ -125,6 +151,7 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
           ...parsed,
           featureFlags: { ...DEFAULT_FEATURE_FLAGS, ...(parsed.featureFlags || {}) },
           businessRules: { ...DEFAULT_BUSINESS_RULES, ...(parsed.businessRules || {}) },
+          occasionBanner: { ...DEFAULT_OCCASION_BANNER, ...(parsed.occasionBanner || {}) },
         };
       }
     } catch {

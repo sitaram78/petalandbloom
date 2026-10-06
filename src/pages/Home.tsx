@@ -19,6 +19,8 @@ import { customOrderMessage } from '@/utils/whatsapp';
 import { trackEvent } from '@/utils/analytics';
 import { useProducts } from '@/context/ProductContext';
 import { useCart } from '@/context/CartContext';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
+import OccasionMarquee from '@/components/OccasionMarquee';
 
 const trustIcons: Record<string, any> = {
   Heart, Clock, Palette, Truck, Gift,
@@ -71,6 +73,7 @@ export default function Home() {
   const { products, getBestsellers, getFeatured, loading: productLoading } = useProducts();
   const { assets, loading: assetsLoading } = useSiteAssets();
   const { addItem } = useCart();
+  const { settings } = useStoreSettings();
   const [seasonCategory, setSeasonCategory] = useState<string>('All');
   const [featuredImageIndex, setFeaturedImageIndex] = useState(0);
   const [featuredSelectedColor, setFeaturedSelectedColor] = useState('');
@@ -82,7 +85,6 @@ export default function Home() {
     let filtered = [...products];
     if (seasonCategory === 'Bouquets') filtered = filtered.filter(p => p.category === 'bouquets');
     else if (seasonCategory === 'Single stems') filtered = filtered.filter(p => p.category === 'flowers');
-    else if (seasonCategory === 'Gift boxes') filtered = filtered.filter(p => p.category === 'giftboxes');
     else if (seasonCategory === 'Customisable only') filtered = filtered.filter(p => p.customisable);
     return filtered.slice(0, 3);
   })();
@@ -154,6 +156,12 @@ export default function Home() {
           </Reveal>
         </div>
       </section>
+
+      {/* Festive Occasion & Seasonal Sale Running Marquee */}
+      {settings.occasionBanner?.enabled &&
+        (settings.occasionBanner.placement === 'home_only' || settings.occasionBanner.placement === 'both') && (
+          <OccasionMarquee settings={settings.occasionBanner} variant="strip" />
+      )}
 
       <div className="container-lux">
         <StitchDivider />
@@ -256,7 +264,7 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap gap-3 mb-16">
-            {['All', 'Bouquets', 'Flowers', 'Gift boxes'].map((filter, i) => (
+            {['All', 'Bouquets', 'Flowers'].map((filter, i) => (
               <button
                 key={filter}
                 onClick={() => setSeasonCategory(filter)}
