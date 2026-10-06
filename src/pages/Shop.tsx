@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { SlidersHorizontal, X, Search, ChevronDown, ChevronLeft, ChevronRight, LayoutGrid, List, Filter } from 'lucide-react';
+import { SlidersHorizontal, X, Search, ChevronDown, ChevronLeft, ChevronRight, LayoutGrid, List, Filter, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import ProductGrid from '@/components/ProductGrid';
 import ProductList from '@/components/ProductList';
@@ -51,7 +51,50 @@ export default function ShopPage() {
   const [sort, setSort] = useState('featured');
   const [customOnly, setCustomOnly] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close sort dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(event.target as Node)) {
+        setIsSortDropdownOpen(false);
+      }
+    };
+    if (isSortDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isSortDropdownOpen]);
+
+  // Prevent background scrolling when mobile filter drawer is open
+  useEffect(() => {
+    if (isFilterDrawerOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isFilterDrawerOpen]);
+
+  // Handle ESC key to dismiss filter drawer or sort dropdown
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isFilterDrawerOpen) setIsFilterDrawerOpen(false);
+        if (isSortDropdownOpen) setIsSortDropdownOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFilterDrawerOpen, isSortDropdownOpen]);
 
   const handleCategoryChange = (val: ProductCategory | 'all') => {
     const params = new URLSearchParams(searchParams);
@@ -385,8 +428,8 @@ export default function ShopPage() {
       </section>
 
       {/* Toolbar */}
-      <div className="sticky top-16 z-30 bg-linen/90 backdrop-blur-md border-y border-canvas-line py-4">
-        <div className="container-lux flex flex-col gap-6">
+      <div className="sticky top-16 z-30 bg-linen/90 backdrop-blur-md border-y border-canvas-line py-3 sm:py-4">
+        <div className="container-lux flex flex-col gap-[0.8rem] sm:gap-6">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
 
             {/* Desktop Categories - Hidden on Mobile */}
@@ -408,29 +451,99 @@ export default function ShopPage() {
               ))}
             </div>
 
-            {/* Mobile Toolbar Header */}
-            <div className="flex sm:hidden items-center justify-between w-full gap-4">
+            {/* Mobile Toolbar Header Row */}
+            <div className="flex sm:hidden items-center justify-between w-full gap-2">
+              {/* Filter Drawer Trigger Button */}
               <button
-                onClick={() => setIsToolbarExpanded(!isToolbarExpanded)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all text-xs font-medium ${
-                  hasActiveFilter ? 'bg-rose text-white border-rose' : 'bg-white border-silk text-ink-light hover:border-rose'
+                type="button"
+                onClick={() => setIsFilterDrawerOpen(true)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border transition-all text-xs font-medium shadow-sm ${
+                  hasActiveFilter
+                    ? 'bg-rose text-white border-rose font-semibold'
+                    : 'bg-white border-silk text-ink-light hover:border-rose hover:text-ink'
                 }`}
               >
-                <Filter size={14} />
-                {isToolbarExpanded ? 'Close Filters' : activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+                <SlidersHorizontal size={13} />
+                <span>Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-white text-rose font-bold text-[10px] flex items-center justify-center ml-0.5">
+                    {activeFilterCount}
+                  </span>
+                )}
               </button>
 
-              <div className="flex items-center gap-2 text-sm text-ink-light">
-                <select
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value)}
-                  className="bg-transparent border-none focus:ring-0 cursor-pointer hover:text-bark transition-colors p-0 m-0 text-xs"
-                >
-                  {sortOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} />
+              <div className="flex items-center gap-2">
+                {/* Compact Custom Sort Dropdown (Opens downwards) */}
+                <div ref={sortDropdownRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsSortDropdownOpen((prev) => !prev)}
+                    aria-label="Sort products"
+                    aria-haspopup="listbox"
+                    aria-expanded={isSortDropdownOpen}
+                    className="flex items-center gap-1.5 text-xs text-bark bg-white border border-silk rounded-full px-3 py-1.5 shadow-sm font-medium hover:border-rose transition-colors"
+                  >
+                    <span>{sortOptions.find((opt) => opt.value === sort)?.label || 'Sort'}</span>
+                    <ChevronDown
+                      size={12}
+                      className={`text-ink-light transition-transform duration-200 ${
+                        isSortDropdownOpen ? 'rotate-180 text-rose' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {isSortDropdownOpen && (
+                    <div
+                      role="listbox"
+                      aria-label="Sort options"
+                      className="absolute top-full right-0 mt-2 w-44 bg-white/95 backdrop-blur-md border border-silk rounded-2xl shadow-xl py-1.5 z-50 animate-fade-in"
+                    >
+                      {sortOptions.map((opt) => {
+                        const isSelected = sort === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={() => {
+                              setSort(opt.value);
+                              setIsSortDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors ${
+                              isSelected
+                                ? 'bg-rose/10 text-rose font-medium'
+                                : 'text-ink-light hover:text-bark hover:bg-canvas/40'
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                            {isSelected && <Check size={12} className="text-rose flex-shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Inline Grid / List View Toggle */}
+                <div className="flex items-center border border-silk rounded-full overflow-hidden bg-white shadow-sm p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('grid')}
+                    aria-label="Grid view"
+                    className={`p-1.5 rounded-full transition-colors ${viewMode === 'grid' ? 'bg-bark text-linen' : 'text-ink-light hover:bg-canvas'}`}
+                  >
+                    <LayoutGrid size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    aria-label="List view"
+                    className={`p-1.5 rounded-full transition-colors ${viewMode === 'list' ? 'bg-bark text-linen' : 'text-ink-light hover:bg-canvas'}`}
+                  >
+                    <List size={13} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -458,13 +571,17 @@ export default function ShopPage() {
               </div>
               <div className="flex gap-1">
                 <button
+                  type="button"
                   onClick={() => setViewMode('grid')}
+                  aria-label="Grid view"
                   className={`p-2 rounded transition-colors ${viewMode === 'grid' ? 'bg-bark text-linen' : 'border border-canvas-line text-ink-light hover:bg-canvas'}`}
                 >
                   <LayoutGrid size={16} />
                 </button>
                 <button
+                  type="button"
                   onClick={() => setViewMode('list')}
+                  aria-label="List view"
                   className={`p-2 rounded transition-colors ${viewMode === 'list' ? 'bg-bark text-linen' : 'border border-canvas-line text-ink-light hover:bg-canvas'}`}
                 >
                   <List size={16} />
@@ -472,67 +589,6 @@ export default function ShopPage() {
               </div>
             </div>
           </div>
-
-          {/* Expandable Mobile Filters */}
-          {isToolbarExpanded && (
-            <div className="sm:hidden flex flex-col gap-6 animate-fade-in py-4 border-t border-silk">
-              <div className="flex flex-wrap justify-center gap-2">
-                <AtelierChip
-                  active={category === 'all'}
-                  onClick={() => handleCategoryChange('all')}
-                >
-                  All Categories
-                </AtelierChip>
-                {categories.map((cat) => (
-                  <AtelierChip
-                    key={cat.value}
-                    active={category === cat.value}
-                    onClick={() => handleCategoryChange(cat.value as ProductCategory)}
-                  >
-                    {cat.label}
-                  </AtelierChip>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap justify-center gap-2">
-                {occasionChips.map((occ) => {
-                  const isActive =
-                    occasionFilter.toLowerCase() === occ.value.toLowerCase() ||
-                    occasionFilter.toLowerCase() === occ.label.toLowerCase();
-
-                  return (
-                    <AtelierChip
-                      key={occ.value}
-                      variant="occasion"
-                      active={isActive}
-                      onClick={() => {
-                        const params = new URLSearchParams(searchParams);
-                        if (isActive) {
-                          params.delete('occasion');
-                        } else {
-                          params.set('occasion', occ.value);
-                        }
-                        setSearchParams(params);
-                      }}
-                    >
-                      {occ.emoji && <span>{occ.emoji}</span>}
-                      <span>{occ.label}</span>
-                    </AtelierChip>
-                  );
-                })}
-              </div>
-
-              <div className="flex justify-center">
-                <AtelierChip
-                  variant="toggle"
-                  active={customOnly}
-                  onClick={() => setCustomOnly(!customOnly)}
-                >
-                  Customisable only
-                </AtelierChip>
-              </div>
-            </div>
-          )}
 
           {/* Occasion Scroll Rail with Desktop Arrow Controls */}
           <div className="relative group/occ w-full">
@@ -549,9 +605,20 @@ export default function ShopPage() {
 
             <div
               ref={occasionScrollRef}
-              className="flex items-center justify-start gap-2.5 overflow-x-auto pb-1 scrollbar-hide scroll-smooth px-2 sm:px-6 w-full"
+              className="flex items-center justify-start gap-2.5 overflow-x-auto pb-1 scrollbar-hide scroll-smooth px-1 sm:px-6 w-full"
               style={{ WebkitOverflowScrolling: 'touch' }}
             >
+              {/* Quick Customisable toggle directly on mobile rail */}
+              <div className="flex sm:hidden flex-shrink-0">
+                <AtelierChip
+                  variant="toggle"
+                  active={customOnly}
+                  onClick={() => setCustomOnly(!customOnly)}
+                >
+                  Customisable
+                </AtelierChip>
+              </div>
+
               {occasionChips.map((occ) => {
                 const isActive =
                   occasionFilter.toLowerCase() === occ.value.toLowerCase() ||
@@ -591,24 +658,194 @@ export default function ShopPage() {
               </button>
             )}
           </div>
-
-          {/* Mobile ViewMode buttons */}
-          <div className="flex sm:hidden justify-center gap-1 py-2">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded transition-colors ${viewMode === 'grid' ? 'bg-bark text-linen' : 'border border-canvas-line text-ink-light hover:bg-canvas'}`}
-            >
-              <LayoutGrid size={16} />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded transition-colors ${viewMode === 'list' ? 'bg-bark text-linen' : 'border border-canvas-line text-ink-light hover:bg-canvas'}`}
-            >
-              <List size={16} />
-            </button>
-          </div>
         </div>
       </div>
+
+      {/* Slide-Up Mobile Filter Drawer (Option A) */}
+      {isFilterDrawerOpen && (
+        <div className="fixed inset-0 z-50 sm:hidden">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-bark/60 backdrop-blur-sm transition-opacity animate-fade-in"
+            onClick={() => setIsFilterDrawerOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Slide-Up Sheet Container */}
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Filter and sort creations"
+            className="fixed inset-x-0 bottom-0 max-h-[85vh] bg-linen rounded-t-3xl shadow-2xl flex flex-col z-10 border-t border-silk animate-slide-up"
+          >
+            {/* Grab Handle */}
+            <div className="pt-3 pb-1 flex justify-center">
+              <div className="w-10 h-1.5 rounded-full bg-bark/20" />
+            </div>
+
+            {/* Drawer Header */}
+            <div className="px-6 py-3 border-b border-silk/80 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-serif text-xl text-bark">Filters</h3>
+                {activeFilterCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose text-white">
+                    {activeFilterCount} active
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                {hasActiveFilter && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-xs text-rose font-medium hover:underline tracking-wide uppercase"
+                  >
+                    Reset All
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsFilterDrawerOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-canvas text-ink-light hover:text-ink transition-colors"
+                  aria-label="Close filters"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Drawer Scrollable Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 scrollbar-hide">
+              {/* Section 1: Categories */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-bark">Category</h4>
+                  {category !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => handleCategoryChange('all')}
+                      className="text-[11px] text-rose hover:underline"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <AtelierChip
+                    active={category === 'all'}
+                    onClick={() => handleCategoryChange('all')}
+                  >
+                    All Categories
+                  </AtelierChip>
+                  {categories.map((cat) => (
+                    <AtelierChip
+                      key={cat.value}
+                      active={category === cat.value}
+                      onClick={() => handleCategoryChange(cat.value as ProductCategory)}
+                    >
+                      {cat.label}
+                    </AtelierChip>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section 2: Occasions & Celebrations */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-bark">Occasion &amp; Gifting</h4>
+                  {occasionFilter && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const params = new URLSearchParams(searchParams);
+                        params.delete('occasion');
+                        setSearchParams(params);
+                      }}
+                      className="text-[11px] text-rose hover:underline"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {occasionChips.map((occ) => {
+                    const isActive =
+                      occasionFilter.toLowerCase() === occ.value.toLowerCase() ||
+                      occasionFilter.toLowerCase() === occ.label.toLowerCase();
+
+                    return (
+                      <AtelierChip
+                        key={occ.value}
+                        variant="occasion"
+                        active={isActive}
+                        onClick={() => {
+                          const params = new URLSearchParams(searchParams);
+                          if (isActive) {
+                            params.delete('occasion');
+                          } else {
+                            params.set('occasion', occ.value);
+                          }
+                          setSearchParams(params);
+                        }}
+                      >
+                        {occ.emoji && <span>{occ.emoji}</span>}
+                        <span>{occ.label}</span>
+                      </AtelierChip>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section 3: Attributes */}
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-bark mb-3">Studio Options</h4>
+                <div className="flex">
+                  <AtelierChip
+                    variant="toggle"
+                    active={customOnly}
+                    onClick={() => setCustomOnly(!customOnly)}
+                  >
+                    Customisable only
+                  </AtelierChip>
+                </div>
+              </div>
+
+              {/* Section 4: Sort */}
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-bark mb-3">Sort Order</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {sortOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSort(opt.value)}
+                      className={`px-3 py-2.5 rounded-lg text-xs font-medium text-left transition-all border ${
+                        sort === opt.value
+                          ? 'bg-bark text-linen border-bark shadow-sm font-semibold'
+                          : 'bg-white border-silk text-ink hover:border-rose'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Sticky Bottom Apply Button */}
+            <div className="p-4 bg-linen border-t border-silk shadow-lg">
+              <AtelierButton
+                variant="primary"
+                className="w-full justify-center py-3.5 text-sm font-medium tracking-wider shadow-sm"
+                onClick={() => setIsFilterDrawerOpen(false)}
+              >
+                View {filtered.length} {filtered.length === 1 ? 'Bloom' : 'Blooms'}
+              </AtelierButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Results */}
       <div className="container-lux py-16">
