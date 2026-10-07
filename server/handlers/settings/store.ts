@@ -141,8 +141,42 @@ export default async function handler(req: any, res: any) {
           pickupPincode: data.pickup_pincode || serverCache.pickupPincode,
           featureFlags: data.feature_flags ? { ...DEFAULT_FEATURE_FLAGS, ...data.feature_flags } : serverCache.featureFlags,
           businessRules: data.business_rules ? { ...DEFAULT_BUSINESS_RULES, ...data.business_rules } : serverCache.businessRules,
-          occasionBanner: data.occasion_banner ? { ...DEFAULT_OCCASION_BANNER, ...data.occasion_banner } : serverCache.occasionBanner,
         };
+      }
+
+      // Resilient fallback: if occasion_banner or feature_flags missing from store_settings, restore from site_assets backup
+      if (!data?.occasion_banner) {
+        try {
+          const { data: backupData } = await supabaseAdmin
+            .from('site_assets')
+            .select('description')
+            .eq('section_key', 'config_occasion_banner')
+            .maybeSingle();
+
+          if (backupData?.description) {
+            const parsedBanner = JSON.parse(backupData.description);
+            if (parsedBanner && typeof parsedBanner === 'object') {
+              serverCache.occasionBanner = { ...DEFAULT_OCCASION_BANNER, ...parsedBanner };
+            }
+          }
+        } catch {}
+      }
+
+      if (!data?.feature_flags) {
+        try {
+          const { data: backupFlags } = await supabaseAdmin
+            .from('site_assets')
+            .select('description')
+            .eq('section_key', 'config_feature_flags')
+            .maybeSingle();
+
+          if (backupFlags?.description) {
+            const parsedFlags = JSON.parse(backupFlags.description);
+            if (parsedFlags && typeof parsedFlags === 'object') {
+              serverCache.featureFlags = { ...DEFAULT_FEATURE_FLAGS, ...parsedFlags };
+            }
+          }
+        } catch {}
       }
     } catch (err) {
       // Return serverCache on table missing / DB offline
@@ -252,6 +286,37 @@ export default async function handler(req: any, res: any) {
             updated_at: new Date().toISOString(),
           })
           .eq('id', 'primary');
+      }
+
+      // Dual-Persistence Backup: save occasion_banner and feature_flags into site_assets table
+      if (serverCache.occasionBanner) {
+        try {
+          await supabaseAdmin
+            .from('site_assets')
+            .upsert({
+              section_key: 'config_occasion_banner',
+              label: 'Dynamic Occasion Banner Config Backup',
+              description: JSON.stringify(serverCache.occasionBanner),
+              image_url: 'system://config',
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'section_key' });
+        } catch (backupErr) {
+          console.warn('[store_settings occasion backup warning]:', backupErr);
+        }
+      }
+
+      if (serverCache.featureFlags) {
+        try {
+          await supabaseAdmin
+            .from('site_assets')
+            .upsert({
+              section_key: 'config_feature_flags',
+              label: 'Feature Flags Config Backup',
+              description: JSON.stringify(serverCache.featureFlags),
+              image_url: 'system://config',
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'section_key' });
+        } catch {}
       }
     } catch (err) {
       console.warn('[store_settings exception]:', err);

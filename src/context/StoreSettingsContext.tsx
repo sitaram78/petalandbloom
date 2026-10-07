@@ -213,6 +213,40 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
           .maybeSingle();
 
         if (!dbErr && dbData && isMounted) {
+          let occasionBanner = dbData.occasion_banner;
+          if (!occasionBanner) {
+            try {
+              const { data: backupRow } = await supabase
+                .from('site_assets')
+                .select('description')
+                .eq('section_key', 'config_occasion_banner')
+                .maybeSingle();
+              if (backupRow?.description) {
+                const parsed = JSON.parse(backupRow.description);
+                if (parsed && typeof parsed === 'object') {
+                  occasionBanner = parsed;
+                }
+              }
+            } catch {}
+          }
+
+          let featureFlags = dbData.feature_flags;
+          if (!featureFlags) {
+            try {
+              const { data: backupFlags } = await supabase
+                .from('site_assets')
+                .select('description')
+                .eq('section_key', 'config_feature_flags')
+                .maybeSingle();
+              if (backupFlags?.description) {
+                const parsed = JSON.parse(backupFlags.description);
+                if (parsed && typeof parsed === 'object') {
+                  featureFlags = parsed;
+                }
+              }
+            } catch {}
+          }
+
           const mappedDbSettings: Partial<StoreSettings> = {
             whatsappNumber: dbData.whatsapp_number || undefined,
             supportEmail: dbData.support_email || undefined,
@@ -226,9 +260,9 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
             gstin: dbData.gstin || undefined,
             upiId: dbData.upi_id || undefined,
             upiPhone: dbData.upi_phone || undefined,
-            ...(dbData.feature_flags ? { featureFlags: dbData.feature_flags } : {}),
+            ...(featureFlags ? { featureFlags } : {}),
             ...(dbData.business_rules ? { businessRules: dbData.business_rules } : {}),
-            ...(dbData.occasion_banner ? { occasionBanner: dbData.occasion_banner } : {}),
+            ...(occasionBanner ? { occasionBanner } : {}),
           };
 
           setSettings((prev) => {
@@ -336,6 +370,21 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
       if (partial.responseTime !== undefined) {
         dbUpdates.response_time = partial.responseTime;
       }
+      if (partial.occasionBanner !== undefined) {
+        dbUpdates.occasion_banner = partial.occasionBanner;
+      }
+      if (partial.featureFlags !== undefined) {
+        dbUpdates.feature_flags = partial.featureFlags;
+      }
+      if (partial.businessRules !== undefined) {
+        dbUpdates.business_rules = partial.businessRules;
+      }
+      if (partial.upiId !== undefined) {
+        dbUpdates.upi_id = partial.upiId;
+      }
+      if (partial.upiPhone !== undefined) {
+        dbUpdates.upi_phone = partial.upiPhone;
+      }
 
       await supabase
         .from('store_settings')
@@ -343,6 +392,37 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
         .eq('id', 'primary');
     } catch (dbEx) {
       console.warn('[StoreSettings] Direct Supabase update warning:', dbEx);
+    }
+
+    // Direct backup to site_assets for guaranteed persistence across cold starts
+    if (partial.occasionBanner !== undefined) {
+      try {
+        await supabase
+          .from('site_assets')
+          .upsert({
+            section_key: 'config_occasion_banner',
+            label: 'Dynamic Occasion Banner Config Backup',
+            description: JSON.stringify(partial.occasionBanner),
+            image_url: 'system://config',
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'section_key' });
+      } catch (assetErr) {
+        console.warn('[StoreSettings] site_assets occasion backup warning:', assetErr);
+      }
+    }
+
+    if (partial.featureFlags !== undefined) {
+      try {
+        await supabase
+          .from('site_assets')
+          .upsert({
+            section_key: 'config_feature_flags',
+            label: 'Feature Flags Config Backup',
+            description: JSON.stringify(partial.featureFlags),
+            image_url: 'system://config',
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'section_key' });
+      } catch {}
     }
 
     try {
