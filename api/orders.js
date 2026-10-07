@@ -286,7 +286,7 @@ async function sendOrderConfirmationEmail(params) {
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom \u2022 Handcrafted Floral Atelier \u2022 India</p>
-            <p style="margin: 0;">Questions? Reach our Studio Concierge on WhatsApp: +91 9931653303</p>
+            <p style="margin: 0;">Questions? Reach our Studio Concierge on WhatsApp: +91 9861615937</p>
           </div>
         </div>
       </body>
@@ -342,7 +342,7 @@ async function sendDispatchEmail(params) {
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom \u2022 Handcrafted Floral Atelier \u2022 India</p>
-            <p style="margin: 0;">Questions or delivery instructions? WhatsApp: +91 9931653303</p>
+            <p style="margin: 0;">Questions or delivery instructions? WhatsApp: +91 9861615937</p>
           </div>
         </div>
       </body>
@@ -385,7 +385,7 @@ async function sendReferralRewardEmail(params) {
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom \u2022 Handcrafted Floral Atelier \u2022 India</p>
-            <p style="margin: 0;">Questions? WhatsApp our Studio Concierge: +91 9931653303</p>
+            <p style="margin: 0;">Questions? WhatsApp our Studio Concierge: +91 9861615937</p>
           </div>
         </div>
       </body>
@@ -615,7 +615,7 @@ var DEFAULT_BUSINESS_RULES = {
   minLoyaltyOrderPaise: 29900
 };
 var DEFAULT_SETTINGS = {
-  whatsappNumber: "+919931653303",
+  whatsappNumber: "+919861615937",
   supportEmail: "concierge@thepetalandbloom.com",
   instagramHandle: "@thepetalandbloom",
   instagramUrl: "https://instagram.com/thepetalandbloom",
@@ -635,7 +635,7 @@ var DEFAULT_SETTINGS = {
   delhiveryWarehouseName: "Atelier Central Studio",
   logisticsAutomationMode: "AUTOMATED_WITH_CONFIRMATION",
   pickupContactName: "The Petal & Bloom Atelier",
-  pickupContactPhone: "9931653303",
+  pickupContactPhone: "9861615937",
   pickupPincode: "560001",
   // 4-Drawer Architecture
   featureFlags: DEFAULT_FEATURE_FLAGS,

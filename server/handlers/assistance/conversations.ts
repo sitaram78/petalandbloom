@@ -26,7 +26,7 @@ let conversationsCache: ServerConversation[] = [
     id: 'demo-welcome-conv',
     customer_id: null,
     customer_name: 'Studio Concierge Test',
-    customer_phone: '+919931653303',
+    customer_phone: '+919861615937',
     customer_email: 'guest@thepetalandbloom.com',
     subject: 'Bespoke bouquet color palette request',
     status: 'OPEN',

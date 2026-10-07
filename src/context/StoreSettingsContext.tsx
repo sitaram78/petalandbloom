@@ -98,7 +98,7 @@ export interface StoreSettings {
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {
-  whatsappNumber: brandInfo.whatsappNumber || '+919931653303',
+  whatsappNumber: brandInfo.whatsappNumber || '+919861615937',
   supportEmail: brandInfo.email || 'concierge@thepetalandbloom.com',
   instagramHandle: brandInfo.instagram || '@thepetalandbloom',
   instagramUrl: brandInfo.instagramUrl || 'https://instagram.com/thepetalandbloom',
@@ -118,7 +118,7 @@ const DEFAULT_SETTINGS: StoreSettings = {
   delhiveryWarehouseName: 'Atelier Central Studio',
   logisticsAutomationMode: 'AUTOMATED_WITH_CONFIRMATION',
   pickupContactName: 'The Petal & Bloom Atelier',
-  pickupContactPhone: '9931653303',
+  pickupContactPhone: '9861615937',
   pickupPincode: '560001',
   featureFlags: DEFAULT_FEATURE_FLAGS,
   businessRules: DEFAULT_BUSINESS_RULES,

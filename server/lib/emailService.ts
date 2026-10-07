@@ -231,7 +231,7 @@ export async function sendOrderConfirmationEmail(params: OrderConfirmationEmailP
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom • Handcrafted Floral Atelier • India</p>
-            <p style="margin: 0;">Questions? Reach our Studio Concierge on WhatsApp: +91 9931653303</p>
+            <p style="margin: 0;">Questions? Reach our Studio Concierge on WhatsApp: +91 9861615937</p>
           </div>
         </div>
       </body>
@@ -289,7 +289,7 @@ export async function sendDispatchEmail(params: DispatchEmailParams): Promise<bo
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom • Handcrafted Floral Atelier • India</p>
-            <p style="margin: 0;">Questions or delivery instructions? WhatsApp: +91 9931653303</p>
+            <p style="margin: 0;">Questions or delivery instructions? WhatsApp: +91 9861615937</p>
           </div>
         </div>
       </body>
@@ -343,7 +343,7 @@ export async function sendReferralRewardEmail(params: ReferralRewardEmailParams)
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom • Handcrafted Floral Atelier • India</p>
-            <p style="margin: 0;">Questions? WhatsApp our Studio Concierge: +91 9931653303</p>
+            <p style="margin: 0;">Questions? WhatsApp our Studio Concierge: +91 9861615937</p>
           </div>
         </div>
       </body>

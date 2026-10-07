@@ -256,7 +256,7 @@ var conversationsCache = [
     id: "demo-welcome-conv",
     customer_id: null,
     customer_name: "Studio Concierge Test",
-    customer_phone: "+919931653303",
+    customer_phone: "+919861615937",
     customer_email: "guest@thepetalandbloom.com",
     subject: "Bespoke bouquet color palette request",
     status: "OPEN",
@@ -470,7 +470,7 @@ var messagesCache = {
       conversation_id: "demo-welcome-conv",
       sender_type: "CUSTOMER",
       sender_name: "Studio Concierge Test",
-      message_text: "Superb! I have placed the order on the storefront now. My phone is +919931653303.",
+      message_text: "Superb! I have placed the order on the storefront now. My phone is +919861615937.",
       created_at: new Date(Date.now() - 8 * 6e4).toISOString()
     },
     {

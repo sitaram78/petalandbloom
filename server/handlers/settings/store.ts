@@ -64,7 +64,7 @@ const DEFAULT_BUSINESS_RULES: StoreBusinessRules = {
 };
 
 const DEFAULT_SETTINGS = {
-  whatsappNumber: '+919931653303',
+  whatsappNumber: '+919861615937',
   supportEmail: 'concierge@thepetalandbloom.com',
   instagramHandle: '@thepetalandbloom',
   instagramUrl: 'https://instagram.com/thepetalandbloom',
@@ -84,7 +84,7 @@ const DEFAULT_SETTINGS = {
   delhiveryWarehouseName: 'Atelier Central Studio',
   logisticsAutomationMode: 'AUTOMATED_WITH_CONFIRMATION',
   pickupContactName: 'The Petal & Bloom Atelier',
-  pickupContactPhone: '9931653303',
+  pickupContactPhone: '9861615937',
   pickupPincode: '560001',
   // 4-Drawer Architecture
   featureFlags: DEFAULT_FEATURE_FLAGS,

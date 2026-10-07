@@ -181,7 +181,7 @@ async function sendDispatchEmail(params) {
           </div>
           <div style="${FOOTER_STYLES}">
             <p style="margin: 0 0 8px 0;">The Petal & Bloom \u2022 Handcrafted Floral Atelier \u2022 India</p>
-            <p style="margin: 0;">Questions or delivery instructions? WhatsApp: +91 9931653303</p>
+            <p style="margin: 0;">Questions or delivery instructions? WhatsApp: +91 9861615937</p>
           </div>
         </div>
       </body>

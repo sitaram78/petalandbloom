@@ -110,7 +110,7 @@ export default function AdminSettings() {
     delhiveryWarehouseName: settings.delhiveryWarehouseName || 'Atelier Central Studio',
     logisticsAutomationMode: settings.logisticsAutomationMode || 'AUTOMATED_WITH_CONFIRMATION',
     pickupContactName: settings.pickupContactName || 'The Petal & Bloom Atelier',
-    pickupContactPhone: settings.pickupContactPhone || '9931653303',
+    pickupContactPhone: settings.pickupContactPhone || '9861615937',
     pickupPincode: settings.pickupPincode || '560001',
   });
 
@@ -153,7 +153,7 @@ export default function AdminSettings() {
       delhiveryWarehouseName: settings.delhiveryWarehouseName || 'Atelier Central Studio',
       logisticsAutomationMode: settings.logisticsAutomationMode || 'AUTOMATED_WITH_CONFIRMATION',
       pickupContactName: settings.pickupContactName || 'The Petal & Bloom Atelier',
-      pickupContactPhone: settings.pickupContactPhone || '9931653303',
+      pickupContactPhone: settings.pickupContactPhone || '9861615937',
       pickupPincode: settings.pickupPincode || '560001',
     });
   }, [settings]);
@@ -507,7 +507,7 @@ export default function AdminSettings() {
                   Current Storefront Behavior:{' '}
                   <span className="text-rose font-bold">
                     {profileForm.conciergeChannelMode === 'WHATSAPP'
-                      ? `Direct WhatsApp (${profileForm.whatsappNumber || '+91 9931653303'})`
+                      ? `Direct WhatsApp (${profileForm.whatsappNumber || '+91 9861615937'})`
                       : 'In-System Live Assistant Window'}
                   </span>
                 </p>
@@ -540,7 +540,7 @@ export default function AdminSettings() {
                       onChange={(e) =>
                         setProfileForm({ ...profileForm, whatsappNumber: e.target.value })
                       }
-                      placeholder="+919931653303"
+                      placeholder="+919861615937"
                       className="w-full pl-10 pr-4 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs font-mono text-bark focus:outline-none focus:border-bark"
                     />
                   </div>
@@ -1457,7 +1457,7 @@ export default function AdminSettings() {
                     onChange={(e) =>
                       setLogisticsForm({ ...logisticsForm, pickupContactPhone: e.target.value })
                     }
-                    placeholder="9931653303"
+                    placeholder="9861615937"
                     className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
                   />
                 </div>

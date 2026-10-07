@@ -49,7 +49,7 @@ export const INVOICE_STORE_CONFIG = {
   gstin: 'GSTIN-PENDING-UNREGISTERED', // Replace with valid GSTIN once registered (e.g. 19AAAAA0000A1Z5)
   pan: 'PAN-ON-FILE',
   studioAddress: 'Handmade Floral Craft Studio, India',
-  phone: '+91 9931653303',
+  phone: '+91 9861615937',
   email: 'concierge@thepetalandbloom.com',
   website: 'https://thepetalandbloom.com',
   hsnSacCode: '56090090', // HSN code for handcrafted textile/yarn articles & decorative florals

@@ -97,7 +97,7 @@ let messagesCache: Record<string, ServerMessage[]> = {
       conversation_id: 'demo-welcome-conv',
       sender_type: 'CUSTOMER',
       sender_name: 'Studio Concierge Test',
-      message_text: 'Superb! I have placed the order on the storefront now. My phone is +919931653303.',
+      message_text: 'Superb! I have placed the order on the storefront now. My phone is +919861615937.',
       created_at: new Date(Date.now() - 8 * 60000).toISOString(),
     },
     {

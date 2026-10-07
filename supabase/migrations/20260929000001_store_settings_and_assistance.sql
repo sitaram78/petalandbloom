@@ -4,7 +4,7 @@
 -- 1. Central Store & Brand Settings
 create table if not exists public.store_settings (
   id text primary key default 'primary',
-  whatsapp_number text not null default '+919931653303',
+  whatsapp_number text not null default '+919861615937',
   support_email text not null default 'concierge@thepetalandbloom.com',
   instagram_handle text not null default '@thepetalandbloom',
   instagram_url text not null default 'https://instagram.com/thepetalandbloom',
@@ -25,7 +25,7 @@ insert into public.store_settings (
   legal_business_name, studio_address, gstin
 )
 values (
-  'primary', '+919931653303', 'concierge@thepetalandbloom.com', '@thepetalandbloom', 'https://instagram.com/thepetalandbloom',
+  'primary', '+919861615937', 'concierge@thepetalandbloom.com', '@thepetalandbloom', 'https://instagram.com/thepetalandbloom',
   'Monday – Saturday, 10 AM – 7 PM IST', 'We typically respond within a few hours during business hours.', 'WHATSAPP',
   'The Petal & Bloom Studio', 'Handmade Floral Craft Studio, India', 'GSTIN-PENDING-UNREGISTERED'
 )

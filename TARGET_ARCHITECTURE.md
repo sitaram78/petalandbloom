@@ -209,7 +209,7 @@ DRAWER 3: FEATURE FLAGS (Database: store_settings.feature_flags)
 └── STORE_MAINTENANCE_MODE (Default: false)
 
 DRAWER 4: PUBLIC BRAND PROFILE (Database: store_settings)
-├── WhatsApp Support Number (+91 9931653303)
+├── WhatsApp Support Number (+91 9861615937)
 ├── Support Email (concierge@thepetalandbloom.com)
 ├── Instagram Handle (@thepetalandbloom)
 └── Studio Crafting Address & GSTIN

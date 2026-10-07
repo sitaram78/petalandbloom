@@ -718,7 +718,7 @@ $$ language plpgsql security definer set search_path = public;
 -- ==========================================
 create table if not exists public.store_settings (
   id text primary key default 'primary',
-  whatsapp_number text not null default '+919931653303',
+  whatsapp_number text not null default '+919861615937',
   support_email text not null default 'concierge@thepetalandbloom.com',
   instagram_handle text not null default '@thepetalandbloom',
   instagram_url text not null default 'https://instagram.com/thepetalandbloom',
@@ -736,7 +736,7 @@ create table if not exists public.store_settings (
   delhivery_warehouse_name text default 'Studio Primary',
   logistics_automation_mode text not null default 'MANUAL_APPROVAL' check (logistics_automation_mode in ('MANUAL_APPROVAL', 'AUTO_DISPATCH')),
   pickup_contact_name text default 'The Petal & Bloom Studio',
-  pickup_contact_phone text default '+919931653303',
+  pickup_contact_phone text default '+919861615937',
   pickup_pincode text default '800001',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -750,10 +750,10 @@ insert into public.store_settings (
   logistics_automation_mode, pickup_contact_name, pickup_contact_phone, pickup_pincode
 )
 values (
-  'primary', '+919931653303', 'concierge@thepetalandbloom.com', '@thepetalandbloom', 'https://instagram.com/thepetalandbloom',
+  'primary', '+919861615937', 'concierge@thepetalandbloom.com', '@thepetalandbloom', 'https://instagram.com/thepetalandbloom',
   'Monday – Saturday, 10 AM – 7 PM IST', 'We typically respond within a few hours during business hours.', 'WHATSAPP',
   'The Petal & Bloom Studio', 'Handmade Floral Craft Studio, India', 'GSTIN-PENDING-UNREGISTERED',
-  'MANUAL_APPROVAL', 'The Petal & Bloom Studio', '+919931653303', '800001'
+  'MANUAL_APPROVAL', 'The Petal & Bloom Studio', '+919861615937', '800001'
 )
 on conflict (id) do nothing;
 
