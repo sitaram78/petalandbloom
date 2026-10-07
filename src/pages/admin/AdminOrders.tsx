@@ -43,6 +43,7 @@ import CourierBookingModal from '@/components/admin/CourierBookingModal';
 import CreateOrderModal from '@/components/admin/CreateOrderModal';
 import LiveCourierJourney from '@/components/LiveCourierJourney';
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
+import { safeUrl } from '@/utils/safeUrl';
 import { downloadCSV } from '@/utils/csvExporter';
 import {
   useAdminView,
@@ -1161,7 +1162,7 @@ export default function AdminOrders() {
                         </div>
                         {shipment.tracking_url && (
                           <a
-                            href={shipment.tracking_url}
+                            href={safeUrl(shipment.tracking_url)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-rose hover:underline"

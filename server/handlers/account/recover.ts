@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../lib/supabaseServer';
-import { checkRateLimit } from '../../lib/authMiddleware';
+import { checkRateLimit, sanitizePostgrestFilter } from '../../lib/authMiddleware';
 
 /**
  * Secure Account Recovery & Password Setup Endpoint.
@@ -131,19 +131,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Link any existing orders matching this email/phone
       try {
+        const safeEmail = sanitizePostgrestFilter(cleanEmail);
+        const safePhone = cleanPhone.replace(/\D/g, '').slice(-10);
         await supabaseAdmin
           .from('orders')
           .update({ customer_id: authUser.id })
-          .or(`guest_email.ilike.${cleanEmail},guest_phone.ilike.%${cleanPhone}%`);
+          .is('customer_id', null)
+          .or(`guest_email.ilike.${safeEmail},guest_phone.ilike.%${safePhone}%`);
       } catch (linkErr) {
         console.warn('[Account Recovery Order Link Warning]:', linkErr);
       }
     }
 
-    // 4. Generate Official Supabase Single-Use Cryptographic Recovery Link
-    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:5173';
-    const proto = req.headers['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
-    const siteUrl = `${proto}://${host}`;
+    // 4. Generate Official Supabase Single-Use Cryptographic Recovery Link (SEC-07: Whitelist Host Origin)
+    const rawHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').toLowerCase();
+    const isAllowedHost =
+      rawHost.endsWith('.thepetalandbloom.com') ||
+      rawHost === 'thepetalandbloom.com' ||
+      rawHost.endsWith('.vercel.app') ||
+      rawHost.startsWith('localhost:') ||
+      rawHost === 'localhost';
+
+    const safeHost = isAllowedHost && rawHost ? rawHost : (process.env.VITE_SITE_URL ? new URL(process.env.VITE_SITE_URL).host : 'thepetalandbloom.com');
+    const proto = req.headers['x-forwarded-proto'] || (safeHost.includes('localhost') ? 'http' : 'https');
+    const siteUrl = `${proto}://${safeHost}`;
     const redirectUrl = `${siteUrl}/account?mode=reset-password`;
 
     const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({

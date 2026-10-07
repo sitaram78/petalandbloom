@@ -47,6 +47,7 @@ import SEO from '@/components/SEO';
 import InvoiceModal, { InvoiceOrderData } from '@/components/admin/InvoiceModal';
 import LiveCourierJourney from '@/components/LiveCourierJourney';
 import { useProducts } from '@/context/ProductContext';
+import { safeUrl } from '@/utils/safeUrl';
 
 export const INDIAN_STATES: string[] = [
   'Andaman and Nicobar Islands',
@@ -1769,7 +1770,7 @@ export default function Account() {
 
                             {order.shipments[0].tracking_url && (
                               <a
-                                href={order.shipments[0].tracking_url}
+                                href={safeUrl(order.shipments[0].tracking_url)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs text-rose hover:text-rose-deep font-medium flex items-center gap-1 hover:underline ml-auto sm:ml-0"

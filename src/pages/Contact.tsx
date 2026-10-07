@@ -8,6 +8,7 @@ import { useSiteAssets, getDynamicAsset } from '@/context/SiteAssetsContext';
 import { SITE_ASSET_KEYS } from '@/utils/siteAssetKeys';
 import { generalEnquiryMessage } from '@/utils/whatsapp';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
+import { safeUrl } from '@/utils/safeUrl';
 import SEO from '@/components/SEO';
 
 export default function Contact() {
@@ -108,7 +109,7 @@ export default function Contact() {
                     <h3 className="font-serif text-lg text-bark">Instagram</h3>
                     <p className="text-sm text-ink-light mt-1">Follow our latest blooms and share your gifts with us.</p>
                     <a
-                      href={settings.instagramUrl}
+                      href={safeUrl(settings.instagramUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-rose hover:text-rose-deep mt-2 inline-block font-medium link-underline"
@@ -129,7 +130,7 @@ export default function Contact() {
                       Reach our studio team for custom arrangements, corporate gifting, or support.
                     </p>
                     <a
-                      href={`mailto:${settings.supportEmail}`}
+                      href={safeUrl(`mailto:${settings.supportEmail}`)}
                       className="text-sm text-rose hover:text-rose-deep mt-2 inline-block font-medium link-underline font-mono"
                     >
                       {settings.supportEmail} →

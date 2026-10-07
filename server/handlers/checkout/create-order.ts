@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../lib/supabaseServer';
 import { createCashfreePGOrder } from '../../lib/cashfreeServer';
 import { getCachedStoreSettings } from '../settings/store';
 import { evaluateCoupon } from '../../lib/couponEngine';
+import { verifyAuth } from '../../lib/authMiddleware';
 
 interface CheckoutItemRequest {
   code: string;
@@ -267,9 +268,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       discountInPaise = evaluation.discountInPaise;
     }
 
-    // 4. Loyalty Points Redemption (if authenticated customer)
+    // 4. Loyalty Points Redemption (SEC-08: Enforce verified session matching customer)
     let loyaltyPointsRedeemed = 0;
     let loyaltyDiscountInPaise = 0;
+    let verifiedCustomerId: string | null = null;
+
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user) {
+          verifiedCustomerId = auth.user.id;
+        }
+      } catch {}
+    }
 
     const isLoyaltyEnabled = storeConfig.featureFlags?.enableLoyalty ?? true;
     const minPointsOrder = storeConfig.businessRules?.minLoyaltyOrderPaise ?? 29900;
@@ -277,11 +289,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const meetsPointsMinThreshold = subtotalInPaise >= minPointsOrder;
 
-    if (isLoyaltyEnabled && meetsPointsMinThreshold && customer.customerId && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
+    if (isLoyaltyEnabled && meetsPointsMinThreshold && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
+      if (!verifiedCustomerId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required: You must be signed in to your verified account to redeem loyalty points.',
+        });
+      }
+
+      if (customer.customerId && customer.customerId !== verifiedCustomerId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Unauthorized: Loyalty points can only be redeemed for your own authenticated account.',
+        });
+      }
+
       const { data: loyaltyAcc } = await supabaseAdmin
         .from('loyalty_accounts')
         .select('points_balance')
-        .eq('customer_id', customer.customerId)
+        .eq('customer_id', verifiedCustomerId)
         .maybeSingle();
 
       if (loyaltyAcc && (loyaltyAcc.points_balance || 0) > 0) {
@@ -320,7 +346,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('orders')
       .insert({
         order_number: orderNumber,
-        customer_id: customer.customerId || null,
+        customer_id: verifiedCustomerId || customer.customerId || null,
         guest_name: customer.name.trim(),
         guest_phone: cleanPhone,
         guest_email: customer.email?.trim() || null,

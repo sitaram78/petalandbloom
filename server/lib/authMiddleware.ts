@@ -297,3 +297,12 @@ export function checkRateLimit(
   record.count += 1;
   return { allowed: true, remaining: maxRequests - record.count };
 }
+
+/**
+ * SEC-10: Sanitizes input strings intended for PostgREST .or() or .filter() interpolation.
+ * Strips PostgREST control characters: commas, parentheses, colons, dots, backslashes.
+ */
+export function sanitizePostgrestFilter(val?: string | null): string {
+  if (!val || typeof val !== 'string') return '';
+  return val.replace(/[(),:.\\]/g, '').trim();
+}

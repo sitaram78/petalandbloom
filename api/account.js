@@ -263,6 +263,10 @@ function checkRateLimit(req, maxRequests = 10, windowMs = 6e4) {
   record.count += 1;
   return { allowed: true, remaining: maxRequests - record.count };
 }
+function sanitizePostgrestFilter(val) {
+  if (!val || typeof val !== "string") return "";
+  return val.replace(/[(),:.\\]/g, "").trim();
+}
 
 // server/handlers/account/signup.ts
 async function handler(req, res) {
@@ -391,7 +395,9 @@ async function handler(req, res) {
       });
     }
     try {
-      await supabaseAdmin.from("orders").update({ customer_id: userId2 }).eq("customer_id", null).or(`guest_email.ilike.${cleanEmail},guest_phone.ilike.%${cleanPhone}%`);
+      const safeEmail = sanitizePostgrestFilter(cleanEmail);
+      const safePhone = cleanPhone.replace(/\D/g, "").slice(-10);
+      await supabaseAdmin.from("orders").update({ customer_id: userId2 }).is("customer_id", null).or(`guest_email.ilike.${safeEmail},guest_phone.ilike.%${safePhone}%`);
     } catch {
     }
     return res.status(200).json({
@@ -496,14 +502,18 @@ async function handler2(req, res) {
         role: "customer"
       }, { onConflict: "id" });
       try {
-        await supabaseAdmin.from("orders").update({ customer_id: authUser.id }).or(`guest_email.ilike.${cleanEmail},guest_phone.ilike.%${cleanPhone}%`);
+        const safeEmail = sanitizePostgrestFilter(cleanEmail);
+        const safePhone = cleanPhone.replace(/\D/g, "").slice(-10);
+        await supabaseAdmin.from("orders").update({ customer_id: authUser.id }).is("customer_id", null).or(`guest_email.ilike.${safeEmail},guest_phone.ilike.%${safePhone}%`);
       } catch (linkErr2) {
         console.warn("[Account Recovery Order Link Warning]:", linkErr2);
       }
     }
-    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5173";
-    const proto = req.headers["x-forwarded-proto"] || (host.includes("localhost") ? "http" : "https");
-    const siteUrl = `${proto}://${host}`;
+    const rawHost = String(req.headers["x-forwarded-host"] || req.headers.host || "").toLowerCase();
+    const isAllowedHost = rawHost.endsWith(".thepetalandbloom.com") || rawHost === "thepetalandbloom.com" || rawHost.endsWith(".vercel.app") || rawHost.startsWith("localhost:") || rawHost === "localhost";
+    const safeHost = isAllowedHost && rawHost ? rawHost : process.env.VITE_SITE_URL ? new URL(process.env.VITE_SITE_URL).host : "thepetalandbloom.com";
+    const proto = req.headers["x-forwarded-proto"] || (safeHost.includes("localhost") ? "http" : "https");
+    const siteUrl = `${proto}://${safeHost}`;
     const redirectUrl = `${siteUrl}/account?mode=reset-password`;
     const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: "recovery",

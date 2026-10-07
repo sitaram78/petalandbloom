@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../lib/supabaseServer';
-import { checkRateLimit } from '../../lib/authMiddleware';
+import { checkRateLimit, sanitizePostgrestFilter } from '../../lib/authMiddleware';
 
 /**
  * Server-side customer registration endpoint.
@@ -179,11 +179,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 4. Automatically link any previous guest orders made with this phone or email
     try {
+      const safeEmail = sanitizePostgrestFilter(cleanEmail);
+      const safePhone = cleanPhone.replace(/\D/g, '').slice(-10);
       await supabaseAdmin
         .from('orders')
         .update({ customer_id: userId })
-        .eq('customer_id', null)
-        .or(`guest_email.ilike.${cleanEmail},guest_phone.ilike.%${cleanPhone}%`);
+        .is('customer_id', null)
+        .or(`guest_email.ilike.${safeEmail},guest_phone.ilike.%${safePhone}%`);
     } catch {
       // Non-blocking order link
     }

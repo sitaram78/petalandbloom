@@ -54,295 +54,6 @@ var supabaseAdmin = new Proxy({}, {
   }
 });
 
-// server/handlers/reviews/submit.ts
-var localReviewsCache = [
-  {
-    id: "rev-seed-1",
-    product_code: "rose-elegance",
-    customer_id: "seed-cust-1",
-    customer_name: "Ananya Sharma",
-    customer_email: "ananya@example.com",
-    rating: 5,
-    review_title: "Unbelievably delicate & everlasting!",
-    review_text: "I ordered this bespoke rose bouquet for our anniversary. The comb-cotton yarn texture is wonderfully soft and looks breathtaking in our living room. Truly an heirloom piece.",
-    customer_photo: null,
-    is_verified_purchase: true,
-    is_approved: true,
-    created_at: new Date(Date.now() - 7 * 864e5).toISOString()
-  },
-  {
-    id: "rev-seed-2",
-    product_code: "rose-elegance",
-    customer_id: "seed-cust-2",
-    customer_name: "Priya Mukherjee",
-    customer_email: "priya@example.com",
-    rating: 5,
-    review_title: "The packaging and craft are unmatched.",
-    review_text: "Arrived in the signature Atelier linen gift box. Every petal is meticulously hand-crocheted. Much better than real flowers that fade in days.",
-    customer_photo: null,
-    is_verified_purchase: true,
-    is_approved: true,
-    created_at: new Date(Date.now() - 14 * 864e5).toISOString()
-  },
-  {
-    id: "rev-seed-3",
-    product_code: "sunflower-radiance",
-    customer_id: "seed-cust-3",
-    customer_name: "Rohit Varma",
-    customer_email: "rohit@example.com",
-    rating: 5,
-    review_title: "Brought immediate warmth to my studio desk",
-    review_text: "The golden yellow tones are vibrant and the stem wire is sturdy. Highly recommend to anyone looking for artisan handcrafted decor.",
-    customer_photo: null,
-    is_verified_purchase: true,
-    is_approved: true,
-    created_at: new Date(Date.now() - 10 * 864e5).toISOString()
-  }
-];
-async function handler(req, res) {
-  res.setHeader("Content-Type", "application/json");
-  if (req.method !== "POST") {
-    return res.status(405).json({ success: false, message: "Method not allowed. Use POST." });
-  }
-  try {
-    const {
-      productCode,
-      rating,
-      reviewTitle,
-      reviewText,
-      customerPhoto,
-      customerId,
-      customerName,
-      customerEmail,
-      customerPhone
-    } = req.body || {};
-    if (!productCode || !rating || !reviewText) {
-      return res.status(400).json({
-        success: false,
-        error: "Product code, star rating, and review text are required."
-      });
-    }
-    const numRating = Math.max(1, Math.min(5, Math.round(Number(rating))));
-    let isPurchased = false;
-    let verifiedCustomerName = customerName || "Verified Patron";
-    if (customerId || customerEmail || customerPhone) {
-      try {
-        let query = supabaseAdmin.from("orders").select(`
-            id,
-            guest_name,
-            guest_email,
-            guest_phone,
-            order_status,
-            order_items (
-              product_code
-            )
-          `).in("order_status", [
-          "PAYMENT_CONFIRMED",
-          "ORDER_CONFIRMED",
-          "PROCESSING",
-          "PACKED",
-          "SHIPPED",
-          "OUT_FOR_DELIVERY",
-          "DELIVERED"
-        ]);
-        if (customerId) {
-          query = query.eq("customer_id", customerId);
-        } else if (customerEmail) {
-          query = query.eq("guest_email", customerEmail.trim());
-        }
-        const { data: customerOrders, error: orderErr } = await query;
-        if (!orderErr && customerOrders && customerOrders.length > 0) {
-          for (const ord of customerOrders) {
-            const items = ord.order_items || [];
-            const hasItem = items.some(
-              (item) => item.product_code?.toLowerCase().trim() === productCode.toLowerCase().trim()
-            );
-            if (hasItem) {
-              isPurchased = true;
-              if (ord.guest_name) verifiedCustomerName = ord.guest_name;
-              break;
-            }
-          }
-        }
-      } catch (checkErr) {
-        console.warn("[Review Eligibility Check Warn]:", checkErr);
-      }
-    }
-    if (!isPurchased && process.env.NODE_ENV !== "production" && customerId) {
-      isPurchased = true;
-    }
-    if (!isPurchased) {
-      return res.status(403).json({
-        success: false,
-        error: "Reviews are exclusively reserved for verified patrons who have purchased this bespoke piece."
-      });
-    }
-    const reviewId = `rev-${Date.now()}`;
-    const newReview = {
-      id: reviewId,
-      product_code: productCode.trim().toLowerCase(),
-      customer_id: customerId || null,
-      customer_name: verifiedCustomerName.trim(),
-      customer_email: customerEmail ? customerEmail.trim() : null,
-      rating: numRating,
-      review_title: reviewTitle ? reviewTitle.trim() : "",
-      review_text: reviewText.trim(),
-      customer_photo: customerPhoto ? customerPhoto.trim() : null,
-      is_verified_purchase: true,
-      is_approved: true,
-      // Default to true for verified purchasers
-      created_at: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    try {
-      await supabaseAdmin.from("product_reviews").insert({
-        product_code: newReview.product_code,
-        customer_id: newReview.customer_id,
-        rating: newReview.rating,
-        review_title: newReview.review_title,
-        review_text: newReview.review_text,
-        customer_photo: newReview.customer_photo,
-        is_verified_purchase: true,
-        is_approved: true
-      });
-    } catch (dbErr) {
-    }
-    localReviewsCache.unshift(newReview);
-    return res.status(200).json({
-      success: true,
-      message: "Thank you! Your verified review has been published.",
-      review: newReview
-    });
-  } catch (err) {
-    console.error("[Submit Review Error]", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message || "Failed to submit review."
-    });
-  }
-}
-
-// server/handlers/reviews/list.ts
-async function handler2(req, res) {
-  res.setHeader("Content-Type", "application/json");
-  if (req.method !== "GET") {
-    return res.status(405).json({ success: false, message: "Method not allowed. Use GET." });
-  }
-  try {
-    const { productCode, admin, eligibility, userId, userEmail } = req.query || {};
-    if (eligibility === "true") {
-      const code2 = typeof productCode === "string" ? productCode.trim().toLowerCase() : "";
-      const uid = typeof userId === "string" ? userId.trim() : "";
-      const email = typeof userEmail === "string" ? userEmail.trim() : "";
-      if (!code2 || !uid && !email) {
-        return res.status(200).json({
-          success: true,
-          eligible: false,
-          reason: "Sign in to verify purchase history."
-        });
-      }
-      let isPurchased = false;
-      try {
-        let query = supabaseAdmin.from("orders").select(`
-            id,
-            guest_name,
-            guest_email,
-            order_status,
-            order_items (
-              product_code
-            )
-          `).in("order_status", [
-          "PAYMENT_CONFIRMED",
-          "ORDER_CONFIRMED",
-          "PROCESSING",
-          "PACKED",
-          "SHIPPED",
-          "OUT_FOR_DELIVERY",
-          "DELIVERED"
-        ]);
-        if (uid) {
-          query = query.eq("customer_id", uid);
-        } else if (email) {
-          query = query.eq("guest_email", email);
-        }
-        const { data: customerOrders } = await query;
-        if (customerOrders && customerOrders.length > 0) {
-          for (const ord of customerOrders) {
-            const items = ord.order_items || [];
-            if (items.some(
-              (item) => item.product_code?.toLowerCase().trim() === code2
-            )) {
-              isPurchased = true;
-              break;
-            }
-          }
-        }
-      } catch (e) {
-      }
-      const alreadyReviewed = localReviewsCache.some(
-        (r) => r.product_code === code2 && (uid && r.customer_id === uid || email && r.customer_email === email)
-      );
-      return res.status(200).json({
-        success: true,
-        eligible: isPurchased,
-        alreadyReviewed,
-        reason: isPurchased ? "Verified purchaser" : "Reviews are only open to customers who have ordered this product."
-      });
-    }
-    if (admin === "true") {
-      let allReviews = [...localReviewsCache];
-      try {
-        const { data: dbReviews, error } = await supabaseAdmin.from("product_reviews").select("*").order("created_at", { ascending: false });
-        if (!error && dbReviews && dbReviews.length > 0) {
-          allReviews = dbReviews;
-        }
-      } catch {
-      }
-      return res.status(200).json({
-        success: true,
-        reviews: allReviews
-      });
-    }
-    const code = typeof productCode === "string" ? productCode.trim().toLowerCase() : "";
-    let filteredReviews = localReviewsCache.filter(
-      (r) => (!code || r.product_code === code) && r.is_approved
-    );
-    try {
-      let query = supabaseAdmin.from("product_reviews").select("*").eq("is_approved", true).order("created_at", { ascending: false });
-      if (code) {
-        query = query.eq("product_code", code);
-      }
-      const { data: dbReviews, error } = await query;
-      if (!error && dbReviews && dbReviews.length > 0) {
-        filteredReviews = dbReviews;
-      }
-    } catch {
-    }
-    const totalReviews = filteredReviews.length;
-    const ratingBreakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-    let ratingSum = 0;
-    for (const r of filteredReviews) {
-      const star = Math.max(1, Math.min(5, Math.round(r.rating || 5)));
-      ratingBreakdown[star] = (ratingBreakdown[star] || 0) + 1;
-      ratingSum += star;
-    }
-    const averageRating = totalReviews > 0 ? Number((ratingSum / totalReviews).toFixed(1)) : 5;
-    return res.status(200).json({
-      success: true,
-      productCode: code,
-      totalReviews,
-      averageRating,
-      ratingBreakdown,
-      reviews: filteredReviews
-    });
-  } catch (err) {
-    console.error("[List Reviews Error]", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message || "Failed to fetch reviews."
-    });
-  }
-}
-
 // server/lib/authMiddleware.ts
 var ROLE_DEFAULT_PERMISSIONS = {
   super_admin: ["*"],
@@ -530,6 +241,305 @@ async function requireAuth(req, res, options) {
     }
   }
   return user;
+}
+
+// server/handlers/reviews/submit.ts
+var localReviewsCache = [
+  {
+    id: "rev-seed-1",
+    product_code: "rose-elegance",
+    customer_id: "seed-cust-1",
+    customer_name: "Ananya Sharma",
+    customer_email: "ananya@example.com",
+    rating: 5,
+    review_title: "Unbelievably delicate & everlasting!",
+    review_text: "I ordered this bespoke rose bouquet for our anniversary. The comb-cotton yarn texture is wonderfully soft and looks breathtaking in our living room. Truly an heirloom piece.",
+    customer_photo: null,
+    is_verified_purchase: true,
+    is_approved: true,
+    created_at: new Date(Date.now() - 7 * 864e5).toISOString()
+  },
+  {
+    id: "rev-seed-2",
+    product_code: "rose-elegance",
+    customer_id: "seed-cust-2",
+    customer_name: "Priya Mukherjee",
+    customer_email: "priya@example.com",
+    rating: 5,
+    review_title: "The packaging and craft are unmatched.",
+    review_text: "Arrived in the signature Atelier linen gift box. Every petal is meticulously hand-crocheted. Much better than real flowers that fade in days.",
+    customer_photo: null,
+    is_verified_purchase: true,
+    is_approved: true,
+    created_at: new Date(Date.now() - 14 * 864e5).toISOString()
+  },
+  {
+    id: "rev-seed-3",
+    product_code: "sunflower-radiance",
+    customer_id: "seed-cust-3",
+    customer_name: "Rohit Varma",
+    customer_email: "rohit@example.com",
+    rating: 5,
+    review_title: "Brought immediate warmth to my studio desk",
+    review_text: "The golden yellow tones are vibrant and the stem wire is sturdy. Highly recommend to anyone looking for artisan handcrafted decor.",
+    customer_photo: null,
+    is_verified_purchase: true,
+    is_approved: true,
+    created_at: new Date(Date.now() - 10 * 864e5).toISOString()
+  }
+];
+async function handler(req, res) {
+  res.setHeader("Content-Type", "application/json");
+  if (req.method !== "POST") {
+    return res.status(405).json({ success: false, message: "Method not allowed. Use POST." });
+  }
+  try {
+    const {
+      productCode,
+      rating,
+      reviewTitle,
+      reviewText,
+      customerPhoto,
+      customerId,
+      customerName,
+      customerEmail,
+      customerPhone
+    } = req.body || {};
+    if (!productCode || !rating || !reviewText) {
+      return res.status(400).json({
+        success: false,
+        error: "Product code, star rating, and review text are required."
+      });
+    }
+    const numRating = Math.max(1, Math.min(5, Math.round(Number(rating))));
+    let verifiedUser = null;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user) {
+          verifiedUser = auth.user;
+        }
+      } catch {
+      }
+    }
+    const effectiveCustomerId = verifiedUser ? verifiedUser.id : null;
+    const effectiveCustomerEmail = verifiedUser ? verifiedUser.email : customerEmail ? customerEmail.trim() : null;
+    let isPurchased = false;
+    let verifiedCustomerName = customerName || "Atelier Patron";
+    if (effectiveCustomerId || effectiveCustomerEmail) {
+      try {
+        let query = supabaseAdmin.from("orders").select(`
+            id,
+            guest_name,
+            guest_email,
+            order_status,
+            order_items (
+              product_code
+            )
+          `).in("order_status", [
+          "PAYMENT_CONFIRMED",
+          "ORDER_CONFIRMED",
+          "PROCESSING",
+          "PACKED",
+          "SHIPPED",
+          "OUT_FOR_DELIVERY",
+          "DELIVERED"
+        ]);
+        if (effectiveCustomerId) {
+          query = query.eq("customer_id", effectiveCustomerId);
+        } else if (effectiveCustomerEmail) {
+          query = query.eq("guest_email", effectiveCustomerEmail);
+        }
+        const { data: customerOrders, error: orderErr } = await query;
+        if (!orderErr && customerOrders && customerOrders.length > 0) {
+          for (const ord of customerOrders) {
+            const items = ord.order_items || [];
+            const hasItem = items.some(
+              (item) => item.product_code?.toLowerCase().trim() === productCode.toLowerCase().trim()
+            );
+            if (hasItem) {
+              isPurchased = true;
+              if (ord.guest_name) verifiedCustomerName = ord.guest_name;
+              break;
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn("[Review Eligibility Check Warn]:", checkErr);
+      }
+    }
+    const isApproved = Boolean(verifiedUser && isPurchased);
+    const isVerifiedPurchase = Boolean(isPurchased);
+    if (!isPurchased) {
+      return res.status(403).json({
+        success: false,
+        error: "Reviews are exclusively reserved for verified patrons who have purchased this bespoke piece."
+      });
+    }
+    const reviewId = `rev-${Date.now()}`;
+    const newReview = {
+      id: reviewId,
+      product_code: productCode.trim().toLowerCase(),
+      customer_id: effectiveCustomerId,
+      customer_name: (verifiedUser?.full_name || verifiedCustomerName).trim(),
+      customer_email: effectiveCustomerEmail,
+      rating: numRating,
+      review_title: reviewTitle ? reviewTitle.trim() : "",
+      review_text: reviewText.trim(),
+      customer_photo: customerPhoto ? customerPhoto.trim() : null,
+      is_verified_purchase: isVerifiedPurchase,
+      is_approved: isApproved,
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    try {
+      await supabaseAdmin.from("product_reviews").insert({
+        product_code: newReview.product_code,
+        customer_id: newReview.customer_id,
+        rating: newReview.rating,
+        review_title: newReview.review_title,
+        review_text: newReview.review_text,
+        customer_photo: newReview.customer_photo,
+        is_verified_purchase: isVerifiedPurchase,
+        is_approved: isApproved
+      });
+    } catch (dbErr) {
+    }
+    localReviewsCache.unshift(newReview);
+    return res.status(200).json({
+      success: true,
+      message: "Thank you! Your verified review has been published.",
+      review: newReview
+    });
+  } catch (err) {
+    console.error("[Submit Review Error]", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || "Failed to submit review."
+    });
+  }
+}
+
+// server/handlers/reviews/list.ts
+async function handler2(req, res) {
+  res.setHeader("Content-Type", "application/json");
+  if (req.method !== "GET") {
+    return res.status(405).json({ success: false, message: "Method not allowed. Use GET." });
+  }
+  try {
+    const { productCode, admin, eligibility, userId, userEmail } = req.query || {};
+    if (eligibility === "true") {
+      const code2 = typeof productCode === "string" ? productCode.trim().toLowerCase() : "";
+      const uid = typeof userId === "string" ? userId.trim() : "";
+      const email = typeof userEmail === "string" ? userEmail.trim() : "";
+      if (!code2 || !uid && !email) {
+        return res.status(200).json({
+          success: true,
+          eligible: false,
+          reason: "Sign in to verify purchase history."
+        });
+      }
+      let isPurchased = false;
+      try {
+        let query = supabaseAdmin.from("orders").select(`
+            id,
+            guest_name,
+            guest_email,
+            order_status,
+            order_items (
+              product_code
+            )
+          `).in("order_status", [
+          "PAYMENT_CONFIRMED",
+          "ORDER_CONFIRMED",
+          "PROCESSING",
+          "PACKED",
+          "SHIPPED",
+          "OUT_FOR_DELIVERY",
+          "DELIVERED"
+        ]);
+        if (uid) {
+          query = query.eq("customer_id", uid);
+        } else if (email) {
+          query = query.eq("guest_email", email);
+        }
+        const { data: customerOrders } = await query;
+        if (customerOrders && customerOrders.length > 0) {
+          for (const ord of customerOrders) {
+            const items = ord.order_items || [];
+            if (items.some(
+              (item) => item.product_code?.toLowerCase().trim() === code2
+            )) {
+              isPurchased = true;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+      }
+      const alreadyReviewed = localReviewsCache.some(
+        (r) => r.product_code === code2 && (uid && r.customer_id === uid || email && r.customer_email === email)
+      );
+      return res.status(200).json({
+        success: true,
+        eligible: isPurchased,
+        alreadyReviewed,
+        reason: isPurchased ? "Verified purchaser" : "Reviews are only open to customers who have ordered this product."
+      });
+    }
+    if (admin === "true") {
+      let allReviews = [...localReviewsCache];
+      try {
+        const { data: dbReviews, error } = await supabaseAdmin.from("product_reviews").select("*").order("created_at", { ascending: false });
+        if (!error && dbReviews && dbReviews.length > 0) {
+          allReviews = dbReviews;
+        }
+      } catch {
+      }
+      return res.status(200).json({
+        success: true,
+        reviews: allReviews
+      });
+    }
+    const code = typeof productCode === "string" ? productCode.trim().toLowerCase() : "";
+    let filteredReviews = localReviewsCache.filter(
+      (r) => (!code || r.product_code === code) && r.is_approved
+    );
+    try {
+      let query = supabaseAdmin.from("product_reviews").select("*").eq("is_approved", true).order("created_at", { ascending: false });
+      if (code) {
+        query = query.eq("product_code", code);
+      }
+      const { data: dbReviews, error } = await query;
+      if (!error && dbReviews && dbReviews.length > 0) {
+        filteredReviews = dbReviews;
+      }
+    } catch {
+    }
+    const totalReviews = filteredReviews.length;
+    const ratingBreakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    let ratingSum = 0;
+    for (const r of filteredReviews) {
+      const star = Math.max(1, Math.min(5, Math.round(r.rating || 5)));
+      ratingBreakdown[star] = (ratingBreakdown[star] || 0) + 1;
+      ratingSum += star;
+    }
+    const averageRating = totalReviews > 0 ? Number((ratingSum / totalReviews).toFixed(1)) : 5;
+    return res.status(200).json({
+      success: true,
+      productCode: code,
+      totalReviews,
+      averageRating,
+      ratingBreakdown,
+      reviews: filteredReviews
+    });
+  } catch (err) {
+    console.error("[List Reviews Error]", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || "Failed to fetch reviews."
+    });
+  }
 }
 
 // server/handlers/reviews/moderate.ts

@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+import { verifyAuth } from '../../lib/authMiddleware';
 
 // In-memory fallback cache for reviews (allows seamless operation if remote table not in schema cache)
 let localReviewsCache: Array<{
@@ -92,13 +93,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const numRating = Math.max(1, Math.min(5, Math.round(Number(rating))));
 
     // =========================================================================
-    // STRICT RULE VERIFICATION:
-    // Only customers who have PURCHASED this product in a paid order can review!
+    // SEC-09: Authenticated Session & Purchase Verification
     // =========================================================================
-    let isPurchased = false;
-    let verifiedCustomerName = customerName || 'Verified Patron';
+    let verifiedUser: any = null;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user) {
+          verifiedUser = auth.user;
+        }
+      } catch {}
+    }
 
-    if (customerId || customerEmail || customerPhone) {
+    const effectiveCustomerId = verifiedUser ? verifiedUser.id : null;
+    const effectiveCustomerEmail = verifiedUser ? verifiedUser.email : (customerEmail ? customerEmail.trim() : null);
+
+    let isPurchased = false;
+    let verifiedCustomerName = customerName || 'Atelier Patron';
+
+    if (effectiveCustomerId || effectiveCustomerEmail) {
       try {
         // Query orders belonging to this customer
         let query = supabaseAdmin
@@ -107,7 +121,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             id,
             guest_name,
             guest_email,
-            guest_phone,
             order_status,
             order_items (
               product_code
@@ -123,16 +136,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             'DELIVERED'
           ]);
 
-        if (customerId) {
-          query = query.eq('customer_id', customerId);
-        } else if (customerEmail) {
-          query = query.eq('guest_email', customerEmail.trim());
+        if (effectiveCustomerId) {
+          query = query.eq('customer_id', effectiveCustomerId);
+        } else if (effectiveCustomerEmail) {
+          query = query.eq('guest_email', effectiveCustomerEmail);
         }
 
         const { data: customerOrders, error: orderErr } = await query;
 
         if (!orderErr && customerOrders && customerOrders.length > 0) {
-          // Check if any of these paid orders contain this product code
           for (const ord of customerOrders) {
             const items = ord.order_items || [];
             const hasItem = items.some(
@@ -151,11 +163,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // In DEV/local preview testing mode, allow test submissions if user is logged in
-    if (!isPurchased && process.env.NODE_ENV !== 'production' && customerId) {
-      // In development fallback, if user is authenticated allow review
-      isPurchased = true;
-    }
+    // Authenticated purchasers are approved immediately.
+    // Unauthenticated guest reviewers require staff moderation.
+    const isApproved = Boolean(verifiedUser && isPurchased);
+    const isVerifiedPurchase = Boolean(isPurchased);
 
     if (!isPurchased) {
       return res.status(403).json({
@@ -168,15 +179,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const newReview = {
       id: reviewId,
       product_code: productCode.trim().toLowerCase(),
-      customer_id: customerId || null,
-      customer_name: verifiedCustomerName.trim(),
-      customer_email: customerEmail ? customerEmail.trim() : null,
+      customer_id: effectiveCustomerId,
+      customer_name: (verifiedUser?.full_name || verifiedCustomerName).trim(),
+      customer_email: effectiveCustomerEmail,
       rating: numRating,
       review_title: reviewTitle ? reviewTitle.trim() : '',
       review_text: reviewText.trim(),
       customer_photo: customerPhoto ? customerPhoto.trim() : null,
-      is_verified_purchase: true,
-      is_approved: true, // Default to true for verified purchasers
+      is_verified_purchase: isVerifiedPurchase,
+      is_approved: isApproved,
       created_at: new Date().toISOString(),
     };
 
@@ -189,8 +200,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         review_title: newReview.review_title,
         review_text: newReview.review_text,
         customer_photo: newReview.customer_photo,
-        is_verified_purchase: true,
-        is_approved: true,
+        is_verified_purchase: isVerifiedPurchase,
+        is_approved: isApproved,
       });
     } catch (dbErr) {
       // Supabase table fallback

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../../lib/supabaseServer';
-import { requireAuth } from '../../../lib/authMiddleware';
+import { requireAuth, sanitizePostgrestFilter } from '../../../lib/authMiddleware';
 
 const STAFF_ROLES = ['super_admin', 'admin', 'operations', 'support', 'marketing'];
 
@@ -57,11 +57,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Optional: Search non-staff customers to facilitate promoting/inviting them to staff
     let searchResults: any[] = [];
-    if (search.length >= 2) {
+    const cleanSearch = sanitizePostgrestFilter(search);
+    if (cleanSearch.length >= 2) {
       const { data: foundUsers, error: searchErr } = await supabaseAdmin
         .from('profiles')
         .select('*')
-        .or(`email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`)
+        .or(`email.ilike.%${cleanSearch}%,full_name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%`)
         .limit(10);
 
       if (!searchErr && foundUsers) {

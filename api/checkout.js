@@ -130,6 +130,92 @@ async function createCashfreePGOrder(params) {
   }
 }
 
+// server/lib/authMiddleware.ts
+async function verifyAuth(req) {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  if (!authHeader || typeof authHeader !== "string") {
+    return {
+      user: null,
+      error: "Authentication required. Missing Authorization header.",
+      status: 401
+    };
+  }
+  const parts = authHeader.trim().split(" ");
+  if (parts.length !== 2 || parts[0].toLowerCase() !== "bearer") {
+    return {
+      user: null,
+      error: 'Invalid Authorization header format. Expected "Bearer <token>".',
+      status: 401
+    };
+  }
+  const token = parts[1];
+  if (!token) {
+    return {
+      user: null,
+      error: "Empty authentication token provided.",
+      status: 401
+    };
+  }
+  try {
+    let authUser = null;
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) {
+      return {
+        user: null,
+        error: error?.message || "Invalid, expired, or untrusted session token.",
+        status: 401
+      };
+    }
+    authUser = data.user;
+    let profile = null;
+    try {
+      const { data: profData } = await supabaseAdmin.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+      profile = profData;
+    } catch (profErr) {
+      console.warn("[Auth Middleware] Profile lookup warning:", profErr);
+    }
+    const email = (authUser.email || profile?.email || "").toLowerCase().trim();
+    const isFounder = ["admin@thepetalandbloom.in", "sitaramnayak8763@gmail.com"].includes(email);
+    const metaRole = authUser.app_metadata?.role;
+    const dbRole = profile?.role;
+    let role = "customer";
+    if (isFounder) {
+      role = "super_admin";
+    } else if (dbRole && dbRole !== "admin") {
+      role = dbRole;
+    } else if (metaRole) {
+      role = metaRole;
+    } else if (dbRole) {
+      role = dbRole;
+    } else if (authUser.user_metadata?.role) {
+      role = authUser.user_metadata.role;
+    }
+    const customPermissions = [
+      ...Array.isArray(profile?.permissions) ? profile.permissions : [],
+      ...Array.isArray(authUser.app_metadata?.permissions) ? authUser.app_metadata.permissions : [],
+      ...Array.isArray(authUser.user_metadata?.permissions) ? authUser.user_metadata.permissions : []
+    ];
+    return {
+      user: {
+        id: authUser.id,
+        email: email || authUser.email || profile?.email || "",
+        role,
+        permissions: Array.from(new Set(customPermissions)),
+        full_name: profile?.full_name || authUser.user_metadata?.full_name,
+        phone: profile?.phone || authUser.user_metadata?.phone
+      },
+      status: 200
+    };
+  } catch (err) {
+    console.error("[Auth Middleware Verification Exception]:", err);
+    return {
+      user: null,
+      error: "Authentication verification service error.",
+      status: 500
+    };
+  }
+}
+
 // server/handlers/settings/store.ts
 var DEFAULT_OCCASION_BANNER = {
   enabled: false,
@@ -604,12 +690,35 @@ async function handler(req, res) {
     }
     let loyaltyPointsRedeemed = 0;
     let loyaltyDiscountInPaise = 0;
+    let verifiedCustomerId = null;
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    if (authHeader) {
+      try {
+        const auth = await verifyAuth(req);
+        if (auth.user) {
+          verifiedCustomerId = auth.user.id;
+        }
+      } catch {
+      }
+    }
     const isLoyaltyEnabled = storeConfig.featureFlags?.enableLoyalty ?? true;
     const minPointsOrder = storeConfig.businessRules?.minLoyaltyOrderPaise ?? 29900;
     const pointValuePaise = storeConfig.businessRules?.loyaltyPointRedemptionPaise ?? 50;
     const meetsPointsMinThreshold = subtotalInPaise >= minPointsOrder;
-    if (isLoyaltyEnabled && meetsPointsMinThreshold && customer.customerId && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
-      const { data: loyaltyAcc } = await supabaseAdmin.from("loyalty_accounts").select("points_balance").eq("customer_id", customer.customerId).maybeSingle();
+    if (isLoyaltyEnabled && meetsPointsMinThreshold && req.body.redeemPoints && Number(req.body.redeemPoints) > 0) {
+      if (!verifiedCustomerId) {
+        return res.status(401).json({
+          success: false,
+          message: "Authentication required: You must be signed in to your verified account to redeem loyalty points."
+        });
+      }
+      if (customer.customerId && customer.customerId !== verifiedCustomerId) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized: Loyalty points can only be redeemed for your own authenticated account."
+        });
+      }
+      const { data: loyaltyAcc } = await supabaseAdmin.from("loyalty_accounts").select("points_balance").eq("customer_id", verifiedCustomerId).maybeSingle();
       if (loyaltyAcc && (loyaltyAcc.points_balance || 0) > 0) {
         loyaltyPointsRedeemed = Math.min(loyaltyAcc.points_balance, Math.floor(Number(req.body.redeemPoints)));
         const maxRedeemablePaise = Math.max(0, subtotalInPaise - discountInPaise);
@@ -635,7 +744,7 @@ async function handler(req, res) {
     };
     const { data: newOrder, error: orderErr } = await supabaseAdmin.from("orders").insert({
       order_number: orderNumber,
-      customer_id: customer.customerId || null,
+      customer_id: verifiedCustomerId || customer.customerId || null,
       guest_name: customer.name.trim(),
       guest_phone: cleanPhone,
       guest_email: customer.email?.trim() || null,

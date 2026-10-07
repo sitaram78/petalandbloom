@@ -14,6 +14,7 @@ import {
   PackageCheck,
   ShieldCheck,
 } from 'lucide-react';
+import { safeUrl } from '@/utils/safeUrl';
 
 export interface LiveScanItem {
   scanDateTime: string;
@@ -168,7 +169,7 @@ export default function LiveCourierJourney({
           )}
 
           <a
-            href={trackingUrl}
+            href={safeUrl(trackingUrl)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-atelier-btn bg-canvas/60 border border-canvas-line text-xs font-medium text-bark hover:border-bark transition-all"
@@ -318,7 +319,7 @@ export default function LiveCourierJourney({
           <span>Carefully packed with protective archival wrapping for zero floral deformation during transit.</span>
         </span>
         <a
-          href={trackingUrl}
+          href={safeUrl(trackingUrl)}
           target="_blank"
           rel="noopener noreferrer"
           className="text-rose hover:text-rose-deep font-medium inline-flex items-center gap-1 self-end sm:self-auto transition-colors"

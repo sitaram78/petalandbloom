@@ -242,6 +242,10 @@ async function requireAuth(req, res, options) {
   }
   return user;
 }
+function sanitizePostgrestFilter(val) {
+  if (!val || typeof val !== "string") return "";
+  return val.replace(/[(),:.\\]/g, "").trim();
+}
 
 // server/handlers/admin/staff/index.ts
 var STAFF_ROLES = ["super_admin", "admin", "operations", "support", "marketing"];
@@ -283,8 +287,9 @@ async function handler(req, res) {
       })
     );
     let searchResults = [];
-    if (search.length >= 2) {
-      const { data: foundUsers, error: searchErr } = await supabaseAdmin.from("profiles").select("*").or(`email.ilike.%${search}%,full_name.ilike.%${search}%,phone.ilike.%${search}%`).limit(10);
+    const cleanSearch = sanitizePostgrestFilter(search);
+    if (cleanSearch.length >= 2) {
+      const { data: foundUsers, error: searchErr } = await supabaseAdmin.from("profiles").select("*").or(`email.ilike.%${cleanSearch}%,full_name.ilike.%${cleanSearch}%,phone.ilike.%${cleanSearch}%`).limit(10);
       if (!searchErr && foundUsers) {
         searchResults = foundUsers;
       }

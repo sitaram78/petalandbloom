@@ -615,7 +615,7 @@ function getCachedStoreSettings() {
 // server/lib/orderPaymentService.ts
 async function confirmOrderPayment(orderIdentifier, paymentInput, source = "system") {
   try {
-    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select(`
+    const query = supabaseAdmin.from("orders").select(`
         id,
         order_number,
         subtotal_in_paise,
@@ -632,7 +632,12 @@ async function confirmOrderPayment(orderIdentifier, paymentInput, source = "syst
         order_status,
         payment_status,
         loyalty_points_redeemed
-      `).or(`order_number.eq.${orderIdentifier},id.eq.${orderIdentifier}`).maybeSingle();
+      `);
+    const cleanId = String(orderIdentifier || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    if (!cleanId) {
+      return { success: false, message: "Invalid order reference format." };
+    }
+    const { data: order, error: orderErr } = await query.or(`order_number.eq.${cleanId},id.eq.${cleanId}`).maybeSingle();
     if (orderErr || !order) {
       return { success: false, message: "Order not found", error: orderErr };
     }

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../../lib/supabaseServer';
-import { requireAuth } from '../../../lib/authMiddleware';
+import { requireAuth, sanitizePostgrestFilter } from '../../../lib/authMiddleware';
 import { logAuditEvent, AUDIT_ACTIONS } from '../../../lib/auditService';
 import { generateTrackingUrl, CarrierType } from '../../../../src/services/shippingService';
 
@@ -143,11 +143,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 6. Patron Account Resolution (Auto-link customer_id if user exists in database)
     let linkedCustomerId: string | null = null;
     try {
-      // Check customer_profiles or auth.users
+      const safePhone = sanitizePostgrestFilter(cleanPhone);
+      const safeEmail = cleanEmail ? sanitizePostgrestFilter(cleanEmail) : null;
       const { data: profile } = await supabaseAdmin
         .from('customer_profiles')
         .select('id, user_id, phone, email')
-        .or(`phone.eq.${cleanPhone}${cleanEmail ? `,email.eq.${cleanEmail}` : ''}`)
+        .or(`phone.eq.${safePhone}${safeEmail ? `,email.eq.${safeEmail}` : ''}`)
         .maybeSingle();
 
       if (profile?.user_id) {

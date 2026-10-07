@@ -4,6 +4,7 @@ import { brandInfo, footerPolicyLinks } from '@/data/site';
 import { generalEnquiryMessage } from '@/utils/whatsapp';
 import { useNavigation } from '@/context/NavigationContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
+import { safeUrl } from '@/utils/safeUrl';
 
 export default function Footer() {
   const { navItems } = useNavigation();
@@ -87,7 +88,7 @@ export default function Footer() {
             <h4 className="text-[10px] uppercase tracking-[0.2em] text-linen/40 mb-4 font-semibold">Connect</h4>
             <div className="flex items-center gap-3 mb-6">
               <a
-                href={settings.instagramUrl}
+                href={safeUrl(settings.instagramUrl)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-10 h-10 rounded-full border border-linen/20 flex items-center justify-center hover:border-rose hover:text-rose transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-bark-dark"
@@ -106,7 +107,7 @@ export default function Footer() {
                 <MessageCircle size={18} strokeWidth={1.5} />
               </button>
               <a
-                href={`mailto:${settings.supportEmail}`}
+                href={safeUrl(`mailto:${settings.supportEmail}`)}
                 className="w-10 h-10 rounded-full border border-linen/20 flex items-center justify-center hover:border-rose hover:text-rose transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-bark-dark"
                 aria-label="Email studio concierge"
                 title={`Email: ${settings.supportEmail}`}

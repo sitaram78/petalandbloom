@@ -582,6 +582,10 @@ async function requireAuth(req, res, options) {
   }
   return user;
 }
+function sanitizePostgrestFilter(val) {
+  if (!val || typeof val !== "string") return "";
+  return val.replace(/[(),:.\\]/g, "").trim();
+}
 
 // server/handlers/settings/store.ts
 var DEFAULT_OCCASION_BANNER = {
@@ -647,7 +651,7 @@ function getCachedStoreSettings() {
 // server/lib/orderPaymentService.ts
 async function confirmOrderPayment(orderIdentifier, paymentInput, source = "system") {
   try {
-    const { data: order, error: orderErr } = await supabaseAdmin.from("orders").select(`
+    const query = supabaseAdmin.from("orders").select(`
         id,
         order_number,
         subtotal_in_paise,
@@ -664,7 +668,12 @@ async function confirmOrderPayment(orderIdentifier, paymentInput, source = "syst
         order_status,
         payment_status,
         loyalty_points_redeemed
-      `).or(`order_number.eq.${orderIdentifier},id.eq.${orderIdentifier}`).maybeSingle();
+      `);
+    const cleanId = String(orderIdentifier || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    if (!cleanId) {
+      return { success: false, message: "Invalid order reference format." };
+    }
+    const { data: order, error: orderErr } = await query.or(`order_number.eq.${cleanId},id.eq.${cleanId}`).maybeSingle();
     if (orderErr || !order) {
       return { success: false, message: "Order not found", error: orderErr };
     }
@@ -1658,7 +1667,9 @@ async function handler5(req, res) {
     const totalInPaise = Math.max(0, subtotalInPaise - discountInPaise + shippingFeeInPaise);
     let linkedCustomerId = null;
     try {
-      const { data: profile } = await supabaseAdmin.from("customer_profiles").select("id, user_id, phone, email").or(`phone.eq.${cleanPhone}${cleanEmail ? `,email.eq.${cleanEmail}` : ""}`).maybeSingle();
+      const safePhone = sanitizePostgrestFilter(cleanPhone);
+      const safeEmail = cleanEmail ? sanitizePostgrestFilter(cleanEmail) : null;
+      const { data: profile } = await supabaseAdmin.from("customer_profiles").select("id, user_id, phone, email").or(`phone.eq.${safePhone}${safeEmail ? `,email.eq.${safeEmail}` : ""}`).maybeSingle();
       if (profile?.user_id) {
         linkedCustomerId = profile.user_id;
       } else if (profile?.id) {

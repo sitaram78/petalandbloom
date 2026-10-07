@@ -29,7 +29,7 @@ export async function confirmOrderPayment(
 ): Promise<ConfirmPaymentResult> {
   try {
     // 1. Fetch target order
-    const { data: order, error: orderErr } = await supabaseAdmin
+    const query = supabaseAdmin
       .from('orders')
       .select(`
         id,
@@ -48,8 +48,15 @@ export async function confirmOrderPayment(
         order_status,
         payment_status,
         loyalty_points_redeemed
-      `)
-      .or(`order_number.eq.${orderIdentifier},id.eq.${orderIdentifier}`)
+      `);
+
+    const cleanId = String(orderIdentifier || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!cleanId) {
+      return { success: false, message: 'Invalid order reference format.' };
+    }
+
+    const { data: order, error: orderErr } = await query
+      .or(`order_number.eq.${cleanId},id.eq.${cleanId}`)
       .maybeSingle();
 
     if (orderErr || !order) {
