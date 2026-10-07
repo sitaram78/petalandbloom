@@ -353,7 +353,10 @@ export default function ShopPage() {
         canonicalPath="/shop"
       />
 
-      <section className="pt-16 pb-12 lg:pt-24 lg:pb-20">
+      <section
+        className="pb-12 lg:pb-20"
+        style={{ paddingTop: 'calc(var(--site-header-height, 4rem) + 1.25rem)' }}
+      >
         <div className="container-lux grid grid-cols-1 lg:grid-cols-12 gap-12 items-end">
           <div className="lg:col-span-7">
             <span className="font-serif italic text-sm text-rose mb-3 block uppercase tracking-widest">
@@ -445,7 +448,10 @@ export default function ShopPage() {
       </section>
 
       {/* Toolbar */}
-      <div className="sticky top-16 z-30 bg-linen/90 backdrop-blur-md border-y border-canvas-line py-3 sm:py-4">
+      <div
+        className="sticky z-30 bg-linen/90 backdrop-blur-md border-y border-canvas-line py-3 sm:py-4 transition-[top] duration-200"
+        style={{ top: 'var(--site-header-height, 4rem)' }}
+      >
         <div className="container-lux flex flex-col gap-[0.8rem] sm:gap-6">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
 

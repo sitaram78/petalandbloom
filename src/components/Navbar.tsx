@@ -37,6 +37,34 @@ export default function Navbar() {
   const { settings, triggerAssistance } = useStoreSettings();
   const searchRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useClickOutside<HTMLDivElement>(() => setSearchOpen(false));
+  const headerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const updateHeaderHeight = () => {
+      if (headerRef.current) {
+        const height = headerRef.current.offsetHeight;
+        if (height > 0) {
+          document.documentElement.style.setProperty('--site-header-height', `${height}px`);
+        }
+      }
+    };
+
+    updateHeaderHeight();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && headerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        updateHeaderHeight();
+      });
+      resizeObserver.observe(headerRef.current);
+    }
+
+    window.addEventListener('resize', updateHeaderHeight);
+    return () => {
+      window.removeEventListener('resize', updateHeaderHeight);
+      resizeObserver?.disconnect();
+    };
+  }, [settings.occasionBanner, settings.featureFlags?.storeMaintenanceMode]);
 
   const topLevelNav = useMemo(() => {
     const filtered = navItems.filter(item => !item.parent_id).sort((a, b) => a.order - b.order);
@@ -96,6 +124,7 @@ export default function Navbar() {
   return (
     <>
       <header
+        ref={headerRef}
         className={`fixed top-0 left-0 right-0 z-50 ${
           searchOpen
             ? 'bg-parchment-50 shadow-sm'

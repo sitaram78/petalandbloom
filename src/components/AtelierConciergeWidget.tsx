@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   MessageCircle,
   X,
@@ -40,6 +41,8 @@ export default function AtelierConciergeWidget() {
   } = useStoreSettings();
 
   const { user, profile } = useAuth();
+  const location = useLocation();
+  const isProductPage = location.pathname.startsWith('/product/');
 
   const [conversationId, setConversationId] = useState<string | null>(() => {
     const stored = localStorage.getItem('tpb_active_conversation_id');
@@ -461,7 +464,11 @@ export default function AtelierConciergeWidget() {
     <>
       {/* Floating Action Launcher (when chat is closed) */}
       {!isChatOpen && (
-        <div className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 print:hidden flex flex-col items-end">
+        <div
+          className={`fixed right-4 sm:bottom-6 sm:right-6 z-40 print:hidden flex flex-col items-end transition-all duration-300 ${
+            isProductPage ? 'bottom-32' : 'bottom-20'
+          }`}
+        >
           <button
             onClick={handleBubbleClick}
             className={`group flex items-center shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 border ${
