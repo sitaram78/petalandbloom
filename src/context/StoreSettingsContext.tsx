@@ -284,10 +284,22 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
           if (contentType.includes('application/json')) {
             const json = await res.json();
             if (json.success && json.settings && isMounted) {
-              setSettings((prev) => ({ ...prev, ...json.settings }));
-              try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(json.settings));
-              } catch {}
+              setSettings((prev) => {
+                const apiBanner = json.settings.occasionBanner;
+                const isApiDefault = !apiBanner || apiBanner.occasionTitle === "Mother's Day Special";
+                const prevIsCustom = prev.occasionBanner && prev.occasionBanner.occasionTitle !== "Mother's Day Special";
+                const resolvedBanner = (prevIsCustom && isApiDefault) ? prev.occasionBanner : (apiBanner || prev.occasionBanner);
+
+                const next = {
+                  ...prev,
+                  ...json.settings,
+                  occasionBanner: resolvedBanner,
+                };
+                try {
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+                } catch {}
+                return next;
+              });
             }
           }
         }
@@ -313,6 +325,9 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
                 conciergeChannelMode: (newRow.concierge_channel_mode as ConciergeChannelMode) || prev.conciergeChannelMode,
                 whatsappNumber: newRow.whatsapp_number || prev.whatsappNumber,
                 supportEmail: newRow.support_email || prev.supportEmail,
+                occasionBanner: newRow.occasion_banner || prev.occasionBanner,
+                featureFlags: newRow.feature_flags ? { ...prev.featureFlags, ...newRow.feature_flags } : prev.featureFlags,
+                businessRules: newRow.business_rules ? { ...prev.businessRules, ...newRow.business_rules } : prev.businessRules,
               };
               try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(next));

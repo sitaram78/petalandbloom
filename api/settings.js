@@ -330,7 +330,8 @@ async function handler(req, res) {
           pickupContactPhone: data.pickup_contact_phone || serverCache.pickupContactPhone,
           pickupPincode: data.pickup_pincode || serverCache.pickupPincode,
           featureFlags: data.feature_flags ? { ...DEFAULT_FEATURE_FLAGS, ...data.feature_flags } : serverCache.featureFlags,
-          businessRules: data.business_rules ? { ...DEFAULT_BUSINESS_RULES, ...data.business_rules } : serverCache.businessRules
+          businessRules: data.business_rules ? { ...DEFAULT_BUSINESS_RULES, ...data.business_rules } : serverCache.businessRules,
+          occasionBanner: data.occasion_banner ? { ...DEFAULT_OCCASION_BANNER, ...data.occasion_banner } : serverCache.occasionBanner
         };
       }
       if (!data?.occasion_banner) {

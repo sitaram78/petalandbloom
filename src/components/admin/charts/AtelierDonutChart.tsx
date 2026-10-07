@@ -12,6 +12,7 @@ interface AtelierDonutChartProps {
   subtitle?: string;
   centerLabel?: string;
   size?: number;
+  totalOverride?: number;
 }
 
 export default function AtelierDonutChart({
@@ -20,10 +21,11 @@ export default function AtelierDonutChart({
   subtitle = 'Status distribution across studio orders',
   centerLabel = 'Total Orders',
   size = 130,
+  totalOverride,
 }: AtelierDonutChartProps) {
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
 
-  const total = segments.reduce((sum, s) => sum + s.value, 0);
+  const total = totalOverride !== undefined ? totalOverride : segments.reduce((sum, s) => sum + s.value, 0);
 
   if (total === 0) {
     return (

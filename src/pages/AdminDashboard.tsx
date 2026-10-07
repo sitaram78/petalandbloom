@@ -60,10 +60,12 @@ export default function AdminDashboard() {
   const [totalRevenueRupees, setTotalRevenueRupees] = useState(0);
   const [totalOrdersCount, setTotalOrdersCount] = useState(0);
   const [confirmedOrdersCount, setConfirmedOrdersCount] = useState(0);
+  const [awaitingCraftingOrdersCount, setAwaitingCraftingOrdersCount] = useState(0);
   const [processingOrdersCount, setProcessingOrdersCount] = useState(0);
   const [packedOrdersCount, setPackedOrdersCount] = useState(0);
   const [shippedOrdersCount, setShippedOrdersCount] = useState(0);
   const [deliveredOrdersCount, setDeliveredOrdersCount] = useState(0);
+  const [cancelledOrdersCount, setCancelledOrdersCount] = useState(0);
   const [recentOrders, setRecentOrders] = useState<OrderSummary[]>([]);
   const [totalCustomersCount, setTotalCustomersCount] = useState(0);
 
@@ -87,17 +89,25 @@ export default function AdminDashboard() {
           );
           setConfirmedOrdersCount(confirmed.length);
 
+          const awaitingCrafting = orders.filter(
+            (o) => o.order_status === 'CONFIRMED' || o.order_status === 'PAYMENT_CONFIRMED' || o.order_status === 'PENDING'
+          );
+          setAwaitingCraftingOrdersCount(awaitingCrafting.length);
+
           const processing = orders.filter((o) => o.order_status === 'PROCESSING');
           setProcessingOrdersCount(processing.length);
 
           const packed = orders.filter((o) => o.order_status === 'PACKED');
           setPackedOrdersCount(packed.length);
 
-          const shipped = orders.filter((o) => o.order_status === 'SHIPPED');
+          const shipped = orders.filter((o) => o.order_status === 'SHIPPED' || o.order_status === 'OUT_FOR_DELIVERY');
           setShippedOrdersCount(shipped.length);
 
           const delivered = orders.filter((o) => o.order_status === 'DELIVERED');
           setDeliveredOrdersCount(delivered.length);
+
+          const cancelled = orders.filter((o) => o.order_status === 'CANCELLED');
+          setCancelledOrdersCount(cancelled.length);
 
           const rev = confirmed.reduce((acc, curr) => acc + (curr.total_in_paise || 0), 0);
           setTotalRevenueRupees(rev / 100);
@@ -156,11 +166,12 @@ export default function AdminDashboard() {
   const aovRupees = confirmedOrdersCount > 0 ? Math.round(totalRevenueRupees / confirmedOrdersCount) : 0;
 
   const donutSegments: DonutSegment[] = [
-    { label: 'Confirmed (Paid)', value: confirmedOrdersCount, color: '#047857' },
+    { label: 'Awaiting Crafting', value: awaitingCraftingOrdersCount, color: '#047857' },
     { label: 'In Crafting', value: processingOrdersCount, color: '#D97706' },
     { label: 'Packed & Staged', value: packedOrdersCount, color: '#2563EB' },
     { label: 'Shipped', value: shippedOrdersCount, color: '#7C3AED' },
     { label: 'Delivered', value: deliveredOrdersCount, color: '#2C2724' },
+    { label: 'Cancelled', value: cancelledOrdersCount, color: '#EF4444' },
   ].filter((s) => s.value > 0);
 
   const sparklineRevenueData = timelineData.slice(-7).map((d) => d.value);
@@ -416,11 +427,12 @@ export default function AdminDashboard() {
                 segments={
                   donutSegments.length > 0
                     ? donutSegments
-                    : [{ label: 'Confirmed (Paid)', value: 1, color: '#047857' }]
+                    : [{ label: 'Awaiting Crafting', value: 0, color: '#047857' }]
                 }
                 title="Fulfillment Pipeline"
                 subtitle="Active studio orders by fulfillment lifecycle"
                 centerLabel="Total Orders"
+                totalOverride={totalOrdersCount}
               />
             </Reveal>
           </div>
