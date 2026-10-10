@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link, Navigate } from 'react-router-dom';
+import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Heart, ShoppingBag, Clock, Truck,
   Check, Gift, Sparkles, Star, Palette, Search
@@ -23,171 +23,24 @@ import { howItWorksSteps } from '@/data/site';
 import { trackEvent } from '@/utils/analytics';
 import { useProducts } from '@/context/ProductContext';
 import { generalEnquiryMessage } from '@/utils/whatsapp';
-
-interface HueStyle {
-  background: string;
-  color: string;
-  border?: string;
-}
-
-const HUE_PALETTE: Record<string, HueStyle> = {
-  // Pinks / Roses
-  pink: { background: 'linear-gradient(135deg, #fbcfe8 0%, #f472b6 45%, #be185d 100%)', color: '#ffffff' },
-  rose: { background: 'linear-gradient(135deg, #fda4af 0%, #e11d48 45%, #881337 100%)', color: '#ffffff' },
-  'blush pink': { background: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 50%, #f472b6 100%)', color: '#831843', border: '1px solid rgba(131, 24, 67, 0.2)' },
-  'baby pink': { background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 50%, #f472b6 100%)', color: '#831843', border: '1px solid rgba(131, 24, 67, 0.18)' },
-  'hot pink': { background: 'linear-gradient(135deg, #f472b6 0%, #db2777 50%, #831843 100%)', color: '#ffffff' },
-  magenta: { background: 'linear-gradient(135deg, #f0abfc 0%, #c026d3 50%, #701a75 100%)', color: '#ffffff' },
-  fuchsia: { background: 'linear-gradient(135deg, #f5d0fe 0%, #d946ef 50%, #86198f 100%)', color: '#ffffff' },
-
-  // Reds
-  red: { background: 'linear-gradient(135deg, #fca5a5 0%, #ef4444 45%, #991b1b 100%)', color: '#ffffff' },
-  crimson: { background: 'linear-gradient(135deg, #fda4af 0%, #dc2626 50%, #881337 100%)', color: '#ffffff' },
-  maroon: { background: 'linear-gradient(135deg, #fb7185 0%, #991b1b 50%, #450a0a 100%)', color: '#ffffff' },
-  ruby: { background: 'linear-gradient(135deg, #fda4af 0%, #e11d48 50%, #881337 100%)', color: '#ffffff' },
-  cherry: { background: 'linear-gradient(135deg, #fca5a5 0%, #be123c 50%, #701a75 100%)', color: '#ffffff' },
-  burgundy: { background: 'linear-gradient(135deg, #be123c 0%, #881337 50%, #450a0a 100%)', color: '#ffffff' },
-
-  // Blues
-  blue: { background: 'linear-gradient(135deg, #93c5fd 0%, #3b82f6 45%, #1e3a8a 100%)', color: '#ffffff' },
-  'sky blue': { background: 'linear-gradient(135deg, #e0f2fe 0%, #38bdf8 50%, #0369a1 100%)', color: '#ffffff' },
-  'baby blue': { background: 'linear-gradient(135deg, #f0f9ff 0%, #bae6fd 50%, #38bdf8 100%)', color: '#0c4a6e', border: '1px solid rgba(12, 74, 110, 0.2)' },
-  'light blue': { background: 'linear-gradient(135deg, #e0f2fe 0%, #60a5fa 50%, #1d4ed8 100%)', color: '#ffffff' },
-  navy: { background: 'linear-gradient(135deg, #60a5fa 0%, #1e40af 50%, #0a0f1d 100%)', color: '#ffffff' },
-  'royal blue': { background: 'linear-gradient(135deg, #93c5fd 0%, #1d4ed8 50%, #172554 100%)', color: '#ffffff' },
-  cyan: { background: 'linear-gradient(135deg, #a5f3fc 0%, #06b6d4 50%, #0e7490 100%)', color: '#ffffff' },
-  teal: { background: 'linear-gradient(135deg, #99f6e4 0%, #0d9488 50%, #134e4a 100%)', color: '#ffffff' },
-  turquoise: { background: 'linear-gradient(135deg, #ccfbf1 0%, #2dd4bf 50%, #0f766e 100%)', color: '#134e4a' },
-  ocean: { background: 'linear-gradient(135deg, #7dd3fc 0%, #0284c7 50%, #082f49 100%)', color: '#ffffff' },
-
-  // Yellows & Golds
-  yellow: { background: 'linear-gradient(135deg, #fef9c3 0%, #fde047 45%, #ca8a04 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' },
-  'light yellow': { background: 'linear-gradient(135deg, #fefce8 0%, #fef08a 50%, #facc15 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' },
-  lemon: { background: 'linear-gradient(135deg, #fef9c3 0%, #fde047 50%, #ca8a04 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' },
-  mustard: { background: 'linear-gradient(135deg, #fef08a 0%, #ca8a04 50%, #713f12 100%)', color: '#ffffff' },
-  gold: { background: 'linear-gradient(135deg, #fef3c7 0%, #f59e0b 50%, #92400e 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' },
-  golden: { background: 'linear-gradient(135deg, #fef3c7 0%, #f59e0b 50%, #92400e 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' },
-
-  // Purples & Lavenders
-  lavender: { background: 'linear-gradient(135deg, #f3e8ff 0%, #a855f7 50%, #581c87 100%)', color: '#ffffff' },
-  purple: { background: 'linear-gradient(135deg, #e9d5ff 0%, #9333ea 50%, #4c1d95 100%)', color: '#ffffff' },
-  violet: { background: 'linear-gradient(135deg, #ddd6fe 0%, #7c3aed 50%, #3b0764 100%)', color: '#ffffff' },
-  lilac: { background: 'linear-gradient(135deg, #f3e8ff 0%, #c084fc 50%, #6b21a8 100%)', color: '#ffffff' },
-  plum: { background: 'linear-gradient(135deg, #d946ef 0%, #701a75 50%, #2e0854 100%)', color: '#ffffff' },
-  mauve: { background: 'linear-gradient(135deg, #f3e8ff 0%, #a855f7 50%, #581c87 100%)', color: '#ffffff' },
-
-  // Whites & Creams
-  white: { background: 'linear-gradient(135deg, #ffffff 0%, #f5f5f4 50%, #d6d3d1 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  'white/ ivory': { background: 'linear-gradient(135deg, #ffffff 0%, #fffbeb 50%, #fef3c7 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  ivory: { background: 'linear-gradient(135deg, #ffffff 0%, #fffbeb 50%, #fde68a 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  cream: { background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fcd34d 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  'off white': { background: 'linear-gradient(135deg, #ffffff 0%, #fafaf9 50%, #e7e5e4 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  pearl: { background: 'linear-gradient(135deg, #ffffff 0%, #f5f5f4 50%, #d6d3d1 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-
-  // Greens
-  green: { background: 'linear-gradient(135deg, #86efac 0%, #22c55e 50%, #14532d 100%)', color: '#ffffff' },
-  sage: { background: 'linear-gradient(135deg, #d1fae5 0%, #8C9B7F 50%, #3f4e38 100%)', color: '#ffffff' },
-  moss: { background: 'linear-gradient(135deg, #a3b18a 0%, #58643F 50%, #283618 100%)', color: '#ffffff' },
-  olive: { background: 'linear-gradient(135deg, #bef264 0%, #65a30d 50%, #365314 100%)', color: '#ffffff' },
-  mint: { background: 'linear-gradient(135deg, #d1fae5 0%, #34d399 50%, #065f46 100%)', color: '#064e3b' },
-  emerald: { background: 'linear-gradient(135deg, #6ee7b7 0%, #10b981 50%, #064e3b 100%)', color: '#ffffff' },
-  forest: { background: 'linear-gradient(135deg, #4ade80 0%, #15803d 50%, #052e16 100%)', color: '#ffffff' },
-
-  // Oranges & Peaches
-  orange: { background: 'linear-gradient(135deg, #fed7aa 0%, #f97316 50%, #9a3412 100%)', color: '#ffffff' },
-  peach: { background: 'linear-gradient(135deg, #ffedd5 0%, #fdba74 50%, #ea580c 100%)', color: '#431407' },
-  coral: { background: 'linear-gradient(135deg, #fecdd3 0%, #fb7185 50%, #be123c 100%)', color: '#ffffff' },
-  apricot: { background: 'linear-gradient(135deg, #ffedd5 0%, #fed7aa 50%, #ea580c 100%)', color: '#431407' },
-  rust: { background: 'linear-gradient(135deg, #fb923c 0%, #c2410c 50%, #6c220a 100%)', color: '#ffffff' },
-  amber: { background: 'linear-gradient(135deg, #fde68a 0%, #d97706 50%, #78350f 100%)', color: '#ffffff' },
-
-  // Browns & Neutrals
-  brown: { background: 'linear-gradient(135deg, #d2b48c 0%, #78350f 50%, #381a04 100%)', color: '#ffffff' },
-  bark: { background: 'linear-gradient(135deg, #6b5751 0%, #382E2B 55%, #181210 100%)', color: '#ffffff' },
-  coffee: { background: 'linear-gradient(135deg, #a16207 0%, #451a03 50%, #1a0801 100%)', color: '#ffffff' },
-  chocolate: { background: 'linear-gradient(135deg, #78350f 0%, #3b1c11 50%, #170703 100%)', color: '#ffffff' },
-  tan: { background: 'linear-gradient(135deg, #fef3c7 0%, #d2b48c 50%, #8c633a 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  camel: { background: 'linear-gradient(135deg, #f5ecd7 0%, #c19a6b 50%, #6b4c23 100%)', color: '#ffffff' },
-  beige: { background: 'linear-gradient(135deg, #fffbeb 0%, #f5f5dc 50%, #c5b88c 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-  canvas: { background: 'linear-gradient(135deg, #f2ece1 0%, #CBB89A 50%, #8c7859 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-
-  // Blacks & Grays
-  black: { background: 'linear-gradient(135deg, #52525b 0%, #27272a 50%, #09090b 100%)', color: '#ffffff' },
-  charcoal: { background: 'linear-gradient(135deg, #64748b 0%, #334155 50%, #0f172a 100%)', color: '#ffffff' },
-  grey: { background: 'linear-gradient(135deg, #cbd5e1 0%, #64748b 50%, #1e293b 100%)', color: '#ffffff' },
-  gray: { background: 'linear-gradient(135deg, #cbd5e1 0%, #64748b 50%, #1e293b 100%)', color: '#ffffff' },
-  silver: { background: 'linear-gradient(135deg, #ffffff 0%, #e2e8f0 50%, #94a3b8 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' },
-};
-
-const MULTI_GRADIENT = 'linear-gradient(135deg, #f43f5e 0%, #a855f7 35%, #3b82f6 70%, #10b981 100%)';
-
-function getHueStyle(rawColor: string): HueStyle {
-  if (!rawColor) return { background: 'linear-gradient(135deg, #6b5751 0%, #382E2B 55%, #181210 100%)', color: '#ffffff' };
-  const clean = rawColor.toLowerCase().trim();
-
-  // Multi / Mix / Rainbow / Custom mix
-  if (
-    clean.includes('mix') ||
-    clean.includes('multi') ||
-    clean.includes('rainbow') ||
-    clean.includes('assort') ||
-    clean.includes('custom')
-  ) {
-    return { background: MULTI_GRADIENT, color: '#ffffff' };
-  }
-
-  // Exact match
-  if (HUE_PALETTE[clean]) {
-    return HUE_PALETTE[clean];
-  }
-
-  // Compound check e.g. "white/ ivory"
-  if (clean.includes('/')) {
-    const parts = clean.split('/').map((s) => s.trim());
-    for (const part of parts) {
-      if (HUE_PALETTE[part]) {
-        return HUE_PALETTE[part];
-      }
-    }
-  }
-
-  // Substring checks with fade-to-deep gradients
-  if (clean.includes('blue')) return { background: 'linear-gradient(135deg, #93c5fd 0%, #3b82f6 45%, #1e3a8a 100%)', color: '#ffffff' };
-  if (clean.includes('yellow')) return { background: 'linear-gradient(135deg, #fef9c3 0%, #fde047 45%, #ca8a04 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' };
-  if (clean.includes('gold')) return { background: 'linear-gradient(135deg, #fef3c7 0%, #f59e0b 50%, #92400e 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.18)' };
-  if (clean.includes('red') || clean.includes('crimson')) return { background: 'linear-gradient(135deg, #fca5a5 0%, #ef4444 45%, #991b1b 100%)', color: '#ffffff' };
-  if (clean.includes('pink') || clean.includes('rose')) return { background: 'linear-gradient(135deg, #fbcfe8 0%, #f472b6 45%, #be185d 100%)', color: '#ffffff' };
-  if (clean.includes('blush')) return { background: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 50%, #f472b6 100%)', color: '#831843', border: '1px solid rgba(131, 24, 67, 0.2)' };
-  if (clean.includes('white') || clean.includes('ivory') || clean.includes('cream')) {
-    return { background: 'linear-gradient(135deg, #ffffff 0%, #fffbeb 50%, #fef3c7 100%)', color: '#382E2B', border: '1px solid rgba(56, 46, 43, 0.2)' };
-  }
-  if (clean.includes('purple') || clean.includes('lavender') || clean.includes('lilac') || clean.includes('violet')) {
-    return { background: 'linear-gradient(135deg, #f3e8ff 0%, #a855f7 50%, #581c87 100%)', color: '#ffffff' };
-  }
-  if (clean.includes('green') || clean.includes('sage') || clean.includes('moss')) {
-    return { background: 'linear-gradient(135deg, #d1fae5 0%, #8C9B7F 50%, #3f4e38 100%)', color: '#ffffff' };
-  }
-  if (clean.includes('orange') || clean.includes('peach') || clean.includes('coral')) {
-    return { background: 'linear-gradient(135deg, #fed7aa 0%, #f97316 50%, #9a3412 100%)', color: '#ffffff' };
-  }
-  if (clean.includes('brown') || clean.includes('coffee') || clean.includes('tan') || clean.includes('beige')) {
-    return { background: 'linear-gradient(135deg, #d2b48c 0%, #78350f 50%, #381a04 100%)', color: '#ffffff' };
-  }
-  if (clean.includes('black') || clean.includes('charcoal')) {
-    return { background: 'linear-gradient(135deg, #52525b 0%, #27272a 50%, #09090b 100%)', color: '#ffffff' };
-  }
-
-  // Fallback
-  return { background: `linear-gradient(135deg, #6b5751 0%, #382E2B 55%, #181210 100%)`, color: '#ffffff' };
-}
+import { resolveHueStyle } from '@/utils/colorPalette';
 
 export default function ProductDetail() {
+  const navigate = useNavigate();
   const { code } = useParams<{ code: string }>();
   const { products, getProductByCode, loading } = useProducts();
   const product = code ? getProductByCode(code) : undefined;
   const { addItem } = useCart();
   const { toggleItem, isWishlisted } = useWishlist();
   const { addRecentlyViewed } = useRecentlyViewed();
+
+  const handleBackToStudio = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate('/shop');
+    }
+  };
 
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedColor, setSelectedColor] = useState<string>('');
@@ -372,10 +225,14 @@ export default function ProductDetail() {
       {/* Breadcrumb */}
       <div className="container-lux py-4">
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-ink-light">
-          <Link to="/shop" className="inline-flex items-center gap-2 hover:text-rose transition-colors">
+          <button
+            type="button"
+            onClick={handleBackToStudio}
+            className="inline-flex items-center gap-2 hover:text-rose transition-colors cursor-pointer"
+          >
             <ArrowLeft size={16} strokeWidth={1.5} />
             Back to Studio
-          </Link>
+          </button>
         </nav>
       </div>
 
@@ -611,12 +468,22 @@ export default function ProductDetail() {
                   {product.colors && product.colors.length > 0 && (
                     <div>
                       <label className="block text-sm font-medium text-bark mb-4 uppercase tracking-wider">
-                        Select Hue {selectedColor && <span className="font-normal normal-case text-rose font-sans">— {selectedColor}</span>}
+                        Select Hue{' '}
+                        {selectedColor && (
+                          <span className="font-normal normal-case text-rose font-sans">
+                            — {selectedColor}{' '}
+                            {resolveHueStyle(selectedColor).descriptor && (
+                              <span className="text-xs text-ink-light font-normal italic ml-1">
+                                ({resolveHueStyle(selectedColor).descriptor})
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </label>
                       <div className="flex flex-wrap gap-3">
                         {product.colors.map((color) => {
                           const isSelected = selectedColor === color;
-                          const hueStyle = getHueStyle(color);
+                          const hueStyle = resolveHueStyle(color);
                           return (
                             <button
                               key={color}
@@ -628,7 +495,7 @@ export default function ProductDetail() {
                                       background: hueStyle.background,
                                       color: hueStyle.color,
                                       border: hueStyle.border || '1px solid transparent',
-                                      textShadow: hueStyle.color === '#ffffff' ? '0 1px 2px rgba(0, 0, 0, 0.25)' : 'none',
+                                      textShadow: hueStyle.textShadow || 'none',
                                     }
                                   : undefined
                               }

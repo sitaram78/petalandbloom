@@ -23,6 +23,7 @@ import { fetchOccasions, createOccasion, type Occasion } from '@/services/occasi
 import { logAudit, AUDIT_ACTIONS } from '@/lib/auditClient';
 import ProductBulkImportModal from '@/components/admin/ProductBulkImportModal';
 import { useRBAC } from '@/hooks/useRBAC';
+import { PRESET_COLORS, getColorSpec, getQuickViewDotMeta } from '@/utils/colorPalette';
 
 interface ProductForm {
   name: string;
@@ -114,6 +115,14 @@ export default function AdminEditor() {
   const [quickOccasionEmoji, setQuickOccasionEmoji] = useState('🌸');
   const [creatingOccasion, setCreatingOccasion] = useState(false);
 
+  // Atelier Color Palette & Multi-Tone System
+  const [colorMode, setColorMode] = useState<'single' | 'combo'>('single');
+  const [selectedSingleHue, setSelectedSingleHue] = useState<string>(PRESET_COLORS[0]?.name || 'Red');
+  const [customSingleText, setCustomSingleText] = useState<string>('');
+  const [comboPrimary, setComboPrimary] = useState<string>('Yellow');
+  const [comboSecondary, setComboSecondary] = useState<string>('Blue');
+  const [comboTertiary, setComboTertiary] = useState<string>('');
+
   const [form, setForm] = useState<ProductForm>({
     name: '',
     code: '',
@@ -177,6 +186,31 @@ export default function AdminEditor() {
         ? current.filter(o => o.toLowerCase().trim() !== cleanSlug)
         : [...current, cleanSlug];
       return { ...prev, occasions: next };
+    });
+  };
+
+  const handleAddSingleColor = (colorName: string) => {
+    const trimmed = colorName.trim();
+    if (!trimmed) return;
+    setForm(prev => {
+      const current = prev.colors.filter(c => c.trim() !== '');
+      const exists = current.some(c => c.toLowerCase().trim() === trimmed.toLowerCase());
+      if (exists) return prev;
+      return { ...prev, colors: [...current, trimmed] };
+    });
+  };
+
+  const handleAddComboColor = () => {
+    if (!comboPrimary.trim() || !comboSecondary.trim()) return;
+    const parts = [comboPrimary.trim(), comboSecondary.trim()];
+    if (comboTertiary.trim()) parts.push(comboTertiary.trim());
+    const comboString = parts.join(' + ');
+
+    setForm(prev => {
+      const current = prev.colors.filter(c => c.trim() !== '');
+      const exists = current.some(c => c.toLowerCase().trim() === comboString.toLowerCase());
+      if (exists) return prev;
+      return { ...prev, colors: [...current, comboString] };
     });
   };
 
@@ -702,37 +736,243 @@ export default function AdminEditor() {
                   </div>
                 </div>
 
-                {/* Colors */}
+                {/* Colors (Single Hues & Multi-Tone Combinations) */}
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs uppercase tracking-wider text-ink font-medium">Available Hues</label>
-                    <button
-                      type="button"
-                      onClick={() => addArrayItem('colors')}
-                      className="text-xs text-rose hover:text-rose-dark font-medium flex items-center gap-1"
-                    >
-                      <Plus size={14} /> Add Color
-                    </button>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <label className="text-xs uppercase tracking-wider text-ink font-medium">
+                        Color Palette & Variations
+                      </label>
+                      <p className="text-[11px] text-ink-light">
+                        Select single hues, or create duotone/multi-color combinations (e.g. Blue + Red, Yellow + Blue).
+                      </p>
+                    </div>
+
+                    {/* Mode Toggle Tabs */}
+                    <div className="inline-flex rounded-md border border-silk bg-parchment-50 p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setColorMode('single')}
+                        className={`px-3 py-1 rounded transition-colors font-medium ${
+                          colorMode === 'single'
+                            ? 'bg-bark text-linen shadow-xs'
+                            : 'text-ink-light hover:text-ink'
+                        }`}
+                      >
+                        Single Hue
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setColorMode('combo')}
+                        className={`px-3 py-1 rounded transition-colors font-medium ${
+                          colorMode === 'combo'
+                            ? 'bg-bark text-linen shadow-xs'
+                            : 'text-ink-light hover:text-ink'
+                        }`}
+                      >
+                        2 / 3 Color Combination
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-3">
-                    {form.colors.map((color, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-silk/20 border border-silk rounded-sm px-2 py-1">
+
+                  {/* Mode 1: Single Color Builder */}
+                  {colorMode === 'single' ? (
+                    <div className="p-4 bg-silk/20 rounded-sm border border-silk space-y-3">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                        <div className="relative flex-1">
+                          <select
+                            value={selectedSingleHue}
+                            onChange={(e) => setSelectedSingleHue(e.target.value)}
+                            className="input-field py-2 text-sm cursor-pointer"
+                          >
+                            {PRESET_COLORS.map((col) => (
+                              <option key={col.name} value={col.name}>
+                                {col.name} ({col.family})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAddSingleColor(selectedSingleHue)}
+                          className="px-4 py-2 bg-bark text-linen rounded-sm text-xs font-medium hover:bg-bark-dark transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                        >
+                          <Plus size={14} /> Add {selectedSingleHue}
+                        </button>
+                      </div>
+
+                      {/* Custom Color Writer */}
+                      <div className="pt-2 border-t border-silk/60 flex items-center gap-2">
+                        <span className="text-xs text-ink-light whitespace-nowrap">Or custom color:</span>
                         <input
                           type="text"
-                          value={color}
-                          onChange={(e) => handleArrayChange('colors', i, e.target.value)}
-                          className="bg-transparent text-sm py-1 focus:outline-none w-32"
-                          placeholder="Color..."
+                          value={customSingleText}
+                          onChange={(e) => setCustomSingleText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (customSingleText.trim()) {
+                                handleAddSingleColor(customSingleText);
+                                setCustomSingleText('');
+                              }
+                            }
+                          }}
+                          placeholder="Type custom hue (e.g. Smoky Lilac)..."
+                          className="input-field flex-1 py-1.5 text-xs"
                         />
                         <button
                           type="button"
-                          onClick={() => removeArrayItem('colors', i)}
-                          className="text-ink-light hover:text-rose"
+                          onClick={() => {
+                            if (customSingleText.trim()) {
+                              handleAddSingleColor(customSingleText);
+                              setCustomSingleText('');
+                            }
+                          }}
+                          disabled={!customSingleText.trim()}
+                          className="px-3 py-1.5 bg-rose text-white rounded-sm text-xs font-medium hover:bg-rose-dark disabled:opacity-50 transition-colors whitespace-nowrap"
                         >
-                          <X size={14} />
+                          Add Custom
                         </button>
                       </div>
-                    ))}
+                    </div>
+                  ) : (
+                    /* Mode 2: Multi-Color Combination Builder */
+                    <div className="p-4 bg-silk/20 rounded-sm border border-silk space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* Primary Color */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium uppercase tracking-wider text-ink flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-rose" /> 1. Primary Hue
+                          </label>
+                          <select
+                            value={comboPrimary}
+                            onChange={(e) => setComboPrimary(e.target.value)}
+                            className="input-field py-2 text-xs"
+                          >
+                            {PRESET_COLORS.map((col) => (
+                              <option key={col.name} value={col.name}>{col.name}</option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-ink-light">Main blossom / base</p>
+                        </div>
+
+                        {/* Secondary Color */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium uppercase tracking-wider text-ink flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-blue-500" /> 2. Secondary Hue
+                          </label>
+                          <select
+                            value={comboSecondary}
+                            onChange={(e) => setComboSecondary(e.target.value)}
+                            className="input-field py-2 text-xs"
+                          >
+                            {PRESET_COLORS.map((col) => (
+                              <option key={col.name} value={col.name}>{col.name}</option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-ink-light">Petal tip / accent tone</p>
+                        </div>
+
+                        {/* Optional 3rd Color */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium uppercase tracking-wider text-ink flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" /> 3. Third Hue <span className="text-ink-light font-normal lowercase">(optional)</span>
+                          </label>
+                          <select
+                            value={comboTertiary}
+                            onChange={(e) => setComboTertiary(e.target.value)}
+                            className="input-field py-2 text-xs"
+                          >
+                            <option value="">-- None (Dual tone) --</option>
+                            {PRESET_COLORS.map((col) => (
+                              <option key={col.name} value={col.name}>{col.name}</option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-ink-light">Center / foliage accent</p>
+                        </div>
+                      </div>
+
+                      {/* Live Combination Preview & Action */}
+                      <div className="pt-2 border-t border-silk/60 flex items-center justify-between flex-wrap gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-ink-light">Preview:</span>
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-silk bg-white shadow-2xs">
+                            <span
+                              className="w-3.5 h-3.5 rounded-full border border-black/10 inline-block flex-shrink-0"
+                              style={{
+                                background: comboTertiary
+                                  ? `conic-gradient(${getColorSpec(comboPrimary).hex} 0deg 120deg, ${getColorSpec(comboSecondary).hex} 120deg 240deg, ${getColorSpec(comboTertiary).hex} 240deg 360deg)`
+                                  : `linear-gradient(135deg, ${getColorSpec(comboPrimary).hex} 50%, ${getColorSpec(comboSecondary).hex} 50%)`,
+                              }}
+                            />
+                            <span className="text-bark font-semibold">
+                              {comboPrimary} + {comboSecondary}{comboTertiary ? ` + ${comboTertiary}` : ''}
+                            </span>
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAddComboColor}
+                          className="px-4 py-2 bg-rose text-white rounded-sm text-xs font-medium hover:bg-rose-dark transition-colors flex items-center gap-1.5"
+                        >
+                          <Plus size={14} /> Add Combination
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Configured Colors List */}
+                  <div className="space-y-2 pt-2">
+                    <label className="text-xs uppercase tracking-wider text-ink font-semibold">
+                      Configured Colors On This Product ({form.colors.filter(c => c.trim() !== '').length})
+                    </label>
+
+                    {form.colors.filter(c => c.trim() !== '').length === 0 ? (
+                      <p className="text-xs text-ink-light italic p-3 bg-silk/10 rounded-sm border border-dashed border-silk text-center">
+                        No colors assigned yet. Select preset hues or build combinations above.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2.5">
+                        {form.colors.filter(c => c.trim() !== '').map((color) => {
+                          const meta = getQuickViewDotMeta(color);
+                          const isCombo = color.includes('+') || color.includes('&') || color.includes('/');
+                          return (
+                            <span
+                              key={color}
+                              className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-full text-xs font-medium border border-silk/80 bg-white shadow-2xs group hover:border-rose/50 transition-colors"
+                            >
+                              <span
+                                className="w-3.5 h-3.5 rounded-full border border-black/10 flex-shrink-0"
+                                style={{ background: meta.dot }}
+                              />
+                              <span className="text-bark">
+                                {color}
+                                {isCombo && (
+                                  <span className="ml-1 text-[10px] text-ink-light font-normal">
+                                    (Combination)
+                                  </span>
+                                )}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setForm(prev => ({
+                                    ...prev,
+                                    colors: prev.colors.filter(c => c !== color),
+                                  }));
+                                }}
+                                className="p-0.5 rounded-full text-ink-light hover:text-rose hover:bg-rose/10 transition-colors ml-1"
+                                aria-label={`Remove ${color}`}
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
 
