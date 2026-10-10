@@ -56,17 +56,34 @@ export default function ProductCard({ product, variant = 'default' }: ProductCar
           />
         </button>
 
-        {/* Quick Add/View Button */}
+        {/* Mobile Quick View Pill (Option 1) */}
         <button
+          type="button"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             openQuickView(product);
           }}
-          className="absolute left-3 right-3 bottom-3 z-10 bg-linen text-ink text-xs font-medium tracking-wide flex items-center justify-center py-3 rounded-atelier-btn opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:bg-canvas"
+          className="sm:hidden absolute bottom-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-linen/95 backdrop-blur-md text-bark text-[11px] font-medium shadow-sm border border-canvas-line active:scale-95 transition-transform"
+          aria-label={`View ${product.name}`}
+        >
+          <Eye size={12} className="text-rose" />
+          <span>View</span>
+        </button>
+
+        {/* Desktop Quick Add/View Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openQuickView(product);
+          }}
+          className="hidden sm:flex absolute left-3 right-3 bottom-3 z-10 bg-linen/95 backdrop-blur-sm text-ink text-xs font-medium tracking-wide items-center justify-center py-3 rounded-atelier-btn opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:bg-canvas shadow-sm border border-canvas-line"
           aria-label={`Quick view ${product.name}`}
         >
-          Add to bag — {product.priceLabel || formatPrice(product.price)}
+          <Eye size={13} className="mr-1.5 text-rose" />
+          Quick View — {product.priceLabel || formatPrice(product.price)}
         </button>
       </div>
 
