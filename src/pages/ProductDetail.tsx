@@ -50,50 +50,88 @@ export default function ProductDetail() {
 
   // Gallery swipe and thumbnail tracking
   const touchStartX = useRef<number | null>(null);
-  const touchEndX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const isSwiping = useRef<boolean>(false);
+  const isMouseDown = useRef<boolean>(false);
+  const mouseStartX = useRef<number | null>(null);
   const thumbnailButtonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const thumbnailsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const totalImages = product?.images?.length || 0;
 
   const goToPrevImage = () => {
     if (totalImages <= 1) return;
-    setSelectedImage((prev) => (prev - 1 + totalImages) % totalImages);
+    setSelectedImage((prev) => (prev > 0 ? prev - 1 : prev));
   };
 
   const goToNextImage = () => {
     if (totalImages <= 1) return;
-    setSelectedImage((prev) => (prev + 1) % totalImages);
+    setSelectedImage((prev) => (prev < totalImages - 1 ? prev + 1 : prev));
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
     touchStartX.current = e.touches[0].clientX;
-    touchEndX.current = null;
+    touchStartY.current = e.touches[0].clientY;
+    isSwiping.current = true;
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    touchEndX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchEnd = () => {
-    if (touchStartX.current === null || touchEndX.current === null) return;
-    const diff = touchStartX.current - touchEndX.current;
-    const minSwipeDistance = 40;
-    if (diff > minSwipeDistance) {
-      goToNextImage();
-    } else if (diff < -minSwipeDistance) {
-      goToPrevImage();
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!isSwiping.current || touchStartX.current === null) return;
+    const touch = e.changedTouches[0];
+    if (touch) {
+      const diffX = touchStartX.current - touch.clientX;
+      const diffY = touchStartY.current !== null ? touchStartY.current - touch.clientY : 0;
+      // Trigger if horizontal movement dominates vertical scroll and exceeds 30px
+      if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 30) {
+        if (diffX > 0) {
+          goToNextImage();
+        } else {
+          goToPrevImage();
+        }
+      }
     }
     touchStartX.current = null;
-    touchEndX.current = null;
+    touchStartY.current = null;
+    isSwiping.current = false;
   };
 
-  // Smoothly center the active thumbnail in the scroll view when selectedImage changes
+  const handleMouseDown = (e: React.MouseEvent) => {
+    isMouseDown.current = true;
+    mouseStartX.current = e.clientX;
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isMouseDown.current || mouseStartX.current === null) return;
+    const diffX = mouseStartX.current - e.clientX;
+    if (Math.abs(diffX) > 30) {
+      if (diffX > 0) {
+        goToNextImage();
+      } else {
+        goToPrevImage();
+      }
+    }
+    isMouseDown.current = false;
+    mouseStartX.current = null;
+  };
+
+  const handleMouseLeave = () => {
+    isMouseDown.current = false;
+    mouseStartX.current = null;
+  };
+
+  // Smoothly center the active thumbnail in the thumbnail scroll container without jarring page scroll
   useEffect(() => {
-    if (thumbnailButtonsRef.current[selectedImage]) {
-      thumbnailButtonsRef.current[selectedImage]?.scrollIntoView({
+    const container = thumbnailsContainerRef.current;
+    const activeThumbnail = thumbnailButtonsRef.current[selectedImage];
+    if (container && activeThumbnail) {
+      const targetLeft = activeThumbnail.offsetLeft;
+      const targetWidth = activeThumbnail.offsetWidth;
+      const containerWidth = container.offsetWidth;
+      const scrollTarget = targetLeft - (containerWidth / 2) + (targetWidth / 2);
+      container.scrollTo({
+        left: Math.max(0, scrollTarget),
         behavior: 'smooth',
-        block: 'nearest',
-        inline: 'center',
       });
     }
   }, [selectedImage]);
@@ -203,10 +241,13 @@ export default function ProductDetail() {
               <div className="space-y-6 sm:space-y-8">
                 {/* Main Photo with Touch-Swipe and Controls */}
                 <div
-                  className="relative aspect-[4/5] overflow-hidden rounded-atelier-img bg-canvas shadow-soft group select-none touch-pan-y"
+                  className="relative aspect-[4/5] overflow-hidden rounded-atelier-img bg-canvas shadow-soft group select-none touch-pan-y overscroll-x-contain cursor-grab active:cursor-grabbing"
                   onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
+                  onTouchCancel={handleTouchEnd}
+                  onMouseDown={handleMouseDown}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseLeave}
                 >
                   <img
                     src={product.images?.[selectedImage] || '/placeholder-bloom.svg'}
@@ -226,6 +267,7 @@ export default function ProductDetail() {
                 {/* Thumbnails: Exactly 3 on mobile screen + smooth horizontal scroll */}
                 {totalImages > 1 && (
                   <div
+                    ref={thumbnailsContainerRef}
                     className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory scroll-smooth w-full"
                     style={{ WebkitOverflowScrolling: 'touch' }}
                   >
