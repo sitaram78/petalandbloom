@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import {
   ArrowLeft, Heart, ShoppingBag, Clock, Truck,
@@ -47,6 +47,56 @@ export default function ProductDetail() {
   const [quantity, setQuantity] = useState(1);
   const [giftWrap, setGiftWrap] = useState(false);
   const [personalMessage, setPersonalMessage] = useState('');
+
+  // Gallery swipe and thumbnail tracking
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const thumbnailButtonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const totalImages = product?.images?.length || 0;
+
+  const goToPrevImage = () => {
+    if (totalImages <= 1) return;
+    setSelectedImage((prev) => (prev - 1 + totalImages) % totalImages);
+  };
+
+  const goToNextImage = () => {
+    if (totalImages <= 1) return;
+    setSelectedImage((prev) => (prev + 1) % totalImages);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchEndX.current = null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    if (touchStartX.current === null || touchEndX.current === null) return;
+    const diff = touchStartX.current - touchEndX.current;
+    const minSwipeDistance = 40;
+    if (diff > minSwipeDistance) {
+      goToNextImage();
+    } else if (diff < -minSwipeDistance) {
+      goToPrevImage();
+    }
+    touchStartX.current = null;
+    touchEndX.current = null;
+  };
+
+  // Smoothly center the active thumbnail in the scroll view when selectedImage changes
+  useEffect(() => {
+    if (thumbnailButtonsRef.current[selectedImage]) {
+      thumbnailButtonsRef.current[selectedImage]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center',
+      });
+    }
+  }, [selectedImage]);
 
   useEffect(() => {
     if (product) {
@@ -150,27 +200,54 @@ export default function ProductDetail() {
           {/* Gallery - Left Column (7/12) */}
           <div className="lg:col-span-7">
             <Reveal>
-              <div className="space-y-8">
-                <div className="aspect-[4/5] overflow-hidden rounded-atelier-img bg-canvas shadow-soft">
+              <div className="space-y-6 sm:space-y-8">
+                {/* Main Photo with Touch-Swipe and Controls */}
+                <div
+                  className="relative aspect-[4/5] overflow-hidden rounded-atelier-img bg-canvas shadow-soft group select-none touch-pan-y"
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                >
                   <img
                     src={product.images?.[selectedImage] || '/placeholder-bloom.svg'}
                     alt={product.name}
-                    className="w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
+                    className="w-full h-full object-cover transition-transform duration-700 hover:scale-105 pointer-events-none"
                   />
+
+                  {totalImages > 1 && (
+                    <div className="absolute bottom-3.5 right-3.5 px-3 py-1 rounded-full bg-bark/70 text-linen text-xs font-mono tracking-wider backdrop-blur-md flex items-center gap-1 shadow-sm select-none">
+                      <span>{selectedImage + 1}</span>
+                      <span className="opacity-40">/</span>
+                      <span>{totalImages}</span>
+                    </div>
+                  )}
                 </div>
-                {product.images.length > 1 && (
-                  <div className="flex gap-4">
+
+                {/* Thumbnails: Exactly 3 on mobile screen + smooth horizontal scroll */}
+                {totalImages > 1 && (
+                  <div
+                    className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory scroll-smooth w-full"
+                    style={{ WebkitOverflowScrolling: 'touch' }}
+                  >
                     {product.images.map((img, i) => (
                       <button
                         key={i}
+                        ref={(el) => (thumbnailButtonsRef.current[i] = el)}
                         onClick={() => setSelectedImage(i)}
-                        className={`w-24 h-32 overflow-hidden rounded-atelier-img border-2 transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose ${
-                          selectedImage === i ? 'border-rose shadow-md outline outline-1 outline-rose outline-offset-2' : 'border-canvas-line hover:border-rose/50'
+                        className={`flex-shrink-0 snap-start w-[calc((100%-1.5rem)/3)] sm:w-24 aspect-[3/4] overflow-hidden rounded-atelier-img border-2 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose ${
+                          selectedImage === i
+                            ? 'border-rose shadow-md ring-2 ring-rose/30 ring-offset-2 ring-offset-linen'
+                            : 'border-canvas-line hover:border-rose/50 opacity-80 hover:opacity-100'
                         }`}
                         aria-label={`View image ${i + 1} of ${product.name}`}
                         aria-pressed={selectedImage === i}
                       >
-                        <img src={img} alt={`${product.name} view ${i + 1}`} loading="lazy" className="w-full h-full object-cover" />
+                        <img
+                          src={img}
+                          alt={`${product.name} view ${i + 1}`}
+                          loading="lazy"
+                          className="w-full h-full object-cover pointer-events-none"
+                        />
                       </button>
                     ))}
                   </div>

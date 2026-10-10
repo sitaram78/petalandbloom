@@ -11,7 +11,7 @@ import { trackEvent } from '@/utils/analytics';
 import SEO from '@/components/SEO';
 
 const bouquetSizes = [
-  { label: '1 flower', flowers: 1, price: 499 },
+  { label: '1 flower', flowers: 1, price: 149 },
   { label: '2 flowers', flowers: 2, price: 699 },
   { label: '3 flowers', flowers: 3, price: 899 },
   { label: '5 flowers', flowers: 5, price: 1299 },
@@ -23,7 +23,7 @@ const flowerTypes = ['Rose', 'Tulip', 'Daisy', 'Sunflower', 'Mixed', 'Surprise m
 const colorOptions = ['Red', 'Pink', 'White', 'Lavender', 'Yellow', 'Cream', 'Sage', 'Custom mix'];
 const wrappingOptions = [
   { label: 'Standard', price: 0 },
-  { label: 'Premium', price: 79 },
+  { label: 'Premium', price: 49 },
 ];
 const messageOptions = [
   { label: 'No message', price: 0 },
