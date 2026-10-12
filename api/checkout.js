@@ -664,13 +664,111 @@ async function handler(req, res) {
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: "Cart cannot be empty." });
     }
-    const KNOWN_ADDONS = {
-      "ADDON-Greeting Card": { name: "Greeting Card", priceInPaise: 4900, image: "/greeting.avif" },
-      "ADDON-Personalised Message": { name: "Personalised Message", priceInPaise: 3900, image: "/message.avif" },
-      "ADDON-Name Customisation": { name: "Name Customisation", priceInPaise: 7900 },
-      "ADDON-Premium Ribbon": { name: "Premium Ribbon", priceInPaise: 4900, image: "/ribbon.avif" },
-      "ADDON-Premium Wrapping": { name: "Premium Wrapping", priceInPaise: 7900, image: "/wrapping.avif" },
-      "ADDON-Extra Flower": { name: "Extra Flower", priceInPaise: 19900 }
+    const { data: storeSettingsRow } = await supabaseAdmin.from("store_settings").select("business_rules").eq("id", "primary").maybeSingle();
+    const liveRules = storeSettingsRow?.business_rules || storeConfig.businessRules || {};
+    const companionGifts = Array.isArray(liveRules.companionGifts) && liveRules.companionGifts.length > 0 ? liveRules.companionGifts : [
+      { id: "addon-flower", name: "Extra Handcrafted Flower", priceRupees: 199 },
+      { id: "addon-charm", name: "Name Customisation Charm", priceRupees: 79 },
+      { id: "addon-vase", name: "Petite Ceramic Bud Vase", priceRupees: 249 },
+      { id: "addon-pouch", name: "Linen Keepsake Storage Pouch", priceRupees: 129 }
+    ];
+    const addonsMap = /* @__PURE__ */ new Map();
+    for (const g of companionGifts) {
+      const pPaise = Math.round(Number(g.priceRupees || 0) * 100);
+      const cleanId = (g.id || "").replace(/^addon-/i, "").toLowerCase();
+      const img = "/placeholder-bloom.svg";
+      const variants = [
+        g.id.toLowerCase(),
+        `addon-${cleanId}`,
+        `ADDON-${cleanId.toUpperCase()}`,
+        `ADDON-ADDON-${cleanId.toUpperCase()}`,
+        `ADDON-${g.name.toUpperCase().replace(/\s+/g, "-")}`,
+        `ADDON-${g.name.toUpperCase()}`,
+        cleanId.toUpperCase()
+      ];
+      for (const v of variants) {
+        addonsMap.set(v, { name: g.name, priceInPaise: pPaise, image: img });
+      }
+    }
+    const standardAddonsList = [
+      {
+        codes: ["ADDON-GREETING-CARD", "ADDON-GREETING CARD", "ADDON-CARD"],
+        name: "Greeting Card",
+        priceInPaise: liveRules.greetingCardFeePaise ?? 4900,
+        image: "/greeting.avif"
+      },
+      {
+        codes: ["ADDON-PERSONALISED-MESSAGE", "ADDON-PERSONALIZED-MESSAGE", "ADDON-PERSONAL NOTE", "ADDON-PERSONALISED MESSAGE"],
+        name: "Personalised Message",
+        priceInPaise: liveRules.personalisedMessageFeePaise ?? 3900,
+        image: "/message.avif"
+      },
+      {
+        codes: ["ADDON-NAME-CUSTOMISATION", "ADDON-NAME CUSTOMISATION", "ADDON-CHARM"],
+        name: "Name Customisation Charm",
+        priceInPaise: 7900,
+        image: null
+      },
+      {
+        codes: ["ADDON-PREMIUM-RIBBON", "ADDON-PREMIUM RIBBON", "ADDON-RIBBON"],
+        name: "Premium Ribbon",
+        priceInPaise: 4900,
+        image: "/ribbon.avif"
+      },
+      {
+        codes: ["ADDON-PREMIUM-WRAPPING", "ADDON-PREMIUM WRAPPING", "ADDON-WRAPPING"],
+        name: "Premium Wrapping",
+        priceInPaise: liveRules.giftWrapFeePaise ?? 7900,
+        image: "/wrapping.avif"
+      },
+      {
+        codes: ["ADDON-EXTRA-FLOWER", "ADDON-EXTRA FLOWER", "ADDON-FLOWER", "ADDON-ADDON-FLOWER"],
+        name: "Extra Handcrafted Flower",
+        priceInPaise: 19900,
+        image: "/placeholder-bloom.svg"
+      },
+      {
+        codes: ["ADDON-POUCH", "ADDON-STORAGE-POUCH", "ADDON-LINEN-KEEPSAKE-STORAGE-POUCH", "ADDON-ADDON-POUCH"],
+        name: "Linen Keepsake Storage Pouch",
+        priceInPaise: 12900,
+        image: "/placeholder-bloom.svg"
+      },
+      {
+        codes: ["ADDON-VASE", "ADDON-BUD-VASE", "ADDON-PETITE-CERAMIC-BUD-VASE", "ADDON-ADDON-VASE"],
+        name: "Petite Ceramic Bud Vase",
+        priceInPaise: 24900,
+        image: "/placeholder-bloom.svg"
+      }
+    ];
+    for (const sa of standardAddonsList) {
+      for (const c of sa.codes) {
+        if (!addonsMap.has(c)) {
+          addonsMap.set(c, { name: sa.name, priceInPaise: sa.priceInPaise, image: sa.image });
+        }
+      }
+    }
+    const resolveAddon = (item) => {
+      const codeKey = (item.code || "").trim();
+      const upper = codeKey.toUpperCase();
+      const stripped = upper.replace(/^ADDON-(ADDON-)?/, "");
+      let meta = addonsMap.get(codeKey) || addonsMap.get(upper) || addonsMap.get(`ADDON-${stripped}`) || addonsMap.get(`ADDON-ADDON-${stripped}`) || addonsMap.get(codeKey.toLowerCase());
+      if (!meta && item.name) {
+        const itemClean = item.name.trim().toLowerCase();
+        for (const [_, val] of addonsMap.entries()) {
+          if (val.name.toLowerCase() === itemClean) {
+            meta = val;
+            break;
+          }
+        }
+      }
+      const resolvedName = meta?.name || item.name || stripped.replace(/-/g, " ");
+      const resolvedPriceInPaise = meta ? meta.priceInPaise : typeof item.price === "number" && item.price > 0 ? Math.round(item.price * 100) : 4900;
+      const resolvedImage = meta?.image || item.image || "/placeholder-bloom.svg";
+      return {
+        name: resolvedName,
+        priceInPaise: resolvedPriceInPaise,
+        image: resolvedImage
+      };
     };
     const catalogItems = items.filter((i) => !i.code?.startsWith("ADDON-"));
     const addonItems = items.filter((i) => i.code?.startsWith("ADDON-"));
@@ -721,11 +819,11 @@ async function handler(req, res) {
           message: `Only ${prod.inventory_count} piece(s) of "${prod.name}" remain in stock. Please adjust your cart quantity.`
         });
       }
-      const bouquetLuxuryWrapUpgradeFeePaise = storeConfig.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900;
-      const stemBouquetWrapFeePaise = storeConfig.businessRules?.stemBouquetWrapFeePaise ?? 7900;
-      const luxuryGiftBoxFeePaise = storeConfig.businessRules?.luxuryGiftBoxFeePaise ?? 14900;
-      const greetingCardFeePaise = storeConfig.businessRules?.greetingCardFeePaise ?? 4900;
-      const personalisedMessageFeePaise = storeConfig.businessRules?.personalisedMessageFeePaise ?? 3900;
+      const bouquetLuxuryWrapUpgradeFeePaise = liveRules.bouquetLuxuryWrapUpgradeFeePaise ?? storeConfig.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900;
+      const stemBouquetWrapFeePaise = liveRules.stemBouquetWrapFeePaise ?? storeConfig.businessRules?.stemBouquetWrapFeePaise ?? 7900;
+      const luxuryGiftBoxFeePaise = liveRules.luxuryGiftBoxFeePaise ?? storeConfig.businessRules?.luxuryGiftBoxFeePaise ?? 14900;
+      const greetingCardFeePaise = liveRules.greetingCardFeePaise ?? storeConfig.businessRules?.greetingCardFeePaise ?? 4900;
+      const personalisedMessageFeePaise = liveRules.personalisedMessageFeePaise ?? storeConfig.businessRules?.personalisedMessageFeePaise ?? 3900;
       const packagingTier = item.packagingTier || (item.message?.includes("Luxury Silk Wrap") ? "luxury_wrap" : item.message?.includes("Finished Bouquet") ? "bouquet_wrap" : item.message?.includes("Rigid Gift Box") ? "gift_box" : "standard");
       const hasGreetingCard = Boolean(item.hasGreetingCard || item.greetingCardMessage || !item.packagingTier && item.message?.includes("Greeting Card"));
       const hasPersonalNote = Boolean(item.hasPersonalNote || item.personalNoteMessage || !item.packagingTier && item.message?.includes("Personal Note"));
@@ -773,22 +871,22 @@ async function handler(req, res) {
       });
     }
     for (const item of addonItems) {
-      const addonMeta = KNOWN_ADDONS[item.code];
+      const resolved = resolveAddon(item);
       const qty = Math.max(1, Math.min(20, Math.floor(Number(item.quantity) || 1)));
-      const unitPriceInPaise = addonMeta ? addonMeta.priceInPaise : 4900;
+      const unitPriceInPaise = resolved.priceInPaise;
       const itemSubtotal = unitPriceInPaise * qty;
       subtotalInPaise += itemSubtotal;
       resolvedOrderItems.push({
         product_id: null,
         product_code: item.code,
-        product_name: addonMeta ? addonMeta.name : item.code.replace("ADDON-", ""),
+        product_name: resolved.name,
         unit_price_in_paise: unitPriceInPaise,
         quantity: qty,
         total_price_in_paise: itemSubtotal,
         selected_color: null,
         gift_wrap: false,
         personal_message: null,
-        item_image: addonMeta?.image || null
+        item_image: resolved.image
       });
     }
     let discountInPaise = 0;
@@ -822,11 +920,14 @@ async function handler(req, res) {
         coupon,
         items: [
           ...catalogItems.map((i) => ({ code: i.code, quantity: i.quantity })),
-          ...addonItems.map((i) => ({
-            code: i.code,
-            quantity: i.quantity,
-            price_in_paise: KNOWN_ADDONS[i.code]?.priceInPaise || 4900
-          }))
+          ...addonItems.map((i) => {
+            const resolved = resolveAddon(i);
+            return {
+              code: i.code,
+              quantity: i.quantity,
+              price_in_paise: resolved.priceInPaise
+            };
+          })
         ],
         productsMap: productMap,
         cartSubtotalInPaise: subtotalInPaise
@@ -884,9 +985,9 @@ async function handler(req, res) {
         loyaltyDiscountInPaise = Math.min(loyaltyPointsRedeemed * pointValuePaise, maxRedeemablePaise);
       }
     }
-    const freeShippingThreshold = storeConfig.businessRules?.freeShippingThresholdPaise ?? 12e4;
-    const standardShippingFee = storeConfig.businessRules?.standardShippingFeePaise ?? 6900;
-    const expressShippingFee = storeConfig.businessRules?.expressShippingFeePaise ?? 4900;
+    const freeShippingThreshold = liveRules.freeShippingThresholdPaise ?? storeConfig.businessRules?.freeShippingThresholdPaise ?? 12e4;
+    const standardShippingFee = liveRules.standardShippingFeePaise ?? storeConfig.businessRules?.standardShippingFeePaise ?? 6900;
+    const expressShippingFee = liveRules.expressShippingFeePaise ?? storeConfig.businessRules?.expressShippingFeePaise ?? 4900;
     const isExpress = Boolean(req.body.isExpress);
     const baseShippingFee = subtotalInPaise >= freeShippingThreshold ? 0 : standardShippingFee;
     const shippingFeeInPaise = baseShippingFee + (isExpress ? expressShippingFee : 0);
@@ -899,7 +1000,10 @@ async function handler(req, res) {
       addressLine2: (shippingAddress.addressLine2 || "").trim(),
       city: shippingAddress.city.trim(),
       state: shippingAddress.state.trim(),
-      pincode: cleanPincode
+      pincode: cleanPincode,
+      isExpress,
+      shippingMethod: isExpress ? "EXPRESS_AIR" : "STANDARD",
+      shippingMethodLabel: isExpress ? "Priority Express Courier (Air)" : "Standard Studio Delivery"
     };
     const { data: newOrder, error: orderErr } = await supabaseAdmin.from("orders").insert({
       order_number: orderNumber,
@@ -1073,7 +1177,14 @@ async function handler2(req, res) {
         }
       }
     }
-    if (error || !coupon) {
+    if (error) {
+      console.error("[Coupon DB Error]", error);
+      return res.status(500).json({
+        success: false,
+        message: `Database error checking coupon: ${error.message || "Unable to connect to promotional database."}`
+      });
+    }
+    if (!coupon) {
       return res.status(404).json({ success: false, message: "Invalid coupon code." });
     }
     if (coupon.per_customer_limit && coupon.per_customer_limit > 0 && customerPhone) {

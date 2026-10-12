@@ -1207,7 +1207,7 @@ async function handler(req, res) {
         pincode: snap.pincode ? `${snap.pincode.slice(0, 3)}***` : ""
       };
     }
-    const { data: items } = await supabaseAdmin.from("order_items").select("product_code, product_name, unit_price_in_paise, quantity, selected_color, gift_wrap, item_image").eq("order_id", order.id);
+    const { data: items } = await supabaseAdmin.from("order_items").select("product_code, product_name, unit_price_in_paise, quantity, selected_color, gift_wrap, personal_message, item_image").eq("order_id", order.id);
     const { data: history } = await supabaseAdmin.from("order_status_history").select("previous_status, new_status, note, created_at").eq("order_id", order.id).order("created_at", { ascending: true });
     const { data: shipment } = await supabaseAdmin.from("shipments").select("carrier, awb_number, tracking_url, status, estimated_delivery_date").eq("order_id", order.id).maybeSingle();
     let liveTracking = null;
@@ -1240,6 +1240,9 @@ async function handler(req, res) {
         shippingFeeInRupees: order.shipping_fee_in_paise / 100,
         totalInRupees: order.total_in_paise / 100,
         shippingAddress: sanitizedAddress,
+        isExpress: Boolean(order.shipping_address_snapshot?.isExpress || order.shipping_address_snapshot?.shippingMethod === "EXPRESS_AIR"),
+        shippingMethod: order.shipping_address_snapshot?.shippingMethod || (order.shipping_address_snapshot?.isExpress ? "EXPRESS_AIR" : "STANDARD"),
+        shippingMethodLabel: order.shipping_address_snapshot?.shippingMethodLabel || (order.shipping_address_snapshot?.isExpress ? "Priority Express Courier (Air)" : "Standard Delivery"),
         isAddressMasked: !isFullyAuthorized,
         createdAt: order.created_at,
         items: items || [],
