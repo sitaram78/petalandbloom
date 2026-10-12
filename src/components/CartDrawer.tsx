@@ -628,7 +628,7 @@ export default function CartDrawer() {
                     {!showOffersSection && (appliedCoupon || isExpressCourier) && (
                       <span className="ml-1 inline-flex items-center gap-1 text-[10px] bg-rose/10 text-rose font-medium px-1.5 py-0.2 rounded-full">
                         {appliedCoupon && `-${formatPrice(appliedCoupon.discountInRupees)}`}
-                        {isExpressCourier && '· Express'}
+                        {isExpressCourier && '· Express Air'}
                       </span>
                     )}
                   </button>
@@ -696,7 +696,7 @@ export default function CartDrawer() {
                             </div>
                             <div>
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-medium text-bark">Priority Express Courier</span>
+                                <span className="text-xs font-medium text-bark">Priority Express Courier (Air)</span>
                                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose/10 text-rose font-medium">
                                   +₹{Math.round(expressShipping)}
                                 </span>
@@ -750,17 +750,35 @@ export default function CartDrawer() {
                           <span className="text-bark font-medium">Included ({formatPrice(totalPackagingUpgrades)})</span>
                         </div>
                       )}
-                      <div className="flex justify-between">
-                        <span className="flex items-center gap-1">
-                          <Truck size={12} strokeWidth={1.5} /> Shipping
-                          {isExpressCourier && (
-                            <span className="text-[10px] text-rose font-medium ml-0.5">(Express Air)</span>
-                          )}
-                        </span>
-                        <span className={shippingCost === 0 ? 'text-sage-dark font-medium' : 'text-ink'}>
-                          {shippingCost === 0 ? 'COMPLIMENTARY' : formatPrice(shippingCost)}
-                        </span>
-                      </div>
+                      {isExpressCourier ? (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="flex items-center gap-1">
+                              <Truck size={12} strokeWidth={1.5} /> Standard Delivery
+                            </span>
+                            <span className={baseShippingCost === 0 ? 'text-sage-dark font-medium' : 'text-ink'}>
+                              {baseShippingCost === 0 ? 'COMPLIMENTARY' : formatPrice(baseShippingCost)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="flex items-center gap-1 text-rose font-medium">
+                              <Zap size={12} className="text-rose" /> Priority Express Courier (Air)
+                            </span>
+                            <span className="text-rose font-medium">
+                              +{formatPrice(expressShipping)}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex justify-between">
+                          <span className="flex items-center gap-1">
+                            <Truck size={12} strokeWidth={1.5} /> Shipping
+                          </span>
+                          <span className={shippingCost === 0 ? 'text-sage-dark font-medium' : 'text-ink'}>
+                            {shippingCost === 0 ? 'COMPLIMENTARY' : formatPrice(shippingCost)}
+                          </span>
+                        </div>
+                      )}
                       {shippingCost > 0 && !isExpressCourier && totalPrice < freeThreshold && (
                         <p className="text-[10px] text-ink-light/60">
                           Add ₹{Math.max(0, Math.round(freeThreshold - totalPrice))} more for complimentary shipping

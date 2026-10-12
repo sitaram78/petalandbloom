@@ -61,8 +61,12 @@ export default function PackingSlipModal({
               <p className="text-[10px] uppercase font-bold text-gray-700">Handmade Floral Atelier</p>
             </div>
             <div className="text-right">
-              <span className="px-2 py-0.5 border border-black font-bold uppercase text-[10px] rounded">
-                SURFACE STANDARD
+              <span className={`px-2 py-0.5 border font-bold uppercase text-[10px] rounded ${
+                addr.isExpress || addr.shippingMethod === 'EXPRESS_AIR'
+                  ? 'border-red-600 bg-red-50 text-red-700 font-extrabold'
+                  : 'border-black text-black'
+              }`}>
+                {addr.isExpress || addr.shippingMethod === 'EXPRESS_AIR' ? '⚡ PRIORITY AIR EXPRESS' : 'SURFACE STANDARD'}
               </span>
               <p className="text-[10px] font-mono text-gray-800 mt-1 font-semibold">{carrierName}</p>
             </div>

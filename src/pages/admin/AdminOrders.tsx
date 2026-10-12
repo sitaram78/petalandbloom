@@ -1363,6 +1363,11 @@ export default function AdminOrders() {
                               <Gift size={11} className="text-rose" /> Gift Order
                             </span>
                           )}
+                          {(selectedOrder.shipping_address_snapshot?.isExpress || selectedOrder.shipping_address_snapshot?.shippingMethod === 'EXPRESS_AIR') && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1">
+                              <span>⚡</span> Priority Express Air
+                            </span>
+                          )}
                         </div>
                         <button
                           onClick={() => copyAddressToClipboard(selectedOrder)}
@@ -1466,7 +1471,11 @@ export default function AdminOrders() {
                     </div>
                   )}
                   <div className="flex justify-between text-ink-light">
-                    <span>Shipping Fee</span>
+                    <span>
+                      {selectedOrder.shipping_address_snapshot?.isExpress || selectedOrder.shipping_address_snapshot?.shippingMethod === 'EXPRESS_AIR'
+                        ? 'Priority Express Courier (Air)'
+                        : 'Shipping Fee'}
+                    </span>
                     <span>{formatPrice(selectedOrder.shipping_fee_in_paise / 100)}</span>
                   </div>
                   <div className="pt-2 border-t border-canvas-line flex justify-between font-serif font-bold text-base text-bark">

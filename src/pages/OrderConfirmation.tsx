@@ -234,8 +234,16 @@ export default function OrderConfirmation() {
                       <span>-{formatPrice(order.discountInRupees)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <span>Shipping</span>
+                  <div className="flex justify-between items-center">
+                    <span className="flex items-center gap-1.5">
+                      {order.isExpress || order.shippingMethod === 'EXPRESS_AIR' ? (
+                        <span className="text-rose font-medium flex items-center gap-1">
+                          <span>⚡</span> Priority Express Courier (Air)
+                        </span>
+                      ) : (
+                        <span>Shipping</span>
+                      )}
+                    </span>
                     <span className={order.shippingFeeInRupees === 0 ? 'text-moss font-medium' : 'text-bark'}>
                       {order.shippingFeeInRupees === 0 ? 'Complimentary' : formatPrice(order.shippingFeeInRupees)}
                     </span>
@@ -257,7 +265,11 @@ export default function OrderConfirmation() {
               <OrderStatus
                 status={mappedStatus}
                 orderCode={order.orderNumber}
-                estimatedDelivery={order.shipment?.estimated_delivery_date || '3–6 business days'}
+                estimatedDelivery={
+                  order.isExpress || order.shippingMethod === 'EXPRESS_AIR'
+                    ? '1–2 business days (Priority Air Dispatch)'
+                    : order.shipment?.estimated_delivery_date || '3–6 business days'
+                }
               />
             </Reveal>
           </div>

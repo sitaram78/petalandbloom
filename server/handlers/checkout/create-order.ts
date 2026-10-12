@@ -528,6 +528,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       city: shippingAddress.city.trim(),
       state: shippingAddress.state.trim(),
       pincode: cleanPincode,
+      isExpress: isExpress,
+      shippingMethod: isExpress ? 'EXPRESS_AIR' : 'STANDARD',
+      shippingMethodLabel: isExpress ? 'Priority Express Courier (Air)' : 'Standard Studio Delivery',
     };
 
     const { data: newOrder, error: orderErr } = await supabaseAdmin

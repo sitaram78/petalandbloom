@@ -251,7 +251,11 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
                 </div>
               )}
               <div className="flex justify-between text-gray-600">
-                <span>Shipping &amp; Packaging:</span>
+                <span>
+                  {addr?.isExpress || addr?.shippingMethod === 'EXPRESS_AIR'
+                    ? 'Priority Express Courier (Air):'
+                    : 'Shipping & Packaging:'}
+                </span>
                 <span className="font-mono">
                   {order.shipping_fee_in_paise > 0 ? formatPrice(order.shipping_fee_in_paise / 100) : 'FREE'}
                 </span>
