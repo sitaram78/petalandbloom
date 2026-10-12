@@ -201,7 +201,7 @@ export default function ProductDetail() {
 
   const relatedProducts = products
     .filter((p) => p.category === product.category && p.code !== product.code)
-    .slice(0, 3);
+    .slice(0, 4);
 
   const isBouquet = product.category === 'bouquets' || product.name.toLowerCase().includes('bouquet');
   const isFlowers = product.category === 'flowers' || product.name.toLowerCase().includes('stem');
@@ -956,26 +956,57 @@ export default function ProductDetail() {
       <ReviewsSection productCode={product.code} productName={product.name} />
 
       {/* Process Guide */}
-      <section className="pt-24 lg:pt-32 pb-12 lg:pb-16 bg-bark text-linen">
+      <section className="py-16 lg:py-24 bg-canvas/45 border-y border-canvas-line/80">
         <div className="container-lux">
           <Reveal>
-            <SectionHeading
-              label="The Journey"
-              title="From yarn to your doorstep."
-              center={true}
-              className="text-linen"
-            />
+            <div className="text-center max-w-xl mx-auto mb-12 lg:mb-16">
+              <p className="text-[10px] uppercase tracking-[0.25em] text-rose font-semibold mb-1">
+                The Atelier Process
+              </p>
+              <h2 className="font-serif text-3xl lg:text-4xl text-bark font-medium">From yarn to your doorstep</h2>
+              <p className="text-xs sm:text-sm text-ink-light mt-2 leading-relaxed">
+                Every petal is crocheted stitch-by-stitch by women artisans, steam-blocked, and packaged in keepsake gift boxes.
+              </p>
+            </div>
           </Reveal>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-8 mt-16">
-            {howItWorksSteps.map((step, i) => (
-              <Reveal key={step.num} delay={i * 80}>
-                <div className="text-center">
-                  <p className="font-serif text-4xl lg:text-5xl text-rose italic mb-3">{step.num}</p>
-                  <p className="text-sm font-medium text-linen leading-snug">{step.label}</p>
-                  <p className="text-xs text-linen/70 mt-2 leading-snug hidden sm:block">{step.desc}</p>
-                </div>
-              </Reveal>
-            ))}
+          <div className="relative">
+            {/* Desktop / Tablet layout (sm:block): horizontal connected thread */}
+            <div className="hidden sm:block">
+              <div className="hidden lg:block absolute top-7 left-12 right-12 h-px bg-canvas-line" />
+              <div className="grid grid-cols-3 lg:grid-cols-5 gap-6 sm:gap-8 relative z-10">
+                {howItWorksSteps.map((step, i) => (
+                  <Reveal key={step.num} delay={i * 80}>
+                    <div className="text-center group">
+                      <div className="w-14 h-14 rounded-full bg-white border border-canvas-line/80 shadow-2xs flex items-center justify-center font-serif text-lg font-medium text-rose mx-auto mb-4 group-hover:border-rose group-hover:shadow-md transition-all">
+                        {step.num}
+                      </div>
+                      <p className="text-sm font-medium text-bark leading-snug group-hover:text-rose-deep transition-colors">{step.label}</p>
+                      <p className="text-xs text-ink-light mt-1.5 leading-relaxed">{step.desc}</p>
+                    </div>
+                  </Reveal>
+                ))}
+              </div>
+            </div>
+
+            {/* Mobile layout (< 640px): Vertical Botanical Storyline connecting 01 to 05 */}
+            <div className="sm:hidden relative pl-8 space-y-5 max-w-sm mx-auto">
+              {/* Continuous vertical stem line */}
+              <div className="absolute left-4 top-3 bottom-5 w-px bg-rose/30" />
+
+              {howItWorksSteps.map((step, i) => (
+                <Reveal key={step.num} delay={i * 60}>
+                  <div className="relative flex items-start gap-3.5 group">
+                    <div className="absolute -left-8 w-8 h-8 rounded-full bg-white border border-rose/40 shadow-xs flex items-center justify-center font-serif text-xs font-semibold text-rose z-10 group-hover:border-rose transition-colors">
+                      {step.num}
+                    </div>
+                    <div className="pt-0.5">
+                      <h4 className="text-xs font-semibold text-bark leading-snug">{step.label}</h4>
+                      <p className="text-[11px] text-ink-light mt-0.5 leading-tight">{step.desc}</p>
+                    </div>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -985,18 +1016,23 @@ export default function ProductDetail() {
 
       {/* Related products */}
       {relatedProducts.length > 0 && (
-        <section className="pt-24 lg:pt-32 pb-12 lg:pb-16 bg-linen">
+        <section className="py-12 lg:py-24 bg-linen border-t border-canvas-line/80">
           <div className="container-lux">
             <Reveal>
-              <SectionHeading
-                title="You may also appreciate"
-                center={true}
-              />
+              <div className="text-center max-w-xl mx-auto mb-8 lg:mb-12">
+                <p className="text-[10px] uppercase tracking-[0.25em] text-rose font-semibold mb-1">
+                  Atelier Pairings
+                </p>
+                <h2 className="font-serif text-2xl lg:text-4xl text-bark font-medium">You may also appreciate</h2>
+                <p className="text-xs sm:text-sm text-ink-light mt-1.5">
+                  Handcrafted companions from the same studio atelier.
+                </p>
+              </div>
             </Reveal>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-8 mt-12">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 lg:gap-6">
               {relatedProducts.map((p, i) => (
                 <Reveal key={p.code} delay={i * 80}>
-                  <ProductCard product={p} variant="compact" />
+                  <ProductCard product={p} />
                 </Reveal>
               ))}
             </div>

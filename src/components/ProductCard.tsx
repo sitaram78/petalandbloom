@@ -16,12 +16,12 @@ export default function ProductCard({ product, variant = 'default' }: ProductCar
 
   return (
     <div className="group block relative">
-      <div className="relative overflow-hidden bg-canvas rounded-atelier-img">
+      <div className="relative overflow-hidden bg-canvas rounded-2xl">
         <Link
           to={`/product/${product.code}`}
-          className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-linen rounded-atelier-img"
+          className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose focus-visible:ring-offset-2 focus-visible:ring-offset-linen rounded-2xl"
         >
-          <div className="aspect-[4/5] overflow-hidden">
+          <div className="aspect-[3/4] overflow-hidden">
             <img
               src={product.images?.[0] || '/placeholder-bloom.svg'}
               alt={product.name}
@@ -88,25 +88,25 @@ export default function ProductCard({ product, variant = 'default' }: ProductCar
       </div>
 
       {/* Info */}
-      <div className="mt-4">
+      <div className="mt-3 sm:mt-4">
         <Link to={`/product/${product.code}`}>
-          <h3 className="font-serif text-lg text-bark leading-tight group-hover:text-rose transition-colors duration-300">
+          <h3 className="font-serif text-sm sm:text-lg text-bark leading-tight group-hover:text-rose transition-colors duration-300 line-clamp-1 sm:line-clamp-none font-medium">
             {product.name}
           </h3>
         </Link>
         <div className="flex items-center justify-between mt-1">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="font-serif text-base text-bark">
+          <div className="flex items-baseline gap-1.5 sm:gap-2 flex-wrap">
+            <span className="font-serif text-sm sm:text-base text-bark font-medium">
               {product.priceLabel || formatPrice(product.price)}
             </span>
             {product.compareAtPrice && product.compareAtPrice > product.price && (
               <>
-                <span className="text-xs text-ink-light line-through">{formatPrice(product.compareAtPrice)}</span>
-                <span className="text-[10px] text-rose font-medium">{getDiscountPercent(product)}% off</span>
+                <span className="text-[10px] sm:text-xs text-ink-light line-through">{formatPrice(product.compareAtPrice)}</span>
+                <span className="text-[9px] sm:text-[10px] text-rose font-medium">{getDiscountPercent(product)}% off</span>
               </>
             )}
           </div>
-          <span className="text-[10px] text-ink-light font-mono uppercase tracking-widest">
+          <span className="text-[9px] sm:text-[10px] text-ink-light font-mono uppercase tracking-widest hidden sm:inline">
             {product.code}
           </span>
         </div>

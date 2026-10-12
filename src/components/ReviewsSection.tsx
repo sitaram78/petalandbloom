@@ -157,19 +157,97 @@ export default function ReviewsSection({ productCode = 'rose-elegance', productN
   };
 
   return (
-    <section id="reviews" className="py-16 lg:py-24 bg-canvas/30 border-t border-canvas-line">
-      <div className="container-lux max-w-5xl">
+    <section id="reviews" className="py-16 lg:py-24 bg-linen border-t border-canvas-line/80">
+      <div className="container-lux max-w-6xl">
         {/* Header */}
         <Reveal>
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6 mb-10">
             <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-rose font-medium mb-1">
-                Verified Social Proof
+              <p className="text-[10px] uppercase tracking-[0.25em] text-rose font-semibold mb-1">
+                The Atelier Guestbook
               </p>
-              <h2 className="heading-serif text-3xl lg:text-4xl text-bark">Patron Stories &amp; Reviews</h2>
+              <h2 className="font-serif text-3xl lg:text-4xl text-bark font-medium">Patron Stories &amp; Reviews</h2>
               <p className="text-xs sm:text-sm text-ink-light mt-1">
-                Authentic experiences from verified collectors of {productName}.
+                Authentic experiences from verified collectors across India.
               </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-3.5 py-1.5 rounded-full border border-emerald-200 text-xs font-medium">
+                <ShieldCheck size={14} className="text-emerald-700" />
+                <span>100% Verified Collectors Only</span>
+              </span>
+            </div>
+          </div>
+        </Reveal>
+
+        <div className="grid lg:grid-cols-12 gap-8 items-start">
+          {/* Left Column: Atelier Scorecard (4 cols) */}
+          <div className="lg:col-span-4 bg-white/80 backdrop-blur-sm rounded-3xl p-5 sm:p-7 border border-canvas-line/80 shadow-xs space-y-4 sm:space-y-6">
+            <div className="flex sm:flex-col items-center justify-between sm:justify-center pb-4 sm:pb-5 border-b border-canvas-line/70 gap-3 sm:gap-0">
+              <div className="text-center shrink-0 pr-3 sm:pr-0">
+                <div className="font-serif text-4xl sm:text-6xl text-bark font-medium leading-none mb-1 sm:mb-2">
+                  {averageRating.toFixed(1)}
+                </div>
+                <div className="flex items-center justify-center gap-1 text-rose text-sm sm:text-base mb-1">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      size={14}
+                      className={s <= Math.round(averageRating) ? 'fill-rose text-rose' : 'text-canvas-line'}
+                    />
+                  ))}
+                </div>
+                <p className="text-[10px] sm:text-xs text-ink-light font-medium whitespace-nowrap">
+                  {totalReviews} verified {totalReviews === 1 ? 'review' : 'reviews'}
+                </p>
+              </div>
+
+              {/* Mobile compact bars: side-by-side with score */}
+              <div className="flex-1 w-full sm:hidden space-y-1 text-xs pl-3 border-l border-canvas-line/60">
+                {[5, 4, 3, 2, 1].map((star) => {
+                  const count = ratingBreakdown[star] || 0;
+                  const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : star === 5 ? 100 : 0;
+                  return (
+                    <div key={star} className="flex items-center gap-1.5 text-ink-light">
+                      <span className="w-5 font-mono text-bark font-medium text-[10px]">{star}★</span>
+                      <div className="flex-1 h-1.5 bg-canvas rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-rose rounded-full transition-all duration-500"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                      <span className="w-4 text-right font-mono text-[10px]">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Desktop / tablet distribution bars */}
+            <div className="hidden sm:block space-y-2 text-xs">
+              {[5, 4, 3, 2, 1].map((star) => {
+                const count = ratingBreakdown[star] || 0;
+                const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : star === 5 ? 100 : 0;
+                return (
+                  <div key={star} className="flex items-center gap-2.5 text-ink-light">
+                    <span className="w-10 font-mono text-bark font-medium text-[11px]">{star} ★</span>
+                    <div className="flex-1 h-2 bg-canvas rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-rose rounded-full transition-all duration-500"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                    <span className="w-6 text-right font-mono text-[11px]">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Studio Guestbook Pledge */}
+            <div className="bg-canvas/50 rounded-2xl p-4 border border-canvas-line/70 text-xs text-ink-light leading-relaxed">
+              <span className="font-semibold text-bark block mb-0.5">The Studio Guestbook Pledge</span>
+              To preserve uncompromised craft integrity, only patrons who have ordered this piece can submit ratings and stories.
             </div>
 
             {/* Action / Trigger Button */}
@@ -180,28 +258,27 @@ export default function ReviewsSection({ productCode = 'rose-elegance', productN
                     <button
                       type="button"
                       onClick={() => setShowModal(true)}
-                      className="px-6 py-3 rounded-atelier-btn bg-bark text-linen hover:bg-rose-deep text-xs uppercase tracking-wider font-semibold flex items-center gap-2 transition-all shadow-soft"
+                      className="w-full py-3 bg-bark hover:bg-rose-deep text-linen text-xs uppercase tracking-wider font-semibold rounded-full shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <Sparkles size={14} className="text-rose" />
                       Write a Verified Review
                     </button>
                   ) : (
-                    <span className="px-4 py-2 rounded-sm bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-medium flex items-center gap-1.5">
+                    <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-medium flex items-center justify-center gap-1.5">
                       <CheckCircle2 size={14} className="text-emerald-600" />
                       You have reviewed this piece
-                    </span>
+                    </div>
                   )
                 ) : (
-                  <div className="text-right">
+                  <div className="text-center">
                     <button
                       type="button"
                       disabled
-                      className="px-5 py-2.5 rounded-sm bg-canvas/60 text-ink-light border border-canvas-line text-xs font-medium cursor-not-allowed opacity-75"
-                      title="Only verified purchasers can submit reviews"
+                      className="w-full py-2.5 rounded-full bg-canvas/60 text-ink-light border border-canvas-line text-xs font-medium cursor-not-allowed opacity-75"
                     >
                       Verified Purchasers Only
                     </button>
-                    <p className="text-[10px] text-ink-light mt-1 italic">
+                    <p className="text-[10px] text-ink-light mt-1.5 italic">
                       Purchase this bloom to share your story
                     </p>
                   </div>
@@ -210,144 +287,96 @@ export default function ReviewsSection({ productCode = 'rose-elegance', productN
                 <button
                   type="button"
                   onClick={() => navigate('/account', { state: { returnToCheckout: false } })}
-                  className="px-6 py-3 rounded-atelier-btn border border-bark text-bark hover:bg-bark hover:text-linen text-xs uppercase tracking-wider font-semibold transition-all"
+                  className="w-full py-3 rounded-full border border-bark text-bark hover:bg-bark hover:text-linen text-xs uppercase tracking-wider font-semibold transition-all cursor-pointer"
                 >
                   Sign In to Review
                 </button>
               )}
             </div>
           </div>
-        </Reveal>
 
-        {/* Rating Breakdown & Stats Card */}
-        <div className="bg-linen p-6 sm:p-8 rounded-sm border border-canvas-line shadow-soft mb-12 grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
-          {/* Left: Overall Score */}
-          <div className="text-center md:border-r md:border-canvas-line md:pr-8">
-            <div className="text-5xl font-serif font-bold text-bark mb-1">
-              {averageRating.toFixed(1)}
-            </div>
-            <div className="flex items-center justify-center gap-1 text-rose mb-1.5">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star
-                  key={s}
-                  size={18}
-                  className={s <= Math.round(averageRating) ? 'fill-rose text-rose' : 'text-canvas-line'}
-                />
-              ))}
-            </div>
-            <p className="text-xs text-ink-light">
-              Based on {totalReviews} verified {totalReviews === 1 ? 'patron review' : 'patron reviews'}
-            </p>
-          </div>
-
-          {/* Center: Rating Distribution Bars */}
-          <div className="md:col-span-2 space-y-2">
-            {[5, 4, 3, 2, 1].map((star) => {
-              const count = ratingBreakdown[star] || 0;
-              const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : star === 5 ? 100 : 0;
-              return (
-                <div key={star} className="flex items-center gap-3 text-xs text-ink-light">
-                  <span className="w-8 font-mono text-bark font-medium">{star} ★</span>
-                  <div className="flex-1 h-2 bg-canvas rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-rose rounded-full transition-all duration-500"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                  <span className="w-8 text-right font-mono text-[11px]">{count}</span>
+          {/* Right Column: Editorial Testimonials (8 cols) */}
+          <div className="lg:col-span-8 space-y-4">
+            {loading ? (
+              <div className="py-16 text-center bg-white/60 rounded-3xl border border-canvas-line/70">
+                <Loader2 size={24} className="animate-spin text-rose mx-auto mb-2" />
+                <p className="text-xs text-ink-light">Loading verified reviews...</p>
+              </div>
+            ) : reviews.length === 0 ? (
+              <div className="bg-white/80 backdrop-blur-sm p-8 sm:p-12 text-center rounded-3xl border border-canvas-line/80 shadow-2xs space-y-3">
+                <div className="w-12 h-12 rounded-full bg-rose/10 text-rose flex items-center justify-center mx-auto text-xl">
+                  💌
                 </div>
-              );
-            })}
+                <h3 className="font-serif text-2xl text-bark font-medium">Be the First to Review</h3>
+                <p className="text-xs sm:text-sm text-ink-light max-w-md mx-auto leading-relaxed">
+                  As each bespoke arrangement is crocheted to order, your personal story and floral photos help future collectors choose their heirloom blooms.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {reviews.map((r) => (
+                  <div
+                    key={r.id}
+                    className="bg-white/80 backdrop-blur-sm p-6 rounded-2xl border border-canvas-line/80 hover:border-rose/30 transition-all space-y-3 shadow-2xs"
+                  >
+                    <div>
+                      {/* Top Row: Stars + Verified Badge */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1 text-rose">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              size={14}
+                              className={s <= r.rating ? 'fill-rose text-rose' : 'text-canvas-line'}
+                            />
+                          ))}
+                        </div>
+                        {r.is_verified_purchase && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 size={11} className="text-emerald-600" />
+                            Verified Collector
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Title & Body */}
+                      {r.review_title && (
+                        <h4 className="font-serif font-semibold text-bark text-base mb-1">
+                          {r.review_title}
+                        </h4>
+                      )}
+                      <p className="text-xs sm:text-sm text-ink-light leading-relaxed whitespace-pre-line italic">
+                        &ldquo;{r.review_text}&rdquo;
+                      </p>
+
+                      {/* Photo if provided */}
+                      {r.customer_photo && (
+                        <div className="mt-3">
+                          <img
+                            src={r.customer_photo}
+                            alt="Customer bloom photo"
+                            className="w-20 h-20 object-cover rounded-xl border border-canvas-line shadow-2xs"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer: Author & Date */}
+                    <div className="pt-3 border-t border-canvas-line/50 flex items-center justify-between text-xs text-ink-light">
+                      <span className="font-medium text-bark">{r.customer_name}</span>
+                      <span className="font-mono text-[11px]">
+                        {new Date(r.created_at).toLocaleDateString('en-IN', {
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Verified Patron Review Notice for Non-Purchasers */}
-        {user && !isEligible && eligibilityChecked && (
-          <div className="mb-8 p-4 bg-parchment-50 border border-canvas-line rounded-sm flex items-start gap-3">
-            <ShieldCheck size={18} className="text-rose shrink-0 mt-0.5" />
-            <div className="text-xs text-ink-light leading-relaxed">
-              <strong className="text-bark font-semibold">Authenticity Guarantee:</strong> To preserve the absolute integrity of our reviews, only verified collectors who have placed an order for this handcrafted piece can submit ratings.
-            </div>
-          </div>
-        )}
-
-        {/* Reviews List */}
-        {loading ? (
-          <div className="py-12 text-center">
-            <Loader2 size={24} className="animate-spin text-rose mx-auto mb-2" />
-            <p className="text-xs text-ink-light">Loading verified reviews...</p>
-          </div>
-        ) : reviews.length === 0 ? (
-          <div className="bg-linen p-10 text-center rounded-sm border border-canvas-line shadow-soft">
-            <MessageSquare size={32} className="text-ink-light mx-auto mb-3 opacity-60" />
-            <h3 className="heading-serif text-xl text-bark mb-1">Be the First to Review</h3>
-            <p className="text-xs text-ink-light max-w-sm mx-auto mb-4">
-              As each bespoke arrangement is crocheted to order, your story and floral photos help future collectors choose their heirloom blooms.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {reviews.map((r) => (
-              <div
-                key={r.id}
-                className="bg-linen p-6 rounded-sm border border-canvas-line shadow-soft space-y-3 flex flex-col justify-between"
-              >
-                <div>
-                  {/* Top Row: Stars + Verified Badge */}
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-1 text-rose">
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star
-                          key={s}
-                          size={14}
-                          className={s <= r.rating ? 'fill-rose text-rose' : 'text-canvas-line'}
-                        />
-                      ))}
-                    </div>
-                    {r.is_verified_purchase && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        <CheckCircle2 size={11} className="text-emerald-600" />
-                        Verified Buyer
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Title & Body */}
-                  {r.review_title && (
-                    <h4 className="font-serif font-semibold text-bark text-base mb-1">
-                      {r.review_title}
-                    </h4>
-                  )}
-                  <p className="text-xs text-ink-light leading-relaxed whitespace-pre-line">
-                    &ldquo;{r.review_text}&rdquo;
-                  </p>
-
-                  {/* Photo if provided */}
-                  {r.customer_photo && (
-                    <div className="mt-3">
-                      <img
-                        src={r.customer_photo}
-                        alt="Customer bloom photo"
-                        className="w-20 h-20 object-cover rounded-sm border border-canvas-line shadow-xs"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer: Author & Date */}
-                <div className="pt-3 border-t border-canvas-line/60 flex items-center justify-between text-[11px] text-ink-light">
-                  <span className="font-medium text-bark">{r.customer_name}</span>
-                  <span>
-                    {new Date(r.created_at).toLocaleDateString('en-IN', {
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* ========================================================================= */}
         {/* WRITE REVIEW MODAL                                                        */}

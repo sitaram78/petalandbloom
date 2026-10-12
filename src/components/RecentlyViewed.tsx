@@ -16,12 +16,20 @@ export default function RecentlyViewed({ excludeCode }: { excludeCode?: string }
   if (recentProducts.length === 0) return null;
 
   return (
-    <section className="pt-12 lg:pt-16 pb-6 lg:pb-8 bg-cream-50">
+    <section className="py-12 lg:py-20 bg-linen border-t border-canvas-line/80">
       <div className="container-lux">
         <Reveal>
-          <h2 className="heading-serif text-2xl lg:text-3xl mb-8">You might still be thinking about these...</h2>
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-6 sm:mb-8 pb-3 sm:pb-4 border-b border-canvas-line/60 gap-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.25em] text-rose font-semibold mb-1">
+                Your Browsing Atelier
+              </p>
+              <h2 className="font-serif text-2xl lg:text-3xl text-bark font-medium">Still thinking about these?</h2>
+            </div>
+            <p className="text-xs text-ink-light font-mono hidden sm:block">Recently viewed</p>
+          </div>
         </Reveal>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 lg:gap-6">
           {recentProducts.map((product, i) => (
             <Reveal key={product.code} delay={i * 60}>
               <ProductCard product={product} />
