@@ -190,11 +190,30 @@ export default function OrderConfirmation() {
                           Qty: <span className="font-medium text-bark">{item.quantity}</span>
                           {item.selected_color && ` · Colour: ${item.selected_color}`}
                         </p>
-                        {item.gift_wrap && (
+                        {item.personal_message ? (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {item.personal_message.split(' | ').map((part: string, idx: number) => {
+                              const isPackaging = part.toLowerCase().startsWith('packaging:');
+                              const isCard = part.toLowerCase().includes('greeting card');
+                              const isNote = part.toLowerCase().includes('personal note');
+                              return (
+                                <span
+                                  key={idx}
+                                  className="text-[11px] leading-tight text-ink-light bg-cream/80 border border-sand/50 rounded px-2 py-0.5 inline-flex items-center gap-1"
+                                >
+                                  {isPackaging && <span>🎁</span>}
+                                  {isCard && <span>💌</span>}
+                                  {isNote && <span>📜</span>}
+                                  <span>{part}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : item.gift_wrap ? (
                           <span className="text-[10px] text-moss uppercase tracking-wider font-semibold block mt-1">
-                            Gift Wrapped Included
+                            Artisan Presentation Included
                           </span>
-                        )}
+                        ) : null}
                       </div>
                       <p className="text-sm font-medium text-bark whitespace-nowrap">
                         {formatPrice((item.unit_price_in_paise * item.quantity) / 100)}

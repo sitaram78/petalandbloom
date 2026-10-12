@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Heart, ShoppingBag, Clock, Truck,
-  Check, Gift, Sparkles, Star, Palette, Search
+  Check, Gift, Sparkles, Star, Palette, Search,
+  ChevronDown, ChevronUp, Package, ShieldCheck
 } from 'lucide-react';
 import { formatPrice, getDiscountPercent } from '@/data/products';
 import { useCart } from '@/context/CartContext';
@@ -24,6 +25,7 @@ import { trackEvent } from '@/utils/analytics';
 import { useProducts } from '@/context/ProductContext';
 import { generalEnquiryMessage } from '@/utils/whatsapp';
 import { resolveHueStyle } from '@/utils/colorPalette';
+import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 export default function ProductDetail() {
   const navigate = useNavigate();
@@ -33,6 +35,14 @@ export default function ProductDetail() {
   const { addItem } = useCart();
   const { toggleItem, isWishlisted } = useWishlist();
   const { addRecentlyViewed } = useRecentlyViewed();
+  const { settings } = useStoreSettings();
+
+  // Dynamic packaging fees from store settings (with graceful defaults)
+  const greetingCardFee = (settings.businessRules?.greetingCardFeePaise ?? 4900) / 100;
+  const personalisedMessageFee = (settings.businessRules?.personalisedMessageFeePaise ?? 3900) / 100;
+  const bouquetLuxuryWrapUpgradeFee = (settings.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900) / 100;
+  const stemBouquetWrapFee = (settings.businessRules?.stemBouquetWrapFeePaise ?? 7900) / 100;
+  const luxuryGiftBoxFee = (settings.businessRules?.luxuryGiftBoxFeePaise ?? 14900) / 100;
 
   const handleBackToStudio = () => {
     if (window.history.state && window.history.state.idx > 0) {
@@ -45,8 +55,14 @@ export default function ProductDetail() {
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedColor, setSelectedColor] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
-  const [giftWrap, setGiftWrap] = useState(false);
-  const [personalMessage, setPersonalMessage] = useState('');
+  const [isDescExpanded, setIsDescExpanded] = useState(false);
+
+  // Category-Aware Packaging & Gift Options State
+  const [selectedPackaging, setSelectedPackaging] = useState<'standard' | 'luxury_wrap' | 'bouquet_wrap' | 'gift_box'>('standard');
+  const [addGreetingCard, setAddGreetingCard] = useState(false);
+  const [greetingCardText, setGreetingCardText] = useState('');
+  const [addPersonalMessage, setAddPersonalMessage] = useState(false);
+  const [personalMessageText, setPersonalMessageText] = useState('');
 
   // Gallery swipe and thumbnail tracking
   const touchStartX = useRef<number | null>(null);
@@ -186,15 +202,191 @@ export default function ProductDetail() {
     .filter((p) => p.category === product.category && p.code !== product.code)
     .slice(0, 3);
 
+  const isBouquet = product.category === 'bouquets' || product.name.toLowerCase().includes('bouquet');
+  const isFlowers = product.category === 'flowers' || product.name.toLowerCase().includes('stem');
+
+  const packageInclusions: string[] = (product.whatsIncluded && product.whatsIncluded.length > 0)
+    ? product.whatsIncluded
+    : isBouquet
+    ? [
+        product.bouquetSize ? `${product.bouquetSize} Handcrafted Bloom Stems` : 'Handcrafted Botanical Bloom Stems',
+        'Korean Waterproof Matte Paper Wrap',
+        'Layered Parisian Satin Ribbon & Wax Seal',
+        'Botanical Care & Longevity Instruction Card',
+      ]
+    : isFlowers
+    ? [
+        'Handcrafted Botanical Bloom Stem',
+        'Flexible Shape-Holding Wire Core',
+        'Eco-Friendly Protective Sleeve',
+        'Botanical Care & Dust-Free Guide',
+      ]
+    : [
+        'Handcrafted Atelier Creation',
+        'Studio Dust-Free Protection Packaging',
+        'Authenticity & Care Instruction Note',
+      ];
+
+  const packagingOptions = isBouquet
+    ? [
+        {
+          id: 'standard' as const,
+          label: 'Standard Floral Wrap',
+          badge: 'Included (Free)',
+          fee: 0,
+          desc: 'Complimentary Korean waterproof matte wrap with satin ribbon',
+        },
+        {
+          id: 'luxury_wrap' as const,
+          label: 'Upgrade to Luxury Silk Wrap',
+          badge: `+₹${bouquetLuxuryWrapUpgradeFee}`,
+          fee: bouquetLuxuryWrapUpgradeFee,
+          desc: 'Textured luxury imported wrap with layered Parisian satin bow',
+        },
+        {
+          id: 'gift_box' as const,
+          label: 'Pack in Luxury Rigid Gift Box',
+          badge: `+₹${luxuryGiftBoxFee}`,
+          fee: luxuryGiftBoxFee,
+          desc: 'Hard-shell keepsake luxury presentation box with satin ribbon',
+        },
+      ]
+    : isFlowers
+    ? [
+        {
+          id: 'standard' as const,
+          label: 'Individual Stem Sleeves',
+          badge: 'Included (Free)',
+          fee: 0,
+          desc: 'Protective eco-friendly botanical sleeve for individual stems',
+        },
+        {
+          id: 'bouquet_wrap' as const,
+          label: 'Wrap as a Finished Bouquet',
+          badge: `+₹${stemBouquetWrapFee}`,
+          fee: stemBouquetWrapFee,
+          desc: 'Full bouquet wrapping, folds, tissue layers, and satin bow',
+        },
+        {
+          id: 'gift_box' as const,
+          label: 'Pack in Luxury Rigid Gift Box',
+          badge: `+₹${luxuryGiftBoxFee}`,
+          fee: luxuryGiftBoxFee,
+          desc: 'Hard-shell keepsake luxury presentation box with satin ribbon',
+        },
+      ]
+    : [
+        {
+          id: 'standard' as const,
+          label: 'Standard Studio Packaging',
+          badge: 'Included (Free)',
+          fee: 0,
+          desc: 'Secure studio packaging & protective eco wrap',
+        },
+        {
+          id: 'gift_box' as const,
+          label: 'Luxury Rigid Gift Box & Ribbon',
+          badge: `+₹${luxuryGiftBoxFee}`,
+          fee: luxuryGiftBoxFee,
+          desc: 'Hard-shell keepsake presentation box with satin ribbon',
+        },
+      ];
+
+  const currentPackaging = packagingOptions.find((o) => o.id === selectedPackaging) || packagingOptions[0];
+  const isPerUnitPackaging = selectedPackaging === 'luxury_wrap';
+  const currentPackagingFee = currentPackaging.fee;
+  const currentGreetingFee = addGreetingCard ? greetingCardFee : 0;
+  const currentMessageFee = addPersonalMessage ? personalisedMessageFee : 0;
+
+  // Multiplier-aware pricing:
+  // - Bouquet luxury silk wrap (+₹59) applies per bouquet unit.
+  // - Loose stem bouquet assembly (+₹79) & gift box (+₹149) apply flat once per line item.
+  // - Keepsake greeting card (+₹49) & personal note (+₹39) apply flat once per line item.
+  const unitBasePrice = product.price + (isPerUnitPackaging ? currentPackagingFee : 0);
+  const flatFees = (!isPerUnitPackaging ? currentPackagingFee : 0) + currentGreetingFee + currentMessageFee;
+  const lineTotalPrice = (unitBasePrice * quantity) + flatFees;
+  const effectiveUnitPrice = Math.round(lineTotalPrice / quantity);
+
   const handleAddToCart = () => {
-    addItem(product, {
-      color: selectedColor || undefined,
-      quantity,
-      giftWrap,
-      message: personalMessage || undefined,
-    });
+    const packagingDesc = currentPackaging.fee > 0 ? `${currentPackaging.label} (+₹${currentPackaging.fee})` : currentPackaging.label;
+    const parts = [
+      `Packaging: ${packagingDesc}`,
+      addGreetingCard && greetingCardText.trim()
+        ? `Greeting Card Note (+₹${greetingCardFee}): "${greetingCardText.trim()}"`
+        : addGreetingCard
+        ? `Greeting Card (+₹${greetingCardFee})`
+        : null,
+      addPersonalMessage && personalMessageText.trim()
+        ? `Personal Note (+₹${personalisedMessageFee}): "${personalMessageText.trim()}"`
+        : addPersonalMessage
+        ? `Personalised Note (+₹${personalisedMessageFee})`
+        : null,
+    ].filter(Boolean);
+
+    addItem(
+      product,
+      {
+        color: selectedColor || undefined,
+        quantity,
+        giftWrap: selectedPackaging !== 'standard' || addGreetingCard || addPersonalMessage,
+        message: parts.length > 0 ? parts.join(' | ') : undefined,
+        packagingTier: selectedPackaging,
+        packagingLabel: currentPackaging.label,
+        hasGreetingCard: addGreetingCard,
+        greetingCardMessage: greetingCardText.trim() || undefined,
+        hasPersonalNote: addPersonalMessage,
+        personalNoteMessage: personalMessageText.trim() || undefined,
+        basePrice: product.price,
+        packagingFee: currentPackagingFee,
+        packagingMultiplier: isPerUnitPackaging ? 'per_unit' : 'flat',
+        cardFee: currentGreetingFee,
+        noteFee: currentMessageFee,
+        unitPrice: unitBasePrice,
+      }
+    );
     trackEvent('add_to_cart', { code: product.code, quantity });
   };
+
+  const renderPackageInclusions = () => (
+    <div className="pt-6 sm:pt-8 border-t border-canvas-line/80 space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <span className="text-[10px] uppercase tracking-[0.25em] text-rose font-semibold block mb-0.5">
+            The Atelier Package
+          </span>
+          <h3 className="font-serif text-2xl text-bark">What is included in this piece</h3>
+        </div>
+        <span className="text-xs text-ink-light bg-canvas px-2.5 py-1 rounded-full border border-canvas-line">
+          {packageInclusions.length} studio items
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {packageInclusions.map((item, idx) => (
+          <div
+            key={idx}
+            className="flex items-start gap-2.5 p-3.5 rounded-sm bg-white/80 border border-canvas-line hover:border-rose/40 transition-colors shadow-2xs"
+          >
+            <span className="w-5 h-5 rounded-full bg-moss/15 text-moss flex items-center justify-center shrink-0 mt-0.5">
+              <Check size={12} strokeWidth={2.5} />
+            </span>
+            <span className="text-xs text-bark font-medium leading-relaxed">{item}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Everlasting Botanical Craftsmanship Note */}
+      <div className="p-4 rounded-sm bg-linen border border-canvas-line space-y-2">
+        <div className="flex items-center gap-2 text-rose font-medium text-xs">
+          <Sparkles size={14} />
+          <span className="uppercase tracking-wider font-semibold">Everlasting Artisan Guarantee</span>
+        </div>
+        <p className="text-xs text-ink-light leading-relaxed">
+          Hand-sculpted with premium milk cotton yarn with flexible internal floral wire. 100% dust-resistant, hypoallergenic, and everlasting — requires zero watering or sunlight, preserving its beauty forever.
+        </p>
+      </div>
+    </div>
+  );
 
   const structuredData = {
     '@context': 'https://schema.org',
@@ -298,6 +490,11 @@ export default function ProductDetail() {
                     ))}
                   </div>
                 )}
+
+                {/* Desktop only: Package Inclusions & Craftsmanship (Balances left and right columns on desktop) */}
+                <div className="hidden lg:block">
+                  {renderPackageInclusions()}
+                </div>
               </div>
             </Reveal>
           </div>
@@ -342,11 +539,16 @@ export default function ProductDetail() {
                   </a>
                 </div>
 
-                <div className="flex items-center gap-6 mb-10">
+                <div className="flex items-center gap-6 mb-8">
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="font-serif text-4xl text-rose-deep">
-                      {product.priceLabel || formatPrice(product.price)}
+                      {formatPrice(unitBasePrice + (quantity === 1 ? flatFees : 0))}
                     </span>
+                    {lineTotalPrice > (product.price * quantity) && (
+                      <span className="text-[11px] text-ink-light font-sans bg-canvas px-2.5 py-1 rounded-sm border border-canvas-line">
+                        Base {formatPrice(product.price * quantity)} + Upgrades (+₹{lineTotalPrice - (product.price * quantity)})
+                      </span>
+                    )}
                     {product.compareAtPrice && product.compareAtPrice > product.price && (
                       <>
                         <span className="text-sm text-ink-light line-through">{formatPrice(product.compareAtPrice)}</span>
@@ -388,37 +590,54 @@ export default function ProductDetail() {
                   </span>
                 </div>
 
-                <div className="space-y-6 mb-10">
-                  <p className="text-lg text-ink-light leading-relaxed font-light">
-                    {product.description}
-                  </p>
-                  {product.longDescription && (
-                    <div className="p-6 bg-canvas rounded-sm border-l-4 border-rose/50 italic text-ink-light leading-relaxed">
-                      {product.longDescription}
-                    </div>
+                {/* Description with Read More / Show Less Toggle */}
+                <div className="space-y-4 mb-8">
+                  <div className={`relative transition-all duration-300 ${!isDescExpanded && (product.description.length > 180 || product.longDescription) ? 'max-h-24 overflow-hidden' : ''}`}>
+                    <p className="text-base text-ink-light leading-relaxed font-light">
+                      {product.description}
+                    </p>
+                    {product.longDescription && isDescExpanded && (
+                      <div className="mt-4 p-5 bg-canvas rounded-sm border-l-4 border-rose/50 italic text-ink-light leading-relaxed text-sm">
+                        {product.longDescription}
+                      </div>
+                    )}
+                    {!isDescExpanded && (product.description.length > 180 || product.longDescription) && (
+                      <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-linen to-transparent pointer-events-none" />
+                    )}
+                  </div>
+
+                  {(product.description.length > 180 || product.longDescription) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDescExpanded(!isDescExpanded)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-rose hover:text-rose-deep transition-colors"
+                    >
+                      <span>{isDescExpanded ? 'Show less' : 'Read full story'}</span>
+                      {isDescExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
                   )}
 
                   {(product.featured || product.bouquetSize || product.recipients?.length) && (
-                    <div className="space-y-4 pt-2">
+                    <div className="space-y-3 pt-2">
                       {product.featured && (
-                        <div className="inline-flex items-center gap-2 rounded-full border border-rose/30 bg-rose/5 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-rose">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-rose/30 bg-rose/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-rose">
                           <Sparkles size={12} /> Featured in Collection
                         </div>
                       )}
 
                       {product.bouquetSize && (
                         <div className="text-sm text-bark">
-                          <span className="font-medium uppercase tracking-wider text-ink-light mr-2">Product size</span>
+                          <span className="font-medium uppercase tracking-wider text-ink-light mr-2">Product size:</span>
                           {product.bouquetSize}
                         </div>
                       )}
 
                       {product.recipients && product.recipients.length > 0 && (
                         <div className="text-sm text-bark">
-                          <span className="font-medium uppercase tracking-wider text-ink-light mr-2">Ideal for</span>
-                          <div className="inline-flex flex-wrap gap-2 mt-2">
+                          <span className="font-medium uppercase tracking-wider text-ink-light mr-2">Ideal for:</span>
+                          <div className="inline-flex flex-wrap gap-1.5 mt-1.5">
                             {product.recipients.map((recipient) => (
-                              <span key={recipient} className="rounded-full border border-canvas-line bg-canvas px-2.5 py-1 text-xs text-bark">
+                              <span key={recipient} className="rounded-full border border-canvas-line bg-canvas px-2.5 py-0.5 text-xs text-bark">
                                 {recipient}
                               </span>
                             ))}
@@ -535,36 +754,143 @@ export default function ProductDetail() {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <label htmlFor="personal-message" className="block text-sm font-medium text-bark uppercase tracking-wider">
-                      Personalised message <span className="text-ink-light font-normal lowercase italic"> (optional, ₹39)</span>
-                    </label>
-                    <div className="p-4 border-2 border-dashed border-canvas-line rounded-atelier-panel bg-linen/50">
-                      <textarea
-                        id="personal-message"
-                        value={personalMessage}
-                        onChange={(e) => setPersonalMessage(e.target.value)}
-                        placeholder="For Amma, happy 60th — with love"
-                        className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm text-ink-light placeholder-ink-light/40 resize-none h-12 leading-relaxed"
-                      />
+                  {/* Packaging & Presentation Selector */}
+                  <div className="space-y-3 pt-2 border-t border-canvas-line/80">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-bark uppercase tracking-wider">
+                        Packaging &amp; Presentation
+                      </label>
+                      {currentPackagingFee > 0 && (
+                        <span className="text-rose text-[11px] font-semibold">
+                          +₹{currentPackagingFee}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      {packagingOptions.map((opt) => {
+                        const isSel = selectedPackaging === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setSelectedPackaging(opt.id)}
+                            className={`w-full text-left p-3.5 rounded-sm border transition-all flex items-start justify-between gap-3 ${
+                              isSel
+                                ? 'bg-rose/5 border-rose ring-1 ring-rose/30 shadow-2xs'
+                                : 'bg-linen/50 border-canvas-line hover:border-canvas-line-hover'
+                            }`}
+                          >
+                            <div className="space-y-0.5 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                                  isSel ? 'border-rose bg-rose' : 'border-ink-muted'
+                                }`}>
+                                  {isSel && <span className="w-1.5 h-1.5 rounded-full bg-linen" />}
+                                </span>
+                                <span className={`text-xs font-semibold ${isSel ? 'text-bark' : 'text-ink'}`}>
+                                  {opt.label}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-ink-light pl-5.5 leading-snug">
+                                {opt.desc}
+                              </p>
+                            </div>
+                            <span className={`text-xs font-medium shrink-0 px-2 py-0.5 rounded-full text-[10px] ${
+                              opt.fee === 0
+                                ? 'bg-moss/10 text-moss'
+                                : isSel
+                                ? 'bg-rose text-linen font-semibold'
+                                : 'bg-canvas text-bark'
+                            }`}>
+                              {opt.badge}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <label className="flex items-center gap-4 cursor-pointer group">
-                    <button
-                      onClick={() => setGiftWrap(!giftWrap)}
-                      className={`w-6 h-6 rounded-sm border-2 flex items-center justify-center transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose ${
-                        giftWrap ? 'bg-moss border-moss' : 'border-canvas-line group-hover:border-rose'
-                      }`}
-                      aria-label="Toggle gift wrapping"
-                      aria-pressed={giftWrap}
-                    >
-                      {giftWrap && <Check size={14} className="text-linen" strokeWidth={3} />}
-                    </button>
-                    <span className="text-sm text-ink-light group-hover:text-bark transition-colors">
-                      Add premium gift wrapping <span className="text-ink-light/60">(₹79)</span>
-                    </span>
-                  </label>
+                  {/* Gift Touches & Notes (Optional Add-ons) */}
+                  <div className="space-y-3 pt-2 border-t border-canvas-line/80">
+                    <label className="block text-xs font-semibold text-bark uppercase tracking-wider">
+                      Gift Touches &amp; Notes
+                    </label>
+
+                    {/* Handwritten Greeting Card */}
+                    <div className={`p-3.5 rounded-sm border transition-all space-y-2 ${
+                      addGreetingCard ? 'bg-canvas/40 border-rose/40' : 'bg-linen/40 border-canvas-line'
+                    }`}>
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={addGreetingCard}
+                            onChange={(e) => setAddGreetingCard(e.target.checked)}
+                            className="w-4 h-4 accent-rose rounded cursor-pointer"
+                          />
+                          <span className="text-xs font-medium text-bark">
+                            Handwritten Keepsake Greeting Card
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-rose">
+                          +₹{greetingCardFee}
+                        </span>
+                      </label>
+                      {addGreetingCard && (
+                        <div className="pt-2 pl-6">
+                          <textarea
+                            rows={2}
+                            maxLength={200}
+                            value={greetingCardText}
+                            onChange={(e) => setGreetingCardText(e.target.value)}
+                            placeholder="Write your greeting note (e.g. Wishing you joy & happiness!)..."
+                            className="w-full p-2.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-rose resize-none"
+                          />
+                          <span className="text-[10px] text-ink-light block text-right mt-0.5">
+                            {greetingCardText.length}/200 chars
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Personalised Message Note */}
+                    <div className={`p-3.5 rounded-sm border transition-all space-y-2 ${
+                      addPersonalMessage ? 'bg-canvas/40 border-rose/40' : 'bg-linen/40 border-canvas-line'
+                    }`}>
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={addPersonalMessage}
+                            onChange={(e) => setAddPersonalMessage(e.target.checked)}
+                            className="w-4 h-4 accent-rose rounded cursor-pointer"
+                          />
+                          <span className="text-xs font-medium text-bark">
+                            Personalised Note Card (Inside Packaging)
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-rose">
+                          +₹{personalisedMessageFee}
+                        </span>
+                      </label>
+                      {addPersonalMessage && (
+                        <div className="pt-2 pl-6">
+                          <textarea
+                            rows={2}
+                            maxLength={150}
+                            value={personalMessageText}
+                            onChange={(e) => setPersonalMessageText(e.target.value)}
+                            placeholder="Personal note tucked inside wrapping (e.g. With love, always)..."
+                            className="w-full p-2.5 bg-white border border-canvas-line rounded-sm text-xs text-ink focus:outline-none focus:border-rose resize-none"
+                          />
+                          <span className="text-[10px] text-ink-light block text-right mt-0.5">
+                            {personalMessageText.length}/150 chars
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Delivery Estimation */}
@@ -573,59 +899,31 @@ export default function ProductDetail() {
                 </div>
 
                 {/* CTAs */}
-                <div className="flex flex-col gap-4">
-                  <AtelierButton onClick={handleAddToCart} className="w-full py-6 text-lg bg-rose hover:bg-rose-deep text-linen border-none">
-                    <ShoppingBag size={22} className="mr-2" />
-                    Add to Collection
+                <div className="flex flex-col gap-3.5">
+                  <AtelierButton onClick={handleAddToCart} className="w-full py-5 text-base sm:text-lg bg-rose hover:bg-rose-deep text-linen border-none shadow-md">
+                    <ShoppingBag size={20} className="mr-2" />
+                    Add to Collection {lineTotalPrice > 0 ? `(${formatPrice(lineTotalPrice)})` : ''}
                   </AtelierButton>
-                  <WhatsAppButton
-                    message={productOrderMessage(product)}
-                    label="Order via Gift Concierge"
-                    variant="outline"
-                    className="w-full py-6 text-lg border-bark text-bark hover:bg-bark hover:text-linen"
-                  />
                   <WhatsAppButton
                     message={productEnquiryMessage(product)}
                     label="Inquire about this piece"
                     variant="outline"
-                    className="w-full py-6 text-lg"
+                    className="w-full py-4 text-base"
                   />
                 </div>
               </div>
             </Reveal>
+
+            {/* Mobile only: Package Inclusions & Craftsmanship rendered AFTER the Buy Panel & Description */}
+            <div className="block lg:hidden mt-8">
+              {renderPackageInclusions()}
+            </div>
           </div>
         </div>
       </section>
 
       {/* Cross-sell */}
       <CrossSell />
-
-      {/* Story and Detail Sections */}
-      {product.whatsIncluded && product.whatsIncluded.length > 0 && (
-        <section className="py-24 lg:py-32 bg-canvas">
-          <div className="container-lux">
-            <div className="grid md:grid-cols-2 gap-16">
-              <Reveal delay={100}>
-                <SectionHeading
-                  label="The Package"
-                  title="What is included"
-                  center={false}
-                />
-                <ul className="space-y-4 mt-6">
-                  {product.whatsIncluded.map((item) => (
-                    <li key={item} className="flex items-start gap-3 text-ink-light">
-                      <span className="w-5 h-5 rounded-full bg-moss-soft flex items-center justify-center flex-shrink-0 mt-0.5">
-                        <Check size={12} className="text-linen" strokeWidth={2.5} />
-                      </span>
-                      <span className="text-sm leading-relaxed">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </Reveal>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Reviews Section */}
       <ReviewsSection productCode={product.code} productName={product.name} />
@@ -683,7 +981,7 @@ export default function ProductDetail() {
       <div className="fixed bottom-14 left-0 right-0 z-40 sm:hidden bg-linen/95 backdrop-blur-md border-t border-canvas-line p-3 px-4 shadow-xl flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-serif text-bark truncate">{product.name}</p>
-          <p className="text-sm font-serif font-bold text-rose-deep">{formatPrice(product.price)}</p>
+          <p className="text-sm font-serif font-bold text-rose-deep">{formatPrice(effectiveUnitPrice)}</p>
         </div>
         <button
           onClick={handleAddToCart}

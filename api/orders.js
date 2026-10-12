@@ -588,6 +588,32 @@ function sanitizePostgrestFilter(val) {
 }
 
 // server/handlers/settings/store.ts
+var DEFAULT_COMPANION_GIFTS = [
+  {
+    id: "addon-flower",
+    name: "Extra Handcrafted Flower",
+    description: "Add an additional matching crochet bloom to your piece.",
+    priceRupees: 199
+  },
+  {
+    id: "addon-charm",
+    name: "Name Customisation Charm",
+    description: "A custom initial or name charm woven onto your piece.",
+    priceRupees: 79
+  },
+  {
+    id: "addon-vase",
+    name: "Petite Ceramic Bud Vase",
+    description: "Hand-thrown matte ceramic vase for displaying everlasting stems.",
+    priceRupees: 249
+  },
+  {
+    id: "addon-pouch",
+    name: "Linen Keepsake Storage Pouch",
+    description: "Dust-free heirloom drawstring pouch for safekeeping.",
+    priceRupees: 129
+  }
+];
 var DEFAULT_OCCASION_BANNER = {
   enabled: false,
   occasionTitle: "Mother's Day Special",
@@ -610,9 +636,15 @@ var DEFAULT_BUSINESS_RULES = {
   standardShippingFeePaise: 6900,
   expressShippingFeePaise: 4900,
   giftWrapFeePaise: 7900,
+  greetingCardFeePaise: 4900,
+  personalisedMessageFeePaise: 3900,
+  bouquetLuxuryWrapUpgradeFeePaise: 5900,
+  stemBouquetWrapFeePaise: 7900,
+  luxuryGiftBoxFeePaise: 14900,
   loyaltySpendPerPointPaise: 2e3,
   loyaltyPointRedemptionPaise: 50,
-  minLoyaltyOrderPaise: 29900
+  minLoyaltyOrderPaise: 29900,
+  companionGifts: DEFAULT_COMPANION_GIFTS
 };
 var DEFAULT_SETTINGS = {
   whatsappNumber: "+919861615937",

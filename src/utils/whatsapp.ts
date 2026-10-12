@@ -28,10 +28,29 @@ export function customOrderMessage(): string {
 }
 
 export function cartEnquiryMessage(
-  items: { name: string; code: string; price: string; quantity: number }[],
+  items: {
+    name: string;
+    code: string;
+    price: string;
+    quantity: number;
+    color?: string;
+    packaging?: string;
+    message?: string;
+  }[],
   details?: { name: string; pinCode: string; subtotal: number; shipping: number; discount: number; total: number; couponCode?: string }
 ): string {
-  const itemList = items.map((i) => `  • ${i.name} (${i.code}) — ${i.price} × ${i.quantity}`).join('\n');
+  const itemList = items
+    .map((i) => {
+      let line = `  • ${i.name} (${i.code}) — ${i.price} × ${i.quantity}`;
+      const badges: string[] = [];
+      if (i.color) badges.push(`Colour: ${i.color}`);
+      if (i.packaging) badges.push(i.packaging);
+      if (badges.length > 0) line += ` [${badges.join(' | ')}]`;
+      if (i.message) line += `\n    ↳ Note: ${i.message}`;
+      return line;
+    })
+    .join('\n');
+
   if (!details) {
     return `Hi The Petal & Bloom! I'd like to place an enquiry for the following items:\n\n${itemList}\n\nPlease confirm availability and delivery timeline.`;
   }

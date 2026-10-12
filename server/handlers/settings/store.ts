@@ -11,14 +11,54 @@ export interface StoreFeatureFlags {
   storeMaintenanceMode: boolean;
 }
 
+export interface CompanionGiftItem {
+  id: string;
+  name: string;
+  description: string;
+  priceRupees: number;
+}
+
+export const DEFAULT_COMPANION_GIFTS: CompanionGiftItem[] = [
+  {
+    id: 'addon-flower',
+    name: 'Extra Handcrafted Flower',
+    description: 'Add an additional matching crochet bloom to your piece.',
+    priceRupees: 199,
+  },
+  {
+    id: 'addon-charm',
+    name: 'Name Customisation Charm',
+    description: 'A custom initial or name charm woven onto your piece.',
+    priceRupees: 79,
+  },
+  {
+    id: 'addon-vase',
+    name: 'Petite Ceramic Bud Vase',
+    description: 'Hand-thrown matte ceramic vase for displaying everlasting stems.',
+    priceRupees: 249,
+  },
+  {
+    id: 'addon-pouch',
+    name: 'Linen Keepsake Storage Pouch',
+    description: 'Dust-free heirloom drawstring pouch for safekeeping.',
+    priceRupees: 129,
+  },
+];
+
 export interface StoreBusinessRules {
   freeShippingThresholdPaise: number; // e.g. 120000 = ₹1,200
   standardShippingFeePaise: number;   // e.g. 6900 = ₹69
   expressShippingFeePaise: number;    // e.g. 4900 = ₹49
   giftWrapFeePaise: number;           // e.g. 7900 = ₹79
+  greetingCardFeePaise: number;       // e.g. 4900 = ₹49
+  personalisedMessageFeePaise: number;// e.g. 3900 = ₹39
+  bouquetLuxuryWrapUpgradeFeePaise: number; // e.g. 5900 = ₹59
+  stemBouquetWrapFeePaise: number;    // e.g. 7900 = ₹79
+  luxuryGiftBoxFeePaise: number;      // e.g. 14900 = ₹149
   loyaltySpendPerPointPaise: number;  // e.g. 2000 = 1 pt per ₹20
   loyaltyPointRedemptionPaise: number;// e.g. 50 = ₹0.50 per pt
   minLoyaltyOrderPaise: number;       // e.g. 29900 = ₹299
+  companionGifts?: CompanionGiftItem[];
 }
 
 export type OccasionTheme = 'rose' | 'sage' | 'gold' | 'linen' | 'wine';
@@ -58,9 +98,15 @@ const DEFAULT_BUSINESS_RULES: StoreBusinessRules = {
   standardShippingFeePaise: 6900,
   expressShippingFeePaise: 4900,
   giftWrapFeePaise: 7900,
+  greetingCardFeePaise: 4900,
+  personalisedMessageFeePaise: 3900,
+  bouquetLuxuryWrapUpgradeFeePaise: 5900,
+  stemBouquetWrapFeePaise: 7900,
+  luxuryGiftBoxFeePaise: 14900,
   loyaltySpendPerPointPaise: 2000,
   loyaltyPointRedemptionPaise: 50,
   minLoyaltyOrderPaise: 29900,
+  companionGifts: DEFAULT_COMPANION_GIFTS,
 };
 
 const DEFAULT_SETTINGS = {

@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   CreditCard,
   Users,
+  Gift,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useNotification } from '@/context/NotificationContext';
@@ -31,6 +32,8 @@ import {
   useStoreSettings,
   ConciergeChannelMode,
   DEFAULT_OCCASION_BANNER,
+  DEFAULT_COMPANION_GIFTS,
+  type CompanionGiftItem,
   type OccasionBannerSettings,
   type OccasionTheme,
   type OccasionPlacement,
@@ -92,12 +95,22 @@ export default function AdminSettings() {
     standardShippingFeeRupees: (settings.businessRules?.standardShippingFeePaise ?? 6900) / 100,
     expressShippingFeeRupees: (settings.businessRules?.expressShippingFeePaise ?? 4900) / 100,
     giftWrapFeeRupees: (settings.businessRules?.giftWrapFeePaise ?? 7900) / 100,
+    greetingCardFeeRupees: (settings.businessRules?.greetingCardFeePaise ?? 4900) / 100,
+    personalisedMessageFeeRupees: (settings.businessRules?.personalisedMessageFeePaise ?? 3900) / 100,
+    bouquetLuxuryWrapUpgradeFeeRupees: (settings.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900) / 100,
+    stemBouquetWrapFeeRupees: (settings.businessRules?.stemBouquetWrapFeePaise ?? 7900) / 100,
+    luxuryGiftBoxFeeRupees: (settings.businessRules?.luxuryGiftBoxFeePaise ?? 14900) / 100,
     loyaltySpendPerPointRupees: (settings.businessRules?.loyaltySpendPerPointPaise ?? 2000) / 100,
     loyaltyPointRedemptionRupees: (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100,
     minLoyaltyOrderRupees: (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100,
   });
   const [occasionForm, setOccasionForm] = useState<OccasionBannerSettings>(
     settings.occasionBanner || DEFAULT_OCCASION_BANNER
+  );
+  const [companionGiftsForm, setCompanionGiftsForm] = useState<CompanionGiftItem[]>(
+    settings.businessRules?.companionGifts && settings.businessRules.companionGifts.length > 0
+      ? settings.businessRules.companionGifts
+      : DEFAULT_COMPANION_GIFTS
   );
   const [savingCommerce, setSavingCommerce] = useState(false);
 
@@ -139,11 +152,21 @@ export default function AdminSettings() {
       standardShippingFeeRupees: (settings.businessRules?.standardShippingFeePaise ?? 6900) / 100,
       expressShippingFeeRupees: (settings.businessRules?.expressShippingFeePaise ?? 4900) / 100,
       giftWrapFeeRupees: (settings.businessRules?.giftWrapFeePaise ?? 7900) / 100,
+      greetingCardFeeRupees: (settings.businessRules?.greetingCardFeePaise ?? 4900) / 100,
+      personalisedMessageFeeRupees: (settings.businessRules?.personalisedMessageFeePaise ?? 3900) / 100,
+      bouquetLuxuryWrapUpgradeFeeRupees: (settings.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900) / 100,
+      stemBouquetWrapFeeRupees: (settings.businessRules?.stemBouquetWrapFeePaise ?? 7900) / 100,
+      luxuryGiftBoxFeeRupees: (settings.businessRules?.luxuryGiftBoxFeePaise ?? 14900) / 100,
       loyaltySpendPerPointRupees: (settings.businessRules?.loyaltySpendPerPointPaise ?? 2000) / 100,
       loyaltyPointRedemptionRupees: (settings.businessRules?.loyaltyPointRedemptionPaise ?? 50) / 100,
       minLoyaltyOrderRupees: (settings.businessRules?.minLoyaltyOrderPaise ?? 29900) / 100,
     });
     setOccasionForm(settings.occasionBanner || DEFAULT_OCCASION_BANNER);
+    setCompanionGiftsForm(
+      settings.businessRules?.companionGifts && settings.businessRules.companionGifts.length > 0
+        ? settings.businessRules.companionGifts
+        : DEFAULT_COMPANION_GIFTS
+    );
 
     setLogisticsForm({
       shiprocketEmail: settings.shiprocketEmail || '',
@@ -300,9 +323,15 @@ export default function AdminSettings() {
         standardShippingFeePaise: Math.round(Number(rulesForm.standardShippingFeeRupees || 0) * 100),
         expressShippingFeePaise: Math.round(Number(rulesForm.expressShippingFeeRupees || 0) * 100),
         giftWrapFeePaise: Math.round(Number(rulesForm.giftWrapFeeRupees || 0) * 100),
+        greetingCardFeePaise: Math.round(Number(rulesForm.greetingCardFeeRupees || 0) * 100),
+        personalisedMessageFeePaise: Math.round(Number(rulesForm.personalisedMessageFeeRupees || 0) * 100),
+        bouquetLuxuryWrapUpgradeFeePaise: Math.round(Number(rulesForm.bouquetLuxuryWrapUpgradeFeeRupees || 0) * 100),
+        stemBouquetWrapFeePaise: Math.round(Number(rulesForm.stemBouquetWrapFeeRupees || 0) * 100),
+        luxuryGiftBoxFeePaise: Math.round(Number(rulesForm.luxuryGiftBoxFeeRupees || 0) * 100),
         loyaltySpendPerPointPaise: Math.round(Number(rulesForm.loyaltySpendPerPointRupees || 0) * 100),
         loyaltyPointRedemptionPaise: Math.round(Number(rulesForm.loyaltyPointRedemptionRupees || 0) * 100),
         minLoyaltyOrderPaise: Math.round(Number(rulesForm.minLoyaltyOrderRupees || 0) * 100),
+        companionGifts: companionGiftsForm,
       },
       occasionBanner: occasionForm,
     });
@@ -1079,16 +1108,16 @@ export default function AdminSettings() {
               </div>
             </div>
 
-            {/* Section 3: Pricing & Shipping Rules */}
+            {/* Section 3: Shipping & Delivery Thresholds */}
             <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
               <div>
-                <h3 className="heading-serif text-lg text-bark">Shipping &amp; Packaging Rules</h3>
+                <h3 className="heading-serif text-lg text-bark">Shipping &amp; Delivery Thresholds</h3>
                 <p className="text-xs text-ink-light mt-0.5">
-                  Set live currency thresholds for dispatch and luxury presentation.
+                  Set live currency thresholds for dispatch and complimentary delivery milestones.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                 <div>
                   <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
                     Free Shipping Min Spend (₹)
@@ -1133,10 +1162,121 @@ export default function AdminSettings() {
                   />
                   <span className="text-[10px] text-ink-muted mt-1 block">Air express priority surcharge</span>
                 </div>
+              </div>
+            </div>
 
+            {/* Section 4: Luxury Packaging & Gift Add-On Pricing */}
+            <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1.5">
-                    Luxury Gift Wrap Fee (₹)
+                  <div className="flex items-center gap-2">
+                    <Gift size={18} className="text-rose" />
+                    <h3 className="heading-serif text-lg text-bark">Luxury Packaging &amp; Gift Add-On Fees</h3>
+                  </div>
+                  <p className="text-xs text-ink-light mt-0.5">
+                    Configure dynamic storefront pricing for greeting cards, personal messages, bouquet wrap upgrades, stem-to-bouquet wrapping, and luxury rigid gift boxes.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-rose/10 text-rose uppercase tracking-wider shrink-0 hidden sm:inline-block">
+                  Live Pricing Engine
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+                {/* 1. Greeting Card */}
+                <div className="p-3.5 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-1">
+                  <label className="block text-xs uppercase tracking-wider text-bark font-semibold">
+                    Greeting Card Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.greetingCardFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, greetingCardFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
+                  />
+                  <span className="text-[10px] text-ink-muted block leading-snug">
+                    Handwritten botanical keepsake card with envelope (Default: ₹49)
+                  </span>
+                </div>
+
+                {/* 2. Personalised Message Note */}
+                <div className="p-3.5 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-1">
+                  <label className="block text-xs uppercase tracking-wider text-bark font-semibold">
+                    Personalised Message Note Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.personalisedMessageFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, personalisedMessageFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
+                  />
+                  <span className="text-[10px] text-ink-muted block leading-snug">
+                    Custom gift note tucked inside packaging (Default: ₹39)
+                  </span>
+                </div>
+
+                {/* 3. Bouquet Luxury Wrap Upgrade */}
+                <div className="p-3.5 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-1">
+                  <label className="block text-xs uppercase tracking-wider text-bark font-semibold">
+                    Bouquet Luxury Wrap Upgrade Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.bouquetLuxuryWrapUpgradeFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, bouquetLuxuryWrapUpgradeFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
+                  />
+                  <span className="text-[10px] text-ink-muted block leading-snug">
+                    Upgrade standard bouquet wrap to luxury silk paper (Default: ₹59)
+                  </span>
+                </div>
+
+                {/* 4. Single Stems to Bouquet Wrap */}
+                <div className="p-3.5 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-1">
+                  <label className="block text-xs uppercase tracking-wider text-bark font-semibold">
+                    Single Stems to Bouquet Wrap Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.stemBouquetWrapFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, stemBouquetWrapFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
+                  />
+                  <span className="text-[10px] text-ink-muted block leading-snug">
+                    Wrap loose stems into a full finished bouquet (Default: ₹79)
+                  </span>
+                </div>
+
+                {/* 5. Luxury Rigid Gift Box */}
+                <div className="p-3.5 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-1">
+                  <label className="block text-xs uppercase tracking-wider text-bark font-semibold">
+                    Luxury Rigid Gift Box Fee (₹)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rulesForm.luxuryGiftBoxFeeRupees}
+                    onChange={(e) => setRulesForm({ ...rulesForm, luxuryGiftBoxFeeRupees: Number(e.target.value) })}
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
+                  />
+                  <span className="text-[10px] text-ink-muted block leading-snug">
+                    Hard-shell keepsake gift box with satin ribbon (Default: ₹149)
+                  </span>
+                </div>
+
+                {/* 6. General/Legacy Gift Wrap */}
+                <div className="p-3.5 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-1">
+                  <label className="block text-xs uppercase tracking-wider text-bark font-semibold">
+                    Legacy Standard Gift Wrap Fee (₹)
                   </label>
                   <input
                     type="number"
@@ -1144,10 +1284,95 @@ export default function AdminSettings() {
                     step="1"
                     value={rulesForm.giftWrapFeeRupees}
                     onChange={(e) => setRulesForm({ ...rulesForm, giftWrapFeeRupees: Number(e.target.value) })}
-                    className="w-full px-3.5 py-2 bg-canvas/30 border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                    className="w-full px-3.5 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
                   />
-                  <span className="text-[10px] text-ink-muted mt-1 block">Wax-sealed bespoke calligraphy box</span>
+                  <span className="text-[10px] text-ink-muted block leading-snug">
+                    General gift wrap fallback fee (Default: ₹79)
+                  </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Section 5: Companion Gift Add-Ons (Complete the Gift) */}
+            <div className="bg-white p-6 rounded-sm border border-canvas-line shadow-soft space-y-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={18} className="text-rose" />
+                    <h3 className="heading-serif text-lg text-bark">Companion Gift Add-Ons ("Complete the gift")</h3>
+                  </div>
+                  <p className="text-xs text-ink-light mt-0.5">
+                    Customise the titles, one-line descriptions, and prices for the 4 companion pieces displayed in the "Complete the gift" section on product pages.
+                  </p>
+                </div>
+                <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-wider bg-rose/10 text-rose font-medium">
+                  Isolated Add-Ons
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                {companionGiftsForm.map((item, idx) => (
+                  <div key={item.id} className="p-4 rounded-sm border border-canvas-line/80 bg-canvas/15 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-rose">
+                        Companion Piece #{idx + 1}
+                      </span>
+                      <span className="text-[10px] font-mono text-ink-muted">{item.id}</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                        Display Title / Name
+                      </label>
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => {
+                          const updated = [...companionGiftsForm];
+                          updated[idx] = { ...updated[idx], name: e.target.value };
+                          setCompanionGiftsForm(updated);
+                        }}
+                        placeholder="e.g. Extra Handcrafted Flower"
+                        className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                        One-Line Description
+                      </label>
+                      <input
+                        type="text"
+                        value={item.description}
+                        onChange={(e) => {
+                          const updated = [...companionGiftsForm];
+                          updated[idx] = { ...updated[idx], description: e.target.value };
+                          setCompanionGiftsForm(updated);
+                        }}
+                        placeholder="e.g. Add an additional matching crochet bloom to your piece."
+                        className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs uppercase tracking-wider text-bark font-medium mb-1">
+                        Price (₹)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={item.priceRupees}
+                        onChange={(e) => {
+                          const updated = [...companionGiftsForm];
+                          updated[idx] = { ...updated[idx], priceRupees: Math.max(0, Number(e.target.value)) };
+                          setCompanionGiftsForm(updated);
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-canvas-line rounded-sm text-xs text-bark focus:outline-none focus:border-bark font-semibold font-mono"
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

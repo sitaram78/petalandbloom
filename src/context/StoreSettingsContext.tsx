@@ -14,14 +14,54 @@ export interface StoreFeatureFlags {
   storeMaintenanceMode: boolean;
 }
 
+export interface CompanionGiftItem {
+  id: string;
+  name: string;
+  description: string;
+  priceRupees: number;
+}
+
+export const DEFAULT_COMPANION_GIFTS: CompanionGiftItem[] = [
+  {
+    id: 'addon-flower',
+    name: 'Extra Handcrafted Flower',
+    description: 'Add an additional matching crochet bloom to your piece.',
+    priceRupees: 199,
+  },
+  {
+    id: 'addon-charm',
+    name: 'Name Customisation Charm',
+    description: 'A custom initial or name charm woven onto your piece.',
+    priceRupees: 79,
+  },
+  {
+    id: 'addon-vase',
+    name: 'Petite Ceramic Bud Vase',
+    description: 'Hand-thrown matte ceramic vase for displaying everlasting stems.',
+    priceRupees: 249,
+  },
+  {
+    id: 'addon-pouch',
+    name: 'Linen Keepsake Storage Pouch',
+    description: 'Dust-free heirloom drawstring pouch for safekeeping.',
+    priceRupees: 129,
+  },
+];
+
 export interface StoreBusinessRules {
   freeShippingThresholdPaise: number;
   standardShippingFeePaise: number;
   expressShippingFeePaise: number;
   giftWrapFeePaise: number;
+  greetingCardFeePaise: number;
+  personalisedMessageFeePaise: number;
+  bouquetLuxuryWrapUpgradeFeePaise: number;
+  stemBouquetWrapFeePaise: number;
+  luxuryGiftBoxFeePaise: number;
   loyaltySpendPerPointPaise: number;
   loyaltyPointRedemptionPaise: number;
   minLoyaltyOrderPaise: number;
+  companionGifts?: CompanionGiftItem[];
 }
 
 export const DEFAULT_FEATURE_FLAGS: StoreFeatureFlags = {
@@ -38,9 +78,15 @@ export const DEFAULT_BUSINESS_RULES: StoreBusinessRules = {
   standardShippingFeePaise: 6900,
   expressShippingFeePaise: 4900,
   giftWrapFeePaise: 7900,
+  greetingCardFeePaise: 4900,
+  personalisedMessageFeePaise: 3900,
+  bouquetLuxuryWrapUpgradeFeePaise: 5900,
+  stemBouquetWrapFeePaise: 7900,
+  luxuryGiftBoxFeePaise: 14900,
   loyaltySpendPerPointPaise: 2000,
   loyaltyPointRedemptionPaise: 50,
   minLoyaltyOrderPaise: 29900,
+  companionGifts: DEFAULT_COMPANION_GIFTS,
 };
 
 export type OccasionTheme = 'rose' | 'sage' | 'gold' | 'linen' | 'wine';
@@ -261,7 +307,15 @@ export function StoreSettingsProvider({ children }: { children: React.ReactNode 
             upiId: dbData.upi_id || undefined,
             upiPhone: dbData.upi_phone || undefined,
             ...(featureFlags ? { featureFlags } : {}),
-            ...(dbData.business_rules ? { businessRules: dbData.business_rules } : {}),
+            ...(dbData.business_rules ? {
+              businessRules: {
+                ...DEFAULT_BUSINESS_RULES,
+                ...dbData.business_rules,
+                companionGifts: Array.isArray(dbData.business_rules.companionGifts) && dbData.business_rules.companionGifts.length > 0
+                  ? dbData.business_rules.companionGifts
+                  : DEFAULT_COMPANION_GIFTS,
+              }
+            } : {}),
             ...(occasionBanner ? { occasionBanner } : {}),
           };
 

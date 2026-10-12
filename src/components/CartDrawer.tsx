@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, CheckCircle2, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin, Zap, ChevronDown, ChevronUp, Tag } from 'lucide-react';
-import { useCart } from '@/context/CartContext';
+import { X, ShoppingBag, Trash2, Plus, Minus, MessageCircle, Check, CheckCircle2, Truck, Lock, Loader2, ShieldCheck, Sparkles, Gift, MapPin, Zap, ChevronDown, ChevronUp, Tag, Package } from 'lucide-react';
+import { useCart, calculateItemSubtotal } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 import { supabase } from '@/lib/supabaseClient';
@@ -199,12 +199,35 @@ export default function CartDrawer() {
     }
   }, [isOpen, totalItems]);
 
-  const giftWrapFee = (settings.businessRules?.giftWrapFeePaise ?? 7900) / 100;
+  const bouquetLuxuryWrapUpgradeFee = (settings.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900) / 100;
+  const stemBouquetWrapFee = (settings.businessRules?.stemBouquetWrapFeePaise ?? 7900) / 100;
+  const luxuryGiftBoxFee = (settings.businessRules?.luxuryGiftBoxFeePaise ?? 14900) / 100;
+  const greetingCardFee = (settings.businessRules?.greetingCardFeePaise ?? 4900) / 100;
+  const personalisedMessageFee = (settings.businessRules?.personalisedMessageFeePaise ?? 3900) / 100;
+
   const freeThreshold = (settings.businessRules?.freeShippingThresholdPaise ?? 120000) / 100;
   const standardShipping = (settings.businessRules?.standardShippingFeePaise ?? 6900) / 100;
   const expressShipping = (settings.businessRules?.expressShippingFeePaise ?? 4900) / 100;
 
-  const giftWrapTotal = items.reduce((sum, i) => sum + (i.giftWrap ? giftWrapFee * i.quantity : 0), 0);
+  // Informational calculation of packaging and gift add-ons already included in item prices
+  const totalPackagingUpgrades = items.reduce((sum, i) => {
+    const qty = Math.max(1, i.quantity || 1);
+    const isPerUnit = i.packagingMultiplier === 'per_unit' || i.packagingTier === 'luxury_wrap';
+    const pkgFee = i.packagingFee ?? (
+      i.packagingTier === 'luxury_wrap' ? bouquetLuxuryWrapUpgradeFee :
+      i.packagingTier === 'bouquet_wrap' ? stemBouquetWrapFee :
+      i.packagingTier === 'gift_box' ? luxuryGiftBoxFee :
+      0
+    );
+    const cardFee = i.cardFee ?? (i.hasGreetingCard ? greetingCardFee : 0);
+    const noteFee = i.noteFee ?? (i.hasPersonalNote ? personalisedMessageFee : 0);
+
+    const pkgTotal = isPerUnit ? pkgFee * qty : pkgFee;
+    const flatTotal = cardFee + noteFee;
+
+    return sum + pkgTotal + flatTotal;
+  }, 0);
+
   const baseShippingCost = totalPrice >= freeThreshold ? 0 : standardShipping;
   const expressSurcharge = isExpressCourier ? expressShipping : 0;
   const shippingCost = baseShippingCost + expressSurcharge;
@@ -223,7 +246,8 @@ export default function CartDrawer() {
   const maxPointsRedeemable = Math.min(pointsBalance, Math.floor(maxDiscountAmount / (pointValue || 0.5)));
   const pointsToRedeem = isPointsEligible && redeemPoints ? maxPointsRedeemable : 0;
   const loyaltyDiscount = pointsToRedeem * pointValue;
-  const grandTotal = Math.max(0, totalPrice - discountAmount - loyaltyDiscount + shippingCost + giftWrapTotal);
+  // totalPrice already includes customized item unit pricing; no double counting
+  const grandTotal = Math.max(0, totalPrice - discountAmount - loyaltyDiscount + shippingCost);
 
   const openCheckout = () => {
     setCheckoutMessage('');
@@ -358,7 +382,7 @@ export default function CartDrawer() {
     checkoutWhatsApp({
       name: isGiftOrder ? `${customerName.trim()} (Sending Gift to ${finalRecipientName})` : customerName.trim(),
       pinCode: pinCode.trim(),
-      shipping: shippingCost + giftWrapTotal,
+      shipping: shippingCost,
     });
     setIsCheckoutOpen(false);
     closeCart();
@@ -445,66 +469,139 @@ export default function CartDrawer() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {items.map((item) => (
-                    <div key={item.code + (item.color || '')} className="flex gap-4 pb-6 border-b border-silk/50">
-                      <div className="w-16 h-20 flex-shrink-0 overflow-hidden rounded-sm bg-silk/30">
-                        {item.image ? (
-                          <img
-                            src={item.image}
-                            alt=""
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                            onError={(event) => {
-                              event.currentTarget.style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-[10px] text-ink-light/50">No image</div>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-serif text-lg text-ink">{item.name}</h4>
-                        <p className="text-[10px] uppercase tracking-wider text-ink-light/50 mt-0.5">{item.code}</p>
-                        {item.color && <p className="text-xs text-ink-light mt-1">Colour: <span className="text-ink font-medium">{item.color}</span></p>}
-                        {item.giftWrap && <p className="text-xs text-sage-dark mt-1">Gift wrapping included (+₹79)</p>}
-                        {item.message && <p className="text-xs text-ink-light mt-1">Message: <span className="italic">"{item.message}"</span></p>}
-                        <p className="text-sm font-medium text-rose mt-2">
-                          {item.priceLabel || formatPrice(item.price)}
-                        </p>
-                        {appliedCoupon && appliedCoupon.eligibleProductCodes?.includes(item.code) && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-xs mt-1">
-                            <Tag size={10} className="text-emerald-700" /> Eligible for {appliedCoupon.code}
-                          </span>
-                        )}
-                        <div className="flex items-center gap-4 mt-3">
-                          <div className="flex items-center border border-silk bg-parchment-50 rounded-sm">
+                  {items.map((item, idx) => {
+                    const itemKey = item.id || `${item.code}-${item.color || ''}-${idx}`;
+                    const hasSilkWrap = item.packagingTier === 'luxury_wrap' || (!item.packagingTier && item.message?.includes('Luxury Silk Wrap'));
+                    const hasBouquetWrap = item.packagingTier === 'bouquet_wrap' || (!item.packagingTier && item.message?.includes('Finished Bouquet'));
+                    const hasGiftBox = item.packagingTier === 'gift_box' || (!item.packagingTier && item.message?.includes('Rigid Gift Box'));
+
+                    const rawCardMsg = item.greetingCardMessage || (item.hasGreetingCard ? (item.greetingCardMessage || 'Handwritten Keepsake Greeting Card') : undefined) || (!item.packagingTier && item.message?.match(/Greeting Card[^:]*:\s*"([^"]+)"/)?.[1]);
+                    const rawNoteMsg = item.personalNoteMessage || (item.hasPersonalNote ? (item.personalNoteMessage || 'Personalised Note Card') : undefined) || (!item.packagingTier && item.message?.match(/Personal(?:ised)? Note[^:]*:\s*"([^"]+)"/)?.[1]);
+                    const lineSubtotal = calculateItemSubtotal(item);
+
+                    return (
+                      <div key={itemKey} className="flex gap-4 pb-6 border-b border-silk/50">
+                        <div className="w-16 h-20 flex-shrink-0 overflow-hidden rounded-sm bg-silk/30">
+                          {item.image ? (
+                            <img
+                              src={item.image}
+                              alt=""
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              onError={(event) => {
+                                event.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-[10px] text-ink-light/50">No image</div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-serif text-lg text-bark truncate">{item.name}</h4>
+                          <p className="text-[10px] uppercase tracking-wider text-ink-light/50 mt-0.5">{item.code}</p>
+                          {item.color && (
+                            <p className="text-xs text-ink-light mt-1">
+                              Colour: <span className="text-bark font-medium">{item.color}</span>
+                            </p>
+                          )}
+
+                          {/* Artisan Packaging & Presentation Badges */}
+                          {hasSilkWrap ? (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-xs bg-rose/10 border border-rose/30 text-rose-deep text-[11px] font-medium">
+                              <Gift size={11} className="text-rose shrink-0" />
+                              <span>Luxury Silk Wrap (+₹{bouquetLuxuryWrapUpgradeFee})</span>
+                            </div>
+                          ) : hasBouquetWrap ? (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-xs bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-medium">
+                              <Sparkles size={11} className="text-amber-700 shrink-0" />
+                              <span>Finished Bouquet Wrap (+₹{stemBouquetWrapFee})</span>
+                            </div>
+                          ) : hasGiftBox ? (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-xs bg-amber-100/60 border border-amber-300 text-amber-950 text-[11px] font-medium">
+                              <Package size={11} className="text-amber-800 shrink-0" />
+                              <span>Luxury Rigid Keepsake Box (+₹{luxuryGiftBoxFee})</span>
+                            </div>
+                          ) : item.giftWrap ? (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-xs bg-sage-light border border-sage/30 text-sage-dark text-[11px] font-medium">
+                              <Gift size={11} className="text-sage-dark shrink-0" />
+                              <span>Studio Gift Presentation</span>
+                            </div>
+                          ) : null}
+
+                          {/* Handwritten Greeting Card Note */}
+                          {rawCardMsg && (
+                            <div className="mt-2 text-xs text-ink-light bg-linen-light/80 p-2 rounded-xs border border-silk/80 space-y-0.5">
+                              <span className="text-[10px] uppercase font-semibold text-bark tracking-wider flex items-center gap-1">
+                                <span>💌</span> Handwritten Greeting Card (+₹{greetingCardFee})
+                              </span>
+                              <p className="italic text-ink text-[11px] line-clamp-2">
+                                "{rawCardMsg}"
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Personal Note */}
+                          {rawNoteMsg && (
+                            <div className="mt-1.5 text-xs text-ink-light bg-linen-light/60 p-2 rounded-xs border border-silk/60 space-y-0.5">
+                              <span className="text-[10px] uppercase font-semibold text-bark tracking-wider flex items-center gap-1">
+                                <span>📜</span> Personal Note (+₹{personalisedMessageFee})
+                              </span>
+                              <p className="italic text-ink text-[11px] line-clamp-2">
+                                "{rawNoteMsg}"
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Plain custom message fallback if not greeting card/personal note or packaging */}
+                          {item.message && !item.packagingTier && !item.message.includes('Packaging:') && !item.message.includes('Greeting Card') && !item.message.includes('Personal Note') && (
+                            <p className="text-xs text-ink-light mt-1">Message: <span className="italic">"{item.message}"</span></p>
+                          )}
+
+                          <p className="text-sm font-medium text-rose mt-2">
+                            {formatPrice(lineSubtotal)}
+                            {item.quantity > 1 && (
+                              <span className="text-xs text-ink-light ml-1 font-normal">
+                                ({formatPrice(Math.round(lineSubtotal / item.quantity))}/ea)
+                              </span>
+                            )}
+                          </p>
+
+                          {appliedCoupon && appliedCoupon.eligibleProductCodes?.includes(item.code) && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-xs mt-1">
+                              <Tag size={10} className="text-emerald-700" /> Eligible for {appliedCoupon.code}
+                            </span>
+                          )}
+
+                          <div className="flex items-center gap-4 mt-3">
+                            <div className="flex items-center border border-silk bg-parchment-50 rounded-sm">
+                              <button
+                                onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                className="px-2 py-1 text-ink-light hover:text-ink transition-colors"
+                                aria-label="Decrease quantity"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <span className="px-2 text-sm text-ink min-w-[24px] text-center">{item.quantity}</span>
+                              <button
+                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                className="px-2 py-1 text-ink-light hover:text-ink transition-colors"
+                                aria-label="Increase quantity"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
                             <button
-                              onClick={() => updateQuantity(item.code, item.quantity - 1)}
-                              className="px-2 py-1 text-ink-light hover:text-ink transition-colors"
-                              aria-label="Decrease quantity"
+                              onClick={() => removeItem(item.id)}
+                              className="text-ink-light hover:text-rose transition-colors"
+                              aria-label="Remove item"
                             >
-                              <Minus size={14} />
-                            </button>
-                            <span className="px-2 text-sm text-ink min-w-[24px] text-center">{item.quantity}</span>
-                            <button
-                              onClick={() => updateQuantity(item.code, item.quantity + 1)}
-                              className="px-2 py-1 text-ink-light hover:text-ink transition-colors"
-                              aria-label="Increase quantity"
-                            >
-                              <Plus size={14} />
+                              <Trash2 size={16} strokeWidth={1.5} />
                             </button>
                           </div>
-                          <button
-                            onClick={() => removeItem(item.code)}
-                            className="text-ink-light hover:text-rose transition-colors"
-                            aria-label="Remove item"
-                          >
-                            <Trash2 size={16} strokeWidth={1.5} />
-                          </button>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -574,6 +671,11 @@ export default function CartDrawer() {
                                   Applied to {appliedCoupon.eligibleItemsCount} eligible {appliedCoupon.eligibleItemsCount === 1 ? 'item' : 'items'} in your bag.
                                 </p>
                               ) : null}
+                              {appliedCoupon.qualificationStatus === 'PARTIALLY_QUALIFIED' && (
+                                <p className="text-[10px] text-emerald-600/80 italic leading-tight">
+                                  Discount applies to qualifying pieces. Add-ons and packaging are excluded.
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
@@ -640,10 +742,12 @@ export default function CartDrawer() {
                           <span>-{formatPrice(discountAmount)}</span>
                         </div>
                       )}
-                      {giftWrapTotal > 0 && (
-                        <div className="flex justify-between">
-                          <span>Gift Wrapping</span>
-                          <span>{formatPrice(giftWrapTotal)}</span>
+                      {totalPackagingUpgrades > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="flex items-center gap-1 text-ink-light">
+                            <Gift size={12} className="text-rose" /> Artisan Presentation &amp; Notes
+                          </span>
+                          <span className="text-bark font-medium">Included ({formatPrice(totalPackagingUpgrades)})</span>
                         </div>
                       )}
                       <div className="flex justify-between">

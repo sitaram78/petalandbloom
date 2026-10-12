@@ -63,6 +63,9 @@ interface AdminOrderItem {
   quantity: number;
   unit_price_in_paise: number;
   total_price_in_paise: number;
+  selected_color?: string;
+  gift_wrap?: boolean;
+  personal_message?: string;
   custom_options?: {
     color?: string;
     giftWrap?: boolean;
@@ -1134,21 +1137,39 @@ export default function AdminOrders() {
                 {/* Items snapshot and shipping summary */}
                   <div className="mt-4 flex flex-col md:flex-row justify-between gap-4 text-xs">
                     <div className="space-y-1.5 flex-1">
-                      {order.order_items.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2 text-ink">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose/60" />
-                          <span className="font-medium">{item.product_name}</span>
-                          <span className="text-ink-light">× {item.quantity}</span>
-                          {item.custom_options?.color && (
-                            <span className="text-[10px] bg-canvas px-1.5 py-0.5 rounded text-ink-light">
-                              {item.custom_options.color}
-                            </span>
-                          )}
-                          {item.custom_options?.giftWrap && (
-                            <span className="text-[10px] text-rose font-medium">🎁 Gift Wrapped</span>
-                          )}
-                        </div>
-                      ))}
+                      {order.order_items.map((item) => {
+                        const color = item.selected_color || item.custom_options?.color;
+                        const hasWrap = item.gift_wrap || item.custom_options?.giftWrap;
+                        const noteMsg = item.personal_message || item.custom_options?.message;
+
+                        return (
+                          <div key={item.id} className="space-y-0.5 text-ink">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose/60 shrink-0" />
+                              <span className="font-mono text-[10px] text-bark bg-canvas px-1 rounded border border-canvas-line">
+                                [{item.product_code}]
+                              </span>
+                              <span className="font-medium">{item.product_name}</span>
+                              <span className="text-ink-light">× {item.quantity}</span>
+                              {color && (
+                                <span className="text-[10px] bg-canvas px-1.5 py-0.5 rounded text-ink-light">
+                                  {color}
+                                </span>
+                              )}
+                              {hasWrap && (
+                                <span className="text-[10px] text-rose font-medium bg-rose/10 px-1.5 py-0.5 rounded">
+                                  🎁 Gift Wrap
+                                </span>
+                              )}
+                            </div>
+                            {noteMsg && (
+                              <div className="text-[10px] text-ink-light pl-4 italic">
+                                ↳ {noteMsg}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
 
                     {shipment?.awb_number && (
@@ -1394,9 +1415,21 @@ export default function AdminOrders() {
                           </strong>
                         </p>
 
+                        {/* Atelier Packaging Specifications Callout */}
+                        {selectedOrder.customer_note?.includes('[PACKAGING:') && (
+                          <div className="mt-2.5 p-2 bg-linen border border-bark/20 rounded-sm text-[11px] text-bark">
+                            <span className="font-semibold text-bark flex items-center gap-1 mb-0.5">
+                              <Package size={11} className="text-rose" /> Atelier Packaging Specifications:
+                            </span>
+                            <p className="text-ink font-mono text-[10px]">
+                              {selectedOrder.customer_note.split('[PACKAGING:')[1]?.split(']')[0]}
+                            </p>
+                          </div>
+                        )}
+
                         {/* Gift Note Callout for atelier florists */}
                         {selectedOrder.customer_note?.includes('[GIFT CARD MESSAGE]:') && (
-                          <div className="mt-2.5 p-2 bg-rose/10 border border-rose/25 rounded-sm text-[11px] text-bark">
+                          <div className="mt-2 p-2 bg-rose/10 border border-rose/25 rounded-sm text-[11px] text-bark">
                             <span className="font-semibold text-rose flex items-center gap-1 mb-0.5">
                               <Sparkles size={11} className="text-rose" /> Complimentary Handwritten Card Note:
                             </span>
@@ -1458,13 +1491,20 @@ export default function AdminOrders() {
                   {selectedOrder.order_items.map((item) => (
                     <div key={item.id} className="p-3.5 flex justify-between items-center text-xs">
                       <div>
-                        <p className="font-semibold text-bark text-sm">{item.product_name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-[10px] text-bark bg-canvas px-1.5 py-0.5 rounded border border-canvas-line font-bold">
+                            [{item.product_code}]
+                          </span>
+                          <span className="font-semibold text-bark text-sm">{item.product_name}</span>
+                        </div>
                         <p className="text-ink-light text-[11px] font-mono mt-0.5">
-                          Code: {item.product_code} • Qty: {item.quantity}
+                          Qty: {item.quantity}
+                          {item.selected_color && ` • Hue: ${item.selected_color}`}
+                          {(item.gift_wrap || item.custom_options?.giftWrap) && ` • 🎁 Gift Wrap`}
                         </p>
-                        {item.custom_options?.message && (
-                          <p className="text-[11px] italic text-rose mt-1 bg-rose/5 p-1.5 rounded">
-                            Gift Note: &ldquo;{item.custom_options.message}&rdquo;
+                        {(item.personal_message || item.custom_options?.message) && (
+                          <p className="text-[11px] italic text-rose mt-1.5 bg-rose/5 p-1.5 rounded border border-rose/20 leading-relaxed">
+                            Packaging / Gift Details: &ldquo;{item.personal_message || item.custom_options?.message}&rdquo;
                           </p>
                         )}
                       </div>

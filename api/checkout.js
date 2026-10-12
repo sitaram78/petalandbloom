@@ -217,6 +217,32 @@ async function verifyAuth(req) {
 }
 
 // server/handlers/settings/store.ts
+var DEFAULT_COMPANION_GIFTS = [
+  {
+    id: "addon-flower",
+    name: "Extra Handcrafted Flower",
+    description: "Add an additional matching crochet bloom to your piece.",
+    priceRupees: 199
+  },
+  {
+    id: "addon-charm",
+    name: "Name Customisation Charm",
+    description: "A custom initial or name charm woven onto your piece.",
+    priceRupees: 79
+  },
+  {
+    id: "addon-vase",
+    name: "Petite Ceramic Bud Vase",
+    description: "Hand-thrown matte ceramic vase for displaying everlasting stems.",
+    priceRupees: 249
+  },
+  {
+    id: "addon-pouch",
+    name: "Linen Keepsake Storage Pouch",
+    description: "Dust-free heirloom drawstring pouch for safekeeping.",
+    priceRupees: 129
+  }
+];
 var DEFAULT_OCCASION_BANNER = {
   enabled: false,
   occasionTitle: "Mother's Day Special",
@@ -239,9 +265,15 @@ var DEFAULT_BUSINESS_RULES = {
   standardShippingFeePaise: 6900,
   expressShippingFeePaise: 4900,
   giftWrapFeePaise: 7900,
+  greetingCardFeePaise: 4900,
+  personalisedMessageFeePaise: 3900,
+  bouquetLuxuryWrapUpgradeFeePaise: 5900,
+  stemBouquetWrapFeePaise: 7900,
+  luxuryGiftBoxFeePaise: 14900,
   loyaltySpendPerPointPaise: 2e3,
   loyaltyPointRedemptionPaise: 50,
-  minLoyaltyOrderPaise: 29900
+  minLoyaltyOrderPaise: 29900,
+  companionGifts: DEFAULT_COMPANION_GIFTS
 };
 var DEFAULT_SETTINGS = {
   whatsappNumber: "+919861615937",
@@ -278,6 +310,10 @@ function getCachedStoreSettings() {
 }
 
 // server/lib/couponEngine.ts
+function normalizePaiseAmount(val) {
+  if (val === null || val === void 0 || isNaN(val) || val <= 0) return 0;
+  return val < 1e3 ? Math.round(val * 100) : Math.round(val);
+}
 function getScopeMismatchMessage(coupon) {
   const scope = coupon.scope_type || "ALL";
   if (scope === "CATEGORIES" && coupon.applicable_categories?.length) {
@@ -288,7 +324,7 @@ function getScopeMismatchMessage(coupon) {
     return "This coupon is valid only for selected promotional arrangements.";
   }
   if (scope === "PRICE_TIER" && (coupon.min_product_price_in_paise || 0) > 0) {
-    const minRupees = Math.round((coupon.min_product_price_in_paise || 0) / 100);
+    const minRupees = Math.round(normalizePaiseAmount(coupon.min_product_price_in_paise) / 100);
     return `This coupon applies to premium pieces priced \u20B9${minRupees} or above.`;
   }
   if (scope === "OCCASION" && coupon.applicable_occasions?.length) {
@@ -320,7 +356,7 @@ function isProductEligibleForCoupon(coupon, product) {
       );
     }
     case "PRICE_TIER": {
-      const minPrice = coupon.min_product_price_in_paise || 0;
+      const minPrice = normalizePaiseAmount(coupon.min_product_price_in_paise);
       return product.price_in_paise >= minPrice;
     }
     case "OCCASION": {
@@ -346,7 +382,8 @@ function isProductEligibleForCoupon(coupon, product) {
         if (!matchesProduct) return false;
       }
       if ((coupon.min_product_price_in_paise || 0) > 0) {
-        if (product.price_in_paise < (coupon.min_product_price_in_paise || 0)) {
+        const minPrice = normalizePaiseAmount(coupon.min_product_price_in_paise);
+        if (product.price_in_paise < minPrice) {
           return false;
         }
       }
@@ -371,9 +408,17 @@ function evaluateCoupon(params) {
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise: 0,
+      eligibleSubtotalInRupees: 0,
+      ineligibleSubtotalInPaise: 0,
+      ineligibleSubtotalInRupees: 0,
+      addonSubtotalInPaise: 0,
+      addonSubtotalInRupees: 0,
+      totalCatalogInPaise: 0,
       totalCartInPaise: 0,
       eligibleProductCodes: [],
       eligibleItemsCount: 0,
+      ineligibleItemsCount: 0,
+      qualificationStatus: "DISQUALIFIED",
       message: "This promotional code is no longer active."
     };
   }
@@ -383,9 +428,17 @@ function evaluateCoupon(params) {
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise: 0,
+      eligibleSubtotalInRupees: 0,
+      ineligibleSubtotalInPaise: 0,
+      ineligibleSubtotalInRupees: 0,
+      addonSubtotalInPaise: 0,
+      addonSubtotalInRupees: 0,
+      totalCatalogInPaise: 0,
       totalCartInPaise: 0,
       eligibleProductCodes: [],
       eligibleItemsCount: 0,
+      ineligibleItemsCount: 0,
+      qualificationStatus: "DISQUALIFIED",
       message: "This coupon has expired."
     };
   }
@@ -396,9 +449,17 @@ function evaluateCoupon(params) {
         discountInPaise: 0,
         discountInRupees: 0,
         eligibleSubtotalInPaise: 0,
+        eligibleSubtotalInRupees: 0,
+        ineligibleSubtotalInPaise: 0,
+        ineligibleSubtotalInRupees: 0,
+        addonSubtotalInPaise: 0,
+        addonSubtotalInRupees: 0,
+        totalCatalogInPaise: 0,
         totalCartInPaise: 0,
         eligibleProductCodes: [],
         eligibleItemsCount: 0,
+        ineligibleItemsCount: 0,
+        qualificationStatus: "DISQUALIFIED",
         message: "This coupon has reached its total usage limit."
       };
     }
@@ -406,49 +467,67 @@ function evaluateCoupon(params) {
   const scope = coupon.scope_type || "ALL";
   const cartMixMode = coupon.cart_mix_mode || "ALLOW_MIXED";
   const hasItems = Array.isArray(items) && items.length > 0 && productsMap && productsMap.size > 0;
-  let totalCartInPaise = 0;
+  let totalCatalogInPaise = 0;
   let eligibleSubtotalInPaise = 0;
+  let ineligibleCatalogSubtotalInPaise = 0;
+  let addonSubtotalInPaise = 0;
   const eligibleProductCodes = [];
   let eligibleItemsCount = 0;
   let ineligibleItemsCount = 0;
   if (hasItems) {
     for (const item of items) {
-      if (item.code.startsWith("ADDON-")) continue;
+      const qty = Math.max(1, Math.min(50, Math.floor(Number(item.quantity) || 1)));
+      if (item.code.startsWith("ADDON-")) {
+        const fallbackPrice = item.price_in_paise || 4900;
+        addonSubtotalInPaise += fallbackPrice * qty;
+        continue;
+      }
       const trimmedCode = (item.code || "").trim();
       const product = productsMap.get(trimmedCode) || productsMap.get(trimmedCode.toUpperCase()) || productsMap.get(trimmedCode.toLowerCase());
       if (!product || product.is_active === false) continue;
-      const qty = Math.max(1, Math.min(50, Math.floor(Number(item.quantity) || 1)));
       const lineItemTotalInPaise = product.price_in_paise * qty;
-      totalCartInPaise += lineItemTotalInPaise;
+      totalCatalogInPaise += lineItemTotalInPaise;
       const isEligible = isProductEligibleForCoupon(coupon, product);
       if (isEligible) {
         eligibleSubtotalInPaise += lineItemTotalInPaise;
         eligibleProductCodes.push(product.code);
         eligibleItemsCount += qty;
       } else {
+        ineligibleCatalogSubtotalInPaise += lineItemTotalInPaise;
         ineligibleItemsCount += qty;
       }
     }
   } else {
-    totalCartInPaise = Math.max(0, Number(cartSubtotalInPaise) || 0);
+    totalCatalogInPaise = Math.max(0, Number(cartSubtotalInPaise) || 0);
     if (scope === "ALL") {
-      eligibleSubtotalInPaise = totalCartInPaise;
+      eligibleSubtotalInPaise = totalCatalogInPaise;
       eligibleItemsCount = 1;
     } else {
       eligibleSubtotalInPaise = 0;
     }
   }
+  const totalCartInPaise = totalCatalogInPaise + addonSubtotalInPaise;
   if (scope !== "ALL" && eligibleSubtotalInPaise <= 0) {
     return {
       isValid: false,
       couponId: coupon.id,
       code: coupon.code,
+      discountType: coupon.discount_type,
+      discountValue: coupon.discount_value,
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise: 0,
+      eligibleSubtotalInRupees: 0,
+      ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+      ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+      addonSubtotalInPaise,
+      addonSubtotalInRupees: addonSubtotalInPaise / 100,
+      totalCatalogInPaise,
       totalCartInPaise,
       eligibleProductCodes: [],
       eligibleItemsCount: 0,
+      ineligibleItemsCount,
+      qualificationStatus: "DISQUALIFIED",
       message: getScopeMismatchMessage(coupon)
     };
   }
@@ -457,43 +536,77 @@ function evaluateCoupon(params) {
       isValid: false,
       couponId: coupon.id,
       code: coupon.code,
+      discountType: coupon.discount_type,
+      discountValue: coupon.discount_value,
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise,
+      eligibleSubtotalInRupees: eligibleSubtotalInPaise / 100,
+      ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+      ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+      addonSubtotalInPaise,
+      addonSubtotalInRupees: addonSubtotalInPaise / 100,
+      totalCatalogInPaise,
       totalCartInPaise,
       eligibleProductCodes,
       eligibleItemsCount,
+      ineligibleItemsCount,
+      qualificationStatus: "DISQUALIFIED",
       message: "This exclusive coupon can only be used when your cart contains ONLY qualifying promotional pieces (no other items)."
     };
   }
   const minSpendMode = coupon.min_spend_mode || "ELIGIBLE_ITEMS_ONLY";
-  const minRequiredInPaise = coupon.min_order_in_paise || 0;
+  const minRequiredInPaise = normalizePaiseAmount(coupon.min_order_in_paise);
   if (minRequiredInPaise > 0) {
-    const spendToVerify = minSpendMode === "CART_TOTAL" ? totalCartInPaise : eligibleSubtotalInPaise;
+    const spendToVerify = minSpendMode === "CART_TOTAL" ? totalCatalogInPaise : eligibleSubtotalInPaise;
     if (spendToVerify < minRequiredInPaise) {
-      const minRequiredRupees = minRequiredInPaise / 100;
-      const targetLabel = minSpendMode === "CART_TOTAL" ? "an order total" : "eligible promotional items total";
+      const minRequiredRupees = Math.round(minRequiredInPaise / 100);
+      const currentRupees = Math.round(spendToVerify / 100);
+      const targetLabel = minSpendMode === "CART_TOTAL" ? "a collection merchandise total" : "qualifying promotional items total";
       return {
         isValid: false,
         couponId: coupon.id,
         code: coupon.code,
+        discountType: coupon.discount_type,
+        discountValue: coupon.discount_value,
         discountInPaise: 0,
         discountInRupees: 0,
         eligibleSubtotalInPaise,
+        eligibleSubtotalInRupees: eligibleSubtotalInPaise / 100,
+        ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+        ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+        addonSubtotalInPaise,
+        addonSubtotalInRupees: addonSubtotalInPaise / 100,
+        totalCatalogInPaise,
         totalCartInPaise,
         eligibleProductCodes,
         eligibleItemsCount,
-        message: `This coupon requires ${targetLabel} of at least \u20B9${minRequiredRupees}.`
+        ineligibleItemsCount,
+        qualificationStatus: "DISQUALIFIED",
+        message: `This coupon requires ${targetLabel} of at least \u20B9${minRequiredRupees}. Currently: \u20B9${currentRupees}.`
       };
     }
   }
   let discountInPaise = 0;
   if (coupon.discount_type === "PERCENT") {
-    const rawDiscount = Math.round(eligibleSubtotalInPaise * coupon.discount_value / 100);
-    discountInPaise = coupon.max_discount_in_paise ? Math.min(rawDiscount, coupon.max_discount_in_paise) : rawDiscount;
+    const percent = Math.max(0, Math.min(100, Number(coupon.discount_value) || 0));
+    const rawDiscount = Math.round(eligibleSubtotalInPaise * percent / 100);
+    const maxDiscountInPaise = coupon.max_discount_in_paise ? normalizePaiseAmount(coupon.max_discount_in_paise) : null;
+    discountInPaise = maxDiscountInPaise !== null ? Math.min(rawDiscount, maxDiscountInPaise) : rawDiscount;
   } else {
-    const flatAmount = coupon.discount_value < 100 ? coupon.discount_value * 100 : coupon.discount_value;
-    discountInPaise = Math.min(eligibleSubtotalInPaise, flatAmount);
+    const flatAmountInPaise = normalizePaiseAmount(coupon.discount_value);
+    discountInPaise = Math.min(eligibleSubtotalInPaise, flatAmountInPaise);
+  }
+  const qualificationStatus = ineligibleItemsCount > 0 || addonSubtotalInPaise > 0 ? "PARTIALLY_QUALIFIED" : "FULLY_QUALIFIED";
+  let description = coupon.description;
+  if (!description) {
+    if (coupon.discount_type === "PERCENT") {
+      const pct = coupon.discount_value;
+      description = qualificationStatus === "PARTIALLY_QUALIFIED" ? `${pct}% off ${eligibleItemsCount} eligible ${eligibleItemsCount === 1 ? "item" : "items"}` : `${pct}% off your order`;
+    } else {
+      const amt = Math.round(discountInPaise / 100);
+      description = `Flat \u20B9${amt} off eligible items`;
+    }
   }
   return {
     isValid: true,
@@ -504,10 +617,18 @@ function evaluateCoupon(params) {
     discountInPaise,
     discountInRupees: discountInPaise / 100,
     eligibleSubtotalInPaise,
+    eligibleSubtotalInRupees: eligibleSubtotalInPaise / 100,
+    ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+    ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+    addonSubtotalInPaise,
+    addonSubtotalInRupees: addonSubtotalInPaise / 100,
+    totalCatalogInPaise,
     totalCartInPaise,
     eligibleProductCodes,
     eligibleItemsCount,
-    description: coupon.description || (coupon.discount_type === "PERCENT" ? `${coupon.discount_value}% off eligible items` : `Flat \u20B9${Math.round(discountInPaise / 100)} off`)
+    ineligibleItemsCount,
+    qualificationStatus,
+    description
   };
 }
 
@@ -600,23 +721,54 @@ async function handler(req, res) {
           message: `Only ${prod.inventory_count} piece(s) of "${prod.name}" remain in stock. Please adjust your cart quantity.`
         });
       }
-      const unitPriceInPaise = prod.price_in_paise;
-      const itemSubtotal = unitPriceInPaise * qty;
+      const bouquetLuxuryWrapUpgradeFeePaise = storeConfig.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900;
+      const stemBouquetWrapFeePaise = storeConfig.businessRules?.stemBouquetWrapFeePaise ?? 7900;
+      const luxuryGiftBoxFeePaise = storeConfig.businessRules?.luxuryGiftBoxFeePaise ?? 14900;
+      const greetingCardFeePaise = storeConfig.businessRules?.greetingCardFeePaise ?? 4900;
+      const personalisedMessageFeePaise = storeConfig.businessRules?.personalisedMessageFeePaise ?? 3900;
+      const packagingTier = item.packagingTier || (item.message?.includes("Luxury Silk Wrap") ? "luxury_wrap" : item.message?.includes("Finished Bouquet") ? "bouquet_wrap" : item.message?.includes("Rigid Gift Box") ? "gift_box" : "standard");
+      const hasGreetingCard = Boolean(item.hasGreetingCard || item.greetingCardMessage || !item.packagingTier && item.message?.includes("Greeting Card"));
+      const hasPersonalNote = Boolean(item.hasPersonalNote || item.personalNoteMessage || !item.packagingTier && item.message?.includes("Personal Note"));
+      let unitPackagingFeeInPaise = 0;
+      let flatPackagingFeeInPaise = 0;
+      if (packagingTier === "luxury_wrap") {
+        unitPackagingFeeInPaise = bouquetLuxuryWrapUpgradeFeePaise;
+      } else if (packagingTier === "bouquet_wrap") {
+        flatPackagingFeeInPaise = stemBouquetWrapFeePaise;
+      } else if (packagingTier === "gift_box") {
+        flatPackagingFeeInPaise = luxuryGiftBoxFeePaise;
+      }
+      const cardFeeInPaise = hasGreetingCard ? greetingCardFeePaise : 0;
+      const noteFeeInPaise = hasPersonalNote ? personalisedMessageFeePaise : 0;
+      const flatExtrasInPaise = flatPackagingFeeInPaise + cardFeeInPaise + noteFeeInPaise;
+      const unitPriceInPaise = prod.price_in_paise + unitPackagingFeeInPaise;
+      const itemSubtotal = unitPriceInPaise * qty + flatExtrasInPaise;
       subtotalInPaise += itemSubtotal;
-      const giftWrapFee = storeConfig.businessRules?.giftWrapFeePaise ?? 7900;
-      if (item.giftWrap) {
-        giftWrapTotalInPaise += giftWrapFee * qty;
+      const isGiftWrapped = packagingTier !== "standard" || hasGreetingCard || hasPersonalNote || Boolean(item.giftWrap);
+      let personalMessage = item.message?.trim() || null;
+      if (!personalMessage && (item.packagingLabel || hasGreetingCard || hasPersonalNote)) {
+        const parts = [];
+        if (item.packagingLabel) {
+          parts.push(`Packaging: ${item.packagingLabel}`);
+        }
+        if (hasGreetingCard) {
+          parts.push(item.greetingCardMessage?.trim() ? `Greeting Card Note: "${item.greetingCardMessage.trim()}"` : "Handwritten Greeting Card");
+        }
+        if (hasPersonalNote) {
+          parts.push(item.personalNoteMessage?.trim() ? `Personal Note: "${item.personalNoteMessage.trim()}"` : "Handwritten Personal Note");
+        }
+        personalMessage = parts.length > 0 ? parts.join(" | ") : null;
       }
       resolvedOrderItems.push({
         product_id: prod.id,
         product_code: prod.code,
         product_name: prod.name,
-        unit_price_in_paise: unitPriceInPaise,
+        unit_price_in_paise: Math.round(itemSubtotal / qty),
         quantity: qty,
         total_price_in_paise: itemSubtotal,
         selected_color: item.color || null,
-        gift_wrap: Boolean(item.giftWrap),
-        personal_message: item.message || null,
+        gift_wrap: isGiftWrapped,
+        personal_message: personalMessage,
         item_image: Array.isArray(prod.images) && prod.images.length > 0 ? prod.images[0] : null
       });
     }
@@ -668,7 +820,14 @@ async function handler(req, res) {
       }
       const evaluation = evaluateCoupon({
         coupon,
-        items: catalogItems.map((i) => ({ code: i.code, quantity: i.quantity })),
+        items: [
+          ...catalogItems.map((i) => ({ code: i.code, quantity: i.quantity })),
+          ...addonItems.map((i) => ({
+            code: i.code,
+            quantity: i.quantity,
+            price_in_paise: KNOWN_ADDONS[i.code]?.priceInPaise || 4900
+          }))
+        ],
         productsMap: productMap,
         cartSubtotalInPaise: subtotalInPaise
       });
@@ -731,7 +890,7 @@ async function handler(req, res) {
     const isExpress = Boolean(req.body.isExpress);
     const baseShippingFee = subtotalInPaise >= freeShippingThreshold ? 0 : standardShippingFee;
     const shippingFeeInPaise = baseShippingFee + (isExpress ? expressShippingFee : 0);
-    const totalInPaise = Math.max(0, subtotalInPaise - discountInPaise - loyaltyDiscountInPaise + shippingFeeInPaise + giftWrapTotalInPaise);
+    const totalInPaise = Math.max(0, subtotalInPaise - discountInPaise - loyaltyDiscountInPaise + shippingFeeInPaise);
     const orderNumber = `TPB-${Date.now().toString(36).toUpperCase()}-${Math.floor(1e3 + Math.random() * 9e3)}`;
     const addressSnapshot = {
       recipientName: shippingAddress.recipientName || customer.name,
@@ -753,7 +912,7 @@ async function handler(req, res) {
       discount_in_paise: discountInPaise,
       loyalty_points_redeemed: loyaltyPointsRedeemed,
       loyalty_discount_in_paise: loyaltyDiscountInPaise,
-      shipping_fee_in_paise: shippingFeeInPaise + giftWrapTotalInPaise,
+      shipping_fee_in_paise: shippingFeeInPaise,
       total_in_paise: totalInPaise,
       order_status: "PENDING_PAYMENT",
       payment_status: "PENDING",
@@ -967,6 +1126,10 @@ async function handler2(req, res) {
       discountInRupees: evaluation.discountInRupees,
       eligibleProductCodes: evaluation.eligibleProductCodes,
       eligibleItemsCount: evaluation.eligibleItemsCount,
+      eligibleSubtotalInPaise: evaluation.eligibleSubtotalInPaise,
+      eligibleSubtotalInRupees: evaluation.eligibleSubtotalInRupees,
+      ineligibleSubtotalInRupees: evaluation.ineligibleSubtotalInRupees,
+      qualificationStatus: evaluation.qualificationStatus,
       description: evaluation.description || coupon.description || (coupon.discount_type === "PERCENT" ? `${coupon.discount_value}% off eligible items` : `Flat \u20B9${Math.round(evaluation.discountInRupees)} off`)
     });
   } catch (err) {

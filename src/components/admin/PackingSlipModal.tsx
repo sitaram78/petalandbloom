@@ -118,6 +118,27 @@ export default function PackingSlipModal({
                 </div>
               ))}
             </div>
+
+            {order.customer_note && (
+              <div className="mt-2.5 pt-2 border-t border-dashed border-gray-300 space-y-1">
+                {order.customer_note.includes('[PACKAGING:') && (
+                  <div className="text-[10px] bg-gray-50 border border-gray-200 p-1.5 rounded">
+                    <span className="font-bold text-black uppercase">Packaging Instructions: </span>
+                    <span className="text-gray-800">
+                      {order.customer_note.split('[PACKAGING:')[1]?.split(']')[0]}
+                    </span>
+                  </div>
+                )}
+                {order.customer_note.includes('[GIFT CARD MESSAGE]:') && (
+                  <div className="text-[10px] bg-rose-50/60 border border-rose-200 p-1.5 rounded text-gray-900">
+                    <span className="font-bold uppercase text-gray-800">Card Message: </span>
+                    <span className="italic">
+                      &ldquo;{order.customer_note.split('[GIFT CARD MESSAGE]:')[1]?.split('|')[0]?.replace(/^[\s":]+|[\s":]+$/g, '')}&rdquo;
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Sender & Return Address */}

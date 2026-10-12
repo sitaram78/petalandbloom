@@ -138,7 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Fetch order items
     const { data: items } = await supabaseAdmin
       .from('order_items')
-      .select('product_code, product_name, unit_price_in_paise, quantity, selected_color, gift_wrap, item_image')
+      .select('product_code, product_name, unit_price_in_paise, quantity, selected_color, gift_wrap, personal_message, item_image')
       .eq('order_id', order.id);
 
     // Fetch status history

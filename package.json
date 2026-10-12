@@ -13,6 +13,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "test": "node scripts/verify-milestones.mjs",
+    "test:milestones": "node scripts/verify-milestones.mjs",
     "capture": "node scripts/visual-audit.cjs"
   },
   "dependencies": {

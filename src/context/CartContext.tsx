@@ -15,18 +15,51 @@ export interface AppliedCoupon {
   eligibleProductCodes?: string[];
   eligibleItemsCount?: number;
   eligibleSubtotalInRupees?: number;
+  qualificationStatus?: 'FULLY_QUALIFIED' | 'PARTIALLY_QUALIFIED' | 'DISQUALIFIED';
 }
 
 export interface CartItem {
+  id: string;
   code: string;
   name: string;
   image?: string;
   price: number;
+  basePrice?: number;
+  packagingFee?: number;
+  packagingMultiplier?: 'per_unit' | 'flat';
+  cardFee?: number;
+  noteFee?: number;
+  unitPrice?: number;
   priceLabel?: string;
   quantity: number;
   color?: string;
   giftWrap?: boolean;
   message?: string;
+  packagingTier?: 'standard' | 'luxury_wrap' | 'bouquet_wrap' | 'gift_box';
+  packagingLabel?: string;
+  hasGreetingCard?: boolean;
+  greetingCardMessage?: string;
+  hasPersonalNote?: boolean;
+  personalNoteMessage?: string;
+}
+
+export interface AddItemOptions {
+  color?: string;
+  quantity?: number;
+  giftWrap?: boolean;
+  message?: string;
+  packagingTier?: 'standard' | 'luxury_wrap' | 'bouquet_wrap' | 'gift_box';
+  packagingLabel?: string;
+  hasGreetingCard?: boolean;
+  greetingCardMessage?: string;
+  hasPersonalNote?: boolean;
+  personalNoteMessage?: string;
+  basePrice?: number;
+  packagingFee?: number;
+  packagingMultiplier?: 'per_unit' | 'flat';
+  cardFee?: number;
+  noteFee?: number;
+  unitPrice?: number;
 }
 
 export interface CheckoutCustomerInput {
@@ -46,12 +79,53 @@ export interface CheckoutAddressInput {
   pincode: string;
 }
 
+/**
+ * Deterministic fingerprint of an item configuration.
+ * Differentiates variations (colors, packaging tiers, custom notes)
+ * so upgrading or adding custom notes never overrides or collides with base items.
+ */
+export function getItemConfigKey(item: {
+  code: string;
+  color?: string;
+  packagingTier?: string;
+  hasGreetingCard?: boolean;
+  greetingCardMessage?: string;
+  hasPersonalNote?: boolean;
+  personalNoteMessage?: string;
+}): string {
+  const code = (item.code || '').trim().toUpperCase();
+  const color = (item.color || 'default').trim().toLowerCase();
+  const tier = (item.packagingTier || 'standard').trim().toLowerCase();
+  const card = item.hasGreetingCard ? (item.greetingCardMessage || '').trim() : '';
+  const note = item.hasPersonalNote ? (item.personalNoteMessage || '').trim() : '';
+  return `${code}::${color}::${tier}::${card}::${note}`;
+}
+
+/**
+ * Calculates the exact line-item subtotal accounting for unit base price,
+ * packaging multipliers (per-unit for bouquet silk wraps vs flat for stem assembly/boxes),
+ * and flat keepsake cards/notes.
+ */
+export function calculateItemSubtotal(item: CartItem): number {
+  const qty = Math.max(1, item.quantity || 1);
+  const base = typeof item.basePrice === 'number' ? item.basePrice : item.price;
+  const pkgFee = item.packagingFee ?? 0;
+  const isPerUnit = item.packagingMultiplier === 'per_unit' || item.packagingTier === 'luxury_wrap';
+  const cardFee = item.cardFee ?? (item.hasGreetingCard ? 49 : 0);
+  const noteFee = item.noteFee ?? (item.hasPersonalNote ? 39 : 0);
+
+  const packagingTotal = isPerUnit ? pkgFee * qty : pkgFee;
+  const flatExtras = cardFee + noteFee;
+
+  return (base * qty) + packagingTotal + flatExtras;
+}
+
 interface CartContextValue {
   items: CartItem[];
   isOpen: boolean;
-  addItem: (product: Product, opts?: { color?: string; quantity?: number; giftWrap?: boolean; message?: string }) => void;
-  removeItem: (code: string) => void;
-  updateQuantity: (code: string, quantity: number) => void;
+  addItem: (product: Product, opts?: AddItemOptions) => void;
+  removeItem: (idOrCode: string) => void;
+  updateQuantity: (idOrCode: string, quantity: number) => void;
   clearCart: () => void;
   openCart: () => void;
   closeCart: () => void;
@@ -78,7 +152,24 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>(() => {
     try {
       const stored = localStorage.getItem(CART_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      if (!stored) return [];
+      const parsed: any[] = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((item, index) => {
+        const id = item.id || `legacy-${item.code || 'item'}-${index}-${Date.now().toString(36)}`;
+        const price = typeof item.price === 'number' ? item.price : 0;
+        return {
+          ...item,
+          id,
+          price,
+          basePrice: typeof item.basePrice === 'number' ? item.basePrice : price,
+          packagingFee: typeof item.packagingFee === 'number' ? item.packagingFee : 0,
+          cardFee: typeof item.cardFee === 'number' ? item.cardFee : 0,
+          noteFee: typeof item.noteFee === 'number' ? item.noteFee : 0,
+          packagingTier: item.packagingTier || 'standard',
+          quantity: Math.max(1, item.quantity || 1),
+        };
+      });
     } catch {
       return [];
     }
@@ -96,31 +187,72 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [items]);
 
   const addItem = useCallback(
-    (product: Product, opts?: { color?: string; quantity?: number; giftWrap?: boolean; message?: string }) => {
+    (product: Product, opts?: AddItemOptions) => {
       const quantity = opts?.quantity ?? 1;
+      const targetPackagingTier = opts?.packagingTier || 'standard';
+      const isPerUnitPackaging = opts?.packagingMultiplier === 'per_unit' || targetPackagingTier === 'luxury_wrap';
+      const basePrice = typeof opts?.basePrice === 'number' ? opts.basePrice : product.price;
+      const packagingFee = typeof opts?.packagingFee === 'number' ? opts.packagingFee : 0;
+      const cardFee = typeof opts?.cardFee === 'number' ? opts.cardFee : (opts?.hasGreetingCard ? 49 : 0);
+      const noteFee = typeof opts?.noteFee === 'number' ? opts.noteFee : (opts?.hasPersonalNote ? 39 : 0);
+      const unitPrice = typeof opts?.unitPrice === 'number'
+        ? opts.unitPrice
+        : (isPerUnitPackaging ? basePrice + packagingFee : basePrice);
+      const price = isPerUnitPackaging ? (basePrice + packagingFee) : (basePrice + packagingFee + cardFee + noteFee);
+
+      const targetColor = opts?.color || '';
+      const targetGreeting = opts?.hasGreetingCard ? (opts?.greetingCardMessage || '') : '';
+      const targetPersonalNote = opts?.hasPersonalNote ? (opts?.personalNoteMessage || '') : '';
+
+      const incomingKey = getItemConfigKey({
+        code: product.code,
+        color: targetColor,
+        packagingTier: targetPackagingTier,
+        hasGreetingCard: opts?.hasGreetingCard,
+        greetingCardMessage: targetGreeting,
+        hasPersonalNote: opts?.hasPersonalNote,
+        personalNoteMessage: targetPersonalNote,
+      });
+
       setItems((prev) => {
-        const existing = prev.find((i) => i.code === product.code && i.color === opts?.color);
-        if (existing) {
-          return prev.map((i) =>
-            i.code === product.code && i.color === opts?.color
-              ? { ...i, quantity: i.quantity + quantity }
-              : i
+        const existingIndex = prev.findIndex((i) => getItemConfigKey(i) === incomingKey);
+
+        if (existingIndex !== -1) {
+          return prev.map((item, idx) =>
+            idx === existingIndex
+              ? { ...item, quantity: item.quantity + quantity }
+              : item
           );
         }
-        return [
-          ...prev,
-          {
-            code: product.code,
-            name: product.name,
-            image: product.images?.[0],
-            price: product.price,
-            priceLabel: product.priceLabel,
-            quantity,
-            color: opts?.color,
-            giftWrap: opts?.giftWrap,
-            message: opts?.message,
-          },
-        ];
+
+        const uniqueId = `item-${product.code}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+        const newItem: CartItem = {
+          id: uniqueId,
+          code: product.code,
+          name: product.name,
+          image: product.images?.[0],
+          basePrice,
+          packagingFee,
+          packagingMultiplier: isPerUnitPackaging ? 'per_unit' : 'flat',
+          cardFee,
+          noteFee,
+          unitPrice,
+          price,
+          priceLabel: product.priceLabel,
+          quantity,
+          color: opts?.color,
+          giftWrap: opts?.giftWrap,
+          message: opts?.message,
+          packagingTier: targetPackagingTier,
+          packagingLabel: opts?.packagingLabel,
+          hasGreetingCard: opts?.hasGreetingCard,
+          greetingCardMessage: opts?.greetingCardMessage,
+          hasPersonalNote: opts?.hasPersonalNote,
+          personalNoteMessage: opts?.personalNoteMessage,
+        };
+
+        return [...prev, newItem];
       });
       setIsOpen(true);
 
@@ -143,10 +275,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
               return [
                 ...prev,
                 {
+                  id: `addon-${Date.now().toString(36)}`,
                   code: addonCode,
                   name: suggestion.name,
                   image: suggestion.image,
                   price: suggestion.price,
+                  basePrice: suggestion.price,
+                  packagingFee: 0,
+                  cardFee: 0,
+                  noteFee: 0,
+                  unitPrice: suggestion.price,
                   quantity: 1,
                 },
               ];
@@ -159,16 +297,26 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [showNotification]
   );
 
-  const removeItem = useCallback((code: string) => {
-    setItems((prev) => prev.filter((i) => i.code !== code));
+  const removeItem = useCallback((idOrCode: string) => {
+    setItems((prev) => {
+      const hasIdMatch = prev.some((i) => i.id === idOrCode);
+      if (hasIdMatch) {
+        return prev.filter((i) => i.id !== idOrCode);
+      }
+      return prev.filter((i) => i.code !== idOrCode);
+    });
   }, []);
 
-  const updateQuantity = useCallback((code: string, quantity: number) => {
-    if (quantity <= 0) {
-      setItems((prev) => prev.filter((i) => i.code !== code));
-    } else {
-      setItems((prev) => prev.map((i) => (i.code === code ? { ...i, quantity } : i)));
-    }
+  const updateQuantity = useCallback((idOrCode: string, quantity: number) => {
+    setItems((prev) => {
+      const hasIdMatch = prev.some((i) => i.id === idOrCode);
+      if (quantity <= 0) {
+        return hasIdMatch ? prev.filter((i) => i.id !== idOrCode) : prev.filter((i) => i.code !== idOrCode);
+      }
+      return prev.map((i) =>
+        (hasIdMatch ? i.id === idOrCode : i.code === idOrCode) ? { ...i, quantity } : i
+      );
+    });
   }, []);
 
   const clearCart = useCallback(() => setItems([]), []);
@@ -176,7 +324,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const closeCart = useCallback(() => setIsOpen(false), []);
 
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
-  const totalPrice = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const totalPrice = items.reduce((sum, i) => sum + calculateItemSubtotal(i), 0);
   const discountAmount = appliedCoupon ? appliedCoupon.discountInRupees : 0;
 
   // Server-side coupon validation
@@ -212,6 +360,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           eligibleProductCodes: data.eligibleProductCodes || [],
           eligibleItemsCount: data.eligibleItemsCount || 0,
           eligibleSubtotalInRupees: data.eligibleSubtotalInPaise ? data.eligibleSubtotalInPaise / 100 : undefined,
+          qualificationStatus: data.qualificationStatus,
         });
 
         const countNote = data.eligibleItemsCount ? ` on ${data.eligibleItemsCount} eligible items` : '';
@@ -274,6 +423,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
             eligibleProductCodes: data.eligibleProductCodes || [],
             eligibleItemsCount: data.eligibleItemsCount || 0,
             eligibleSubtotalInRupees: data.eligibleSubtotalInPaise ? data.eligibleSubtotalInPaise / 100 : undefined,
+            qualificationStatus: data.qualificationStatus,
           });
         }
       } catch (err) {
@@ -304,10 +454,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             items: items.map((i) => ({
               code: i.code,
+              name: i.name,
+              price: i.price,
+              image: i.image,
               quantity: i.quantity,
               color: i.color,
               giftWrap: i.giftWrap,
               message: i.message,
+              packagingTier: i.packagingTier,
+              packagingLabel: i.packagingLabel,
+              hasGreetingCard: i.hasGreetingCard,
+              greetingCardMessage: i.greetingCardMessage,
+              hasPersonalNote: i.hasPersonalNote,
+              personalNoteMessage: i.personalNoteMessage,
             })),
             customer: orderData.customer,
             shippingAddress: orderData.shippingAddress,
@@ -357,6 +516,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         code: i.code,
         price: i.priceLabel || formatPrice(i.price),
         quantity: i.quantity,
+        color: i.color,
+        packaging: i.packagingLabel || (i.packagingTier === 'luxury_wrap' ? 'Luxury Silk Wrap' : i.packagingTier === 'bouquet_wrap' ? 'Finished Bouquet Wrap' : i.packagingTier === 'gift_box' ? 'Luxury Rigid Gift Box' : undefined),
+        message: i.greetingCardMessage ? `Card: "${i.greetingCardMessage}"` : i.personalNoteMessage ? `Personal Note: "${i.personalNoteMessage}"` : i.message,
       }));
       const link = buildWhatsAppLink(
         cartEnquiryMessage(messageItems, {

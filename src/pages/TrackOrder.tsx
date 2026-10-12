@@ -240,14 +240,28 @@ export default function TrackOrder() {
                 </div>
                 <div className="divide-y divide-canvas-line/40">
                   {order.items?.map((item: any, i: number) => (
-                    <div key={i} className="py-3 flex justify-between text-sm">
-                      <span className="text-bark">
-                        {item.quantity}× {item.product_name}
-                        {item.selected_color ? ` (${item.selected_color})` : ''}
-                      </span>
-                      <span className="text-ink-light">
-                        {formatPrice((item.unit_price_in_paise * item.quantity) / 100)}
-                      </span>
+                    <div key={i} className="py-3 text-sm">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-bark font-medium">
+                          {item.quantity}× {item.product_name}
+                          {item.selected_color ? ` (${item.selected_color})` : ''}
+                        </span>
+                        <span className="text-ink-light">
+                          {formatPrice((item.unit_price_in_paise * item.quantity) / 100)}
+                        </span>
+                      </div>
+                      {item.personal_message && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {item.personal_message.split(' | ').map((part: string, idx: number) => (
+                            <span
+                              key={idx}
+                              className="text-[11px] text-ink-light bg-cream/70 border border-sand/40 rounded px-1.5 py-0.5"
+                            >
+                              {part}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

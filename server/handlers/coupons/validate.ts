@@ -50,7 +50,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    if (error || !coupon) {
+    if (error) {
+      console.error('[Coupon DB Error]', error);
+      return res.status(500).json({
+        success: false,
+        message: `Database error checking coupon: ${error.message || 'Unable to connect to promotional database.'}`,
+      });
+    }
+
+    if (!coupon) {
       return res.status(404).json({ success: false, message: 'Invalid coupon code.' });
     }
 
@@ -121,6 +129,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       discountInRupees: evaluation.discountInRupees,
       eligibleProductCodes: evaluation.eligibleProductCodes,
       eligibleItemsCount: evaluation.eligibleItemsCount,
+      eligibleSubtotalInPaise: evaluation.eligibleSubtotalInPaise,
+      eligibleSubtotalInRupees: evaluation.eligibleSubtotalInRupees,
+      ineligibleSubtotalInRupees: evaluation.ineligibleSubtotalInRupees,
+      qualificationStatus: evaluation.qualificationStatus,
       description:
         evaluation.description ||
         coupon.description ||

@@ -74,7 +74,8 @@ export function validateCouponEligibility(
     }
   }
 
-  const minOrder = coupon.min_order_in_paise || 0;
+  const rawMin = coupon.min_order_in_paise || 0;
+  const minOrder = rawMin < 1000 && rawMin > 0 ? rawMin * 100 : rawMin;
   if (input.cartSubtotalInPaise < minOrder) {
     const minOrderRupees = (minOrder / 100).toLocaleString('en-IN');
     return {
@@ -108,15 +109,18 @@ export function calculateCouponDiscount(
   let discountInPaise = 0;
 
   if (coupon.discount_type === 'PERCENT') {
-    const percentage = Math.max(0, Math.min(100, coupon.discount_value));
+    const percentage = Math.max(0, Math.min(100, Number(coupon.discount_value) || 0));
     const calculated = Math.round((cartSubtotalInPaise * percentage) / 100);
-    discountInPaise = coupon.max_discount_in_paise
-      ? Math.min(calculated, coupon.max_discount_in_paise)
+    const rawMax = coupon.max_discount_in_paise;
+    const maxDiscountInPaise = rawMax !== null && rawMax !== undefined
+      ? (rawMax < 1000 && rawMax > 0 ? rawMax * 100 : rawMax)
+      : null;
+    discountInPaise = maxDiscountInPaise !== null
+      ? Math.min(calculated, maxDiscountInPaise)
       : calculated;
   } else {
-    // FLAT discount: In Petal & Bloom, flat discounts are stored in paise (e.g. ₹10 = 1,000 paise).
-    // If raw rupees (< 100) are ever provided, normalize to paise; otherwise preserve paise.
-    const flatAmount = coupon.discount_value < 100 ? coupon.discount_value * 100 : coupon.discount_value;
+    const rawVal = Number(coupon.discount_value) || 0;
+    const flatAmount = rawVal < 1000 && rawVal > 0 ? rawVal * 100 : rawVal;
     discountInPaise = Math.min(cartSubtotalInPaise, flatAmount);
   }
 

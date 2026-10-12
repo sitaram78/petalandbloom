@@ -4,6 +4,7 @@ import { formatPrice } from '@/data/products';
 import { useStoreSettings } from '@/context/StoreSettingsContext';
 
 export interface InvoiceOrderData {
+  id?: string;
   order_number: string;
   created_at: string;
   guest_name: string;
@@ -26,6 +27,7 @@ export interface InvoiceOrderData {
   total_in_paise: number;
   payment_status: string;
   applied_coupon_code?: string;
+  customer_note?: string;
   order_items: Array<{
     id: string;
     product_name: string;
@@ -199,6 +201,11 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
                       )}
                       {item.gift_wrap && (
                         <p className="text-[10px] text-amber-700 font-medium">🎁 Atelier Gift Wrapped</p>
+                      )}
+                      {item.personal_message && (
+                        <p className="text-[9.5px] text-gray-500 italic mt-0.5 leading-tight">
+                          {item.personal_message}
+                        </p>
                       )}
                     </td>
                     <td className="p-3 border border-gray-300 font-mono text-[10px] text-gray-600">

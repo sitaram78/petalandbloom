@@ -51,12 +51,28 @@ export interface EvaluatedCouponResult {
   discountInPaise: number;
   discountInRupees: number;
   eligibleSubtotalInPaise: number;
+  eligibleSubtotalInRupees: number;
+  ineligibleSubtotalInPaise: number;
+  ineligibleSubtotalInRupees: number;
+  addonSubtotalInPaise: number;
+  addonSubtotalInRupees: number;
+  totalCatalogInPaise: number;
   totalCartInPaise: number;
   eligibleProductCodes: string[];
   eligibleItemsCount: number;
+  ineligibleItemsCount: number;
+  qualificationStatus: 'FULLY_QUALIFIED' | 'PARTIALLY_QUALIFIED' | 'DISQUALIFIED';
   message?: string;
   reason?: string;
   description?: string;
+}
+
+/**
+ * Normalizes values that could be stored as either raw Rupees (< 1000) or Paise (>= 1000).
+ */
+export function normalizePaiseAmount(val?: number | null): number {
+  if (val === null || val === undefined || isNaN(val) || val <= 0) return 0;
+  return val < 1000 ? Math.round(val * 100) : Math.round(val);
 }
 
 /**
@@ -75,7 +91,7 @@ function getScopeMismatchMessage(coupon: CouponRecord): string {
   }
 
   if (scope === 'PRICE_TIER' && (coupon.min_product_price_in_paise || 0) > 0) {
-    const minRupees = Math.round((coupon.min_product_price_in_paise || 0) / 100);
+    const minRupees = Math.round(normalizePaiseAmount(coupon.min_product_price_in_paise) / 100);
     return `This coupon applies to premium pieces priced ₹${minRupees} or above.`;
   }
 
@@ -121,7 +137,7 @@ export function isProductEligibleForCoupon(
     }
 
     case 'PRICE_TIER': {
-      const minPrice = coupon.min_product_price_in_paise || 0;
+      const minPrice = normalizePaiseAmount(coupon.min_product_price_in_paise);
       return product.price_in_paise >= minPrice;
     }
 
@@ -152,7 +168,8 @@ export function isProductEligibleForCoupon(
       }
 
       if ((coupon.min_product_price_in_paise || 0) > 0) {
-        if (product.price_in_paise < (coupon.min_product_price_in_paise || 0)) {
+        const minPrice = normalizePaiseAmount(coupon.min_product_price_in_paise);
+        if (product.price_in_paise < minPrice) {
           return false;
         }
       }
@@ -192,9 +209,17 @@ export function evaluateCoupon(params: {
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise: 0,
+      eligibleSubtotalInRupees: 0,
+      ineligibleSubtotalInPaise: 0,
+      ineligibleSubtotalInRupees: 0,
+      addonSubtotalInPaise: 0,
+      addonSubtotalInRupees: 0,
+      totalCatalogInPaise: 0,
       totalCartInPaise: 0,
       eligibleProductCodes: [],
       eligibleItemsCount: 0,
+      ineligibleItemsCount: 0,
+      qualificationStatus: 'DISQUALIFIED',
       message: 'This promotional code is no longer active.',
     };
   }
@@ -205,9 +230,17 @@ export function evaluateCoupon(params: {
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise: 0,
+      eligibleSubtotalInRupees: 0,
+      ineligibleSubtotalInPaise: 0,
+      ineligibleSubtotalInRupees: 0,
+      addonSubtotalInPaise: 0,
+      addonSubtotalInRupees: 0,
+      totalCatalogInPaise: 0,
       totalCartInPaise: 0,
       eligibleProductCodes: [],
       eligibleItemsCount: 0,
+      ineligibleItemsCount: 0,
+      qualificationStatus: 'DISQUALIFIED',
       message: 'This coupon has expired.',
     };
   }
@@ -219,9 +252,17 @@ export function evaluateCoupon(params: {
         discountInPaise: 0,
         discountInRupees: 0,
         eligibleSubtotalInPaise: 0,
+        eligibleSubtotalInRupees: 0,
+        ineligibleSubtotalInPaise: 0,
+        ineligibleSubtotalInRupees: 0,
+        addonSubtotalInPaise: 0,
+        addonSubtotalInRupees: 0,
+        totalCatalogInPaise: 0,
         totalCartInPaise: 0,
         eligibleProductCodes: [],
         eligibleItemsCount: 0,
+        ineligibleItemsCount: 0,
+        qualificationStatus: 'DISQUALIFIED',
         message: 'This coupon has reached its total usage limit.',
       };
     }
@@ -232,16 +273,24 @@ export function evaluateCoupon(params: {
   const cartMixMode = coupon.cart_mix_mode || 'ALLOW_MIXED';
   const hasItems = Array.isArray(items) && items.length > 0 && productsMap && productsMap.size > 0;
 
-  let totalCartInPaise = 0;
+  let totalCatalogInPaise = 0;
   let eligibleSubtotalInPaise = 0;
+  let ineligibleCatalogSubtotalInPaise = 0;
+  let addonSubtotalInPaise = 0;
   const eligibleProductCodes: string[] = [];
   let eligibleItemsCount = 0;
   let ineligibleItemsCount = 0;
 
   if (hasItems) {
     for (const item of items) {
-      // Exclude add-ons from coupon eligibility and exclusivity checks
-      if (item.code.startsWith('ADDON-')) continue;
+      const qty = Math.max(1, Math.min(50, Math.floor(Number(item.quantity) || 1)));
+
+      // Add-on items are tracked in the ledger but are strictly excluded from coupon discount and exclusivity checks
+      if (item.code.startsWith('ADDON-')) {
+        const fallbackPrice = item.price_in_paise || 4900;
+        addonSubtotalInPaise += fallbackPrice * qty;
+        continue;
+      }
 
       const trimmedCode = (item.code || '').trim();
       const product =
@@ -251,9 +300,8 @@ export function evaluateCoupon(params: {
 
       if (!product || product.is_active === false) continue;
 
-      const qty = Math.max(1, Math.min(50, Math.floor(Number(item.quantity) || 1)));
       const lineItemTotalInPaise = product.price_in_paise * qty;
-      totalCartInPaise += lineItemTotalInPaise;
+      totalCatalogInPaise += lineItemTotalInPaise;
 
       const isEligible = isProductEligibleForCoupon(coupon, product);
       if (isEligible) {
@@ -261,21 +309,22 @@ export function evaluateCoupon(params: {
         eligibleProductCodes.push(product.code);
         eligibleItemsCount += qty;
       } else {
+        ineligibleCatalogSubtotalInPaise += lineItemTotalInPaise;
         ineligibleItemsCount += qty;
       }
     }
   } else {
     // Fallback if items were not provided (legacy subtotal validation)
-    totalCartInPaise = Math.max(0, Number(cartSubtotalInPaise) || 0);
-    // If scope is ALL, entire subtotal is eligible
+    totalCatalogInPaise = Math.max(0, Number(cartSubtotalInPaise) || 0);
     if (scope === 'ALL') {
-      eligibleSubtotalInPaise = totalCartInPaise;
+      eligibleSubtotalInPaise = totalCatalogInPaise;
       eligibleItemsCount = 1;
     } else {
-      // Scoped coupon without items provided cannot verify eligibility
       eligibleSubtotalInPaise = 0;
     }
   }
+
+  const totalCartInPaise = totalCatalogInPaise + addonSubtotalInPaise;
 
   // 3. Verify that cart contains qualifying items (for scoped coupons)
   if (scope !== 'ALL' && eligibleSubtotalInPaise <= 0) {
@@ -283,12 +332,22 @@ export function evaluateCoupon(params: {
       isValid: false,
       couponId: coupon.id,
       code: coupon.code,
+      discountType: coupon.discount_type,
+      discountValue: coupon.discount_value,
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise: 0,
+      eligibleSubtotalInRupees: 0,
+      ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+      ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+      addonSubtotalInPaise,
+      addonSubtotalInRupees: addonSubtotalInPaise / 100,
+      totalCatalogInPaise,
       totalCartInPaise,
       eligibleProductCodes: [],
       eligibleItemsCount: 0,
+      ineligibleItemsCount,
+      qualificationStatus: 'DISQUALIFIED',
       message: getScopeMismatchMessage(coupon),
     };
   }
@@ -299,37 +358,58 @@ export function evaluateCoupon(params: {
       isValid: false,
       couponId: coupon.id,
       code: coupon.code,
+      discountType: coupon.discount_type,
+      discountValue: coupon.discount_value,
       discountInPaise: 0,
       discountInRupees: 0,
       eligibleSubtotalInPaise,
+      eligibleSubtotalInRupees: eligibleSubtotalInPaise / 100,
+      ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+      ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+      addonSubtotalInPaise,
+      addonSubtotalInRupees: addonSubtotalInPaise / 100,
+      totalCatalogInPaise,
       totalCartInPaise,
       eligibleProductCodes,
       eligibleItemsCount,
+      ineligibleItemsCount,
+      qualificationStatus: 'DISQUALIFIED',
       message: 'This exclusive coupon can only be used when your cart contains ONLY qualifying promotional pieces (no other items).',
     };
   }
 
   // 4. Verify Minimum Spend Threshold
   const minSpendMode = coupon.min_spend_mode || 'ELIGIBLE_ITEMS_ONLY';
-  const minRequiredInPaise = coupon.min_order_in_paise || 0;
+  const minRequiredInPaise = normalizePaiseAmount(coupon.min_order_in_paise);
 
   if (minRequiredInPaise > 0) {
-    const spendToVerify = minSpendMode === 'CART_TOTAL' ? totalCartInPaise : eligibleSubtotalInPaise;
+    const spendToVerify = minSpendMode === 'CART_TOTAL' ? totalCatalogInPaise : eligibleSubtotalInPaise;
 
     if (spendToVerify < minRequiredInPaise) {
-      const minRequiredRupees = minRequiredInPaise / 100;
-      const targetLabel = minSpendMode === 'CART_TOTAL' ? 'an order total' : 'eligible promotional items total';
+      const minRequiredRupees = Math.round(minRequiredInPaise / 100);
+      const currentRupees = Math.round(spendToVerify / 100);
+      const targetLabel = minSpendMode === 'CART_TOTAL' ? 'a collection merchandise total' : 'qualifying promotional items total';
       return {
         isValid: false,
         couponId: coupon.id,
         code: coupon.code,
+        discountType: coupon.discount_type,
+        discountValue: coupon.discount_value,
         discountInPaise: 0,
         discountInRupees: 0,
         eligibleSubtotalInPaise,
+        eligibleSubtotalInRupees: eligibleSubtotalInPaise / 100,
+        ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+        ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+        addonSubtotalInPaise,
+        addonSubtotalInRupees: addonSubtotalInPaise / 100,
+        totalCatalogInPaise,
         totalCartInPaise,
         eligibleProductCodes,
         eligibleItemsCount,
-        message: `This coupon requires ${targetLabel} of at least ₹${minRequiredRupees}.`,
+        ineligibleItemsCount,
+        qualificationStatus: 'DISQUALIFIED',
+        message: `This coupon requires ${targetLabel} of at least ₹${minRequiredRupees}. Currently: ₹${currentRupees}.`,
       };
     }
   }
@@ -338,16 +418,31 @@ export function evaluateCoupon(params: {
   let discountInPaise = 0;
 
   if (coupon.discount_type === 'PERCENT') {
-    const rawDiscount = Math.round((eligibleSubtotalInPaise * coupon.discount_value) / 100);
-    discountInPaise = coupon.max_discount_in_paise
-      ? Math.min(rawDiscount, coupon.max_discount_in_paise)
+    const percent = Math.max(0, Math.min(100, Number(coupon.discount_value) || 0));
+    const rawDiscount = Math.round((eligibleSubtotalInPaise * percent) / 100);
+    const maxDiscountInPaise = coupon.max_discount_in_paise ? normalizePaiseAmount(coupon.max_discount_in_paise) : null;
+    discountInPaise = maxDiscountInPaise !== null
+      ? Math.min(rawDiscount, maxDiscountInPaise)
       : rawDiscount;
   } else {
-    // FLAT discount: In Petal & Bloom, flat discounts are stored in paise (e.g. ₹10 = 1,000 paise).
-    // If raw rupees (< 100) are ever provided, normalize to paise; otherwise preserve paise.
-    const flatAmount = coupon.discount_value < 100 ? coupon.discount_value * 100 : coupon.discount_value;
-    // Clamped strictly to eligible items subtotal (cannot bleed into ineligible items or fees)
-    discountInPaise = Math.min(eligibleSubtotalInPaise, flatAmount);
+    const flatAmountInPaise = normalizePaiseAmount(coupon.discount_value);
+    discountInPaise = Math.min(eligibleSubtotalInPaise, flatAmountInPaise);
+  }
+
+  const qualificationStatus: 'FULLY_QUALIFIED' | 'PARTIALLY_QUALIFIED' =
+    ineligibleItemsCount > 0 || addonSubtotalInPaise > 0 ? 'PARTIALLY_QUALIFIED' : 'FULLY_QUALIFIED';
+
+  let description = coupon.description;
+  if (!description) {
+    if (coupon.discount_type === 'PERCENT') {
+      const pct = coupon.discount_value;
+      description = qualificationStatus === 'PARTIALLY_QUALIFIED'
+        ? `${pct}% off ${eligibleItemsCount} eligible ${eligibleItemsCount === 1 ? 'item' : 'items'}`
+        : `${pct}% off your order`;
+    } else {
+      const amt = Math.round(discountInPaise / 100);
+      description = `Flat ₹${amt} off eligible items`;
+    }
   }
 
   return {
@@ -359,13 +454,17 @@ export function evaluateCoupon(params: {
     discountInPaise,
     discountInRupees: discountInPaise / 100,
     eligibleSubtotalInPaise,
+    eligibleSubtotalInRupees: eligibleSubtotalInPaise / 100,
+    ineligibleSubtotalInPaise: ineligibleCatalogSubtotalInPaise,
+    ineligibleSubtotalInRupees: ineligibleCatalogSubtotalInPaise / 100,
+    addonSubtotalInPaise,
+    addonSubtotalInRupees: addonSubtotalInPaise / 100,
+    totalCatalogInPaise,
     totalCartInPaise,
     eligibleProductCodes,
     eligibleItemsCount,
-    description:
-      coupon.description ||
-      (coupon.discount_type === 'PERCENT'
-        ? `${coupon.discount_value}% off eligible items`
-        : `Flat ₹${Math.round(discountInPaise / 100)} off`),
+    ineligibleItemsCount,
+    qualificationStatus,
+    description,
   };
 }

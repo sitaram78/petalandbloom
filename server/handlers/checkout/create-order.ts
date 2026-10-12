@@ -7,10 +7,19 @@ import { verifyAuth } from '../../lib/authMiddleware';
 
 interface CheckoutItemRequest {
   code: string;
+  name?: string;
+  price?: number;
+  image?: string;
   quantity: number;
   color?: string;
   giftWrap?: boolean;
   message?: string;
+  packagingTier?: 'standard' | 'luxury_wrap' | 'bouquet_wrap' | 'gift_box';
+  packagingLabel?: string;
+  hasGreetingCard?: boolean;
+  greetingCardMessage?: string;
+  hasPersonalNote?: boolean;
+  personalNoteMessage?: string;
 }
 
 interface CreateOrderRequestBody {
@@ -73,14 +82,140 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ success: false, message: 'Cart cannot be empty.' });
     }
 
-    // 2. Fetch authoritative prices & details from database
-    const KNOWN_ADDONS: Record<string, { name: string; priceInPaise: number; image?: string }> = {
-      'ADDON-Greeting Card': { name: 'Greeting Card', priceInPaise: 4900, image: '/greeting.avif' },
-      'ADDON-Personalised Message': { name: 'Personalised Message', priceInPaise: 3900, image: '/message.avif' },
-      'ADDON-Name Customisation': { name: 'Name Customisation', priceInPaise: 7900 },
-      'ADDON-Premium Ribbon': { name: 'Premium Ribbon', priceInPaise: 4900, image: '/ribbon.avif' },
-      'ADDON-Premium Wrapping': { name: 'Premium Wrapping', priceInPaise: 7900, image: '/wrapping.avif' },
-      'ADDON-Extra Flower': { name: 'Extra Flower', priceInPaise: 19900 },
+    // 2. Fetch authoritative prices & business rules from database
+    const { data: storeSettingsRow } = await supabaseAdmin
+      .from('store_settings')
+      .select('business_rules')
+      .eq('id', 'primary')
+      .maybeSingle();
+
+    const liveRules = storeSettingsRow?.business_rules || storeConfig.businessRules || {};
+    const companionGifts: Array<{ id: string; name: string; description?: string; priceRupees: number }> =
+      Array.isArray(liveRules.companionGifts) && liveRules.companionGifts.length > 0
+        ? liveRules.companionGifts
+        : [
+            { id: 'addon-flower', name: 'Extra Handcrafted Flower', priceRupees: 199 },
+            { id: 'addon-charm', name: 'Name Customisation Charm', priceRupees: 79 },
+            { id: 'addon-vase', name: 'Petite Ceramic Bud Vase', priceRupees: 249 },
+            { id: 'addon-pouch', name: 'Linen Keepsake Storage Pouch', priceRupees: 129 },
+          ];
+
+    // Build dynamic and resilient add-ons map
+    const addonsMap = new Map<string, { name: string; priceInPaise: number; image: string | null }>();
+
+    for (const g of companionGifts) {
+      const pPaise = Math.round(Number(g.priceRupees || 0) * 100);
+      const cleanId = (g.id || '').replace(/^addon-/i, '').toLowerCase();
+      const img = '/placeholder-bloom.svg';
+
+      const variants = [
+        g.id.toLowerCase(),
+        `addon-${cleanId}`,
+        `ADDON-${cleanId.toUpperCase()}`,
+        `ADDON-ADDON-${cleanId.toUpperCase()}`,
+        `ADDON-${g.name.toUpperCase().replace(/\s+/g, '-')}`,
+        `ADDON-${g.name.toUpperCase()}`,
+        cleanId.toUpperCase(),
+      ];
+
+      for (const v of variants) {
+        addonsMap.set(v, { name: g.name, priceInPaise: pPaise, image: img });
+      }
+    }
+
+    const standardAddonsList = [
+      {
+        codes: ['ADDON-GREETING-CARD', 'ADDON-GREETING CARD', 'ADDON-CARD'],
+        name: 'Greeting Card',
+        priceInPaise: liveRules.greetingCardFeePaise ?? 4900,
+        image: '/greeting.avif',
+      },
+      {
+        codes: ['ADDON-PERSONALISED-MESSAGE', 'ADDON-PERSONALIZED-MESSAGE', 'ADDON-PERSONAL NOTE', 'ADDON-PERSONALISED MESSAGE'],
+        name: 'Personalised Message',
+        priceInPaise: liveRules.personalisedMessageFeePaise ?? 3900,
+        image: '/message.avif',
+      },
+      {
+        codes: ['ADDON-NAME-CUSTOMISATION', 'ADDON-NAME CUSTOMISATION', 'ADDON-CHARM'],
+        name: 'Name Customisation Charm',
+        priceInPaise: 7900,
+        image: null,
+      },
+      {
+        codes: ['ADDON-PREMIUM-RIBBON', 'ADDON-PREMIUM RIBBON', 'ADDON-RIBBON'],
+        name: 'Premium Ribbon',
+        priceInPaise: 4900,
+        image: '/ribbon.avif',
+      },
+      {
+        codes: ['ADDON-PREMIUM-WRAPPING', 'ADDON-PREMIUM WRAPPING', 'ADDON-WRAPPING'],
+        name: 'Premium Wrapping',
+        priceInPaise: liveRules.giftWrapFeePaise ?? 7900,
+        image: '/wrapping.avif',
+      },
+      {
+        codes: ['ADDON-EXTRA-FLOWER', 'ADDON-EXTRA FLOWER', 'ADDON-FLOWER', 'ADDON-ADDON-FLOWER'],
+        name: 'Extra Handcrafted Flower',
+        priceInPaise: 19900,
+        image: '/placeholder-bloom.svg',
+      },
+      {
+        codes: ['ADDON-POUCH', 'ADDON-STORAGE-POUCH', 'ADDON-LINEN-KEEPSAKE-STORAGE-POUCH', 'ADDON-ADDON-POUCH'],
+        name: 'Linen Keepsake Storage Pouch',
+        priceInPaise: 12900,
+        image: '/placeholder-bloom.svg',
+      },
+      {
+        codes: ['ADDON-VASE', 'ADDON-BUD-VASE', 'ADDON-PETITE-CERAMIC-BUD-VASE', 'ADDON-ADDON-VASE'],
+        name: 'Petite Ceramic Bud Vase',
+        priceInPaise: 24900,
+        image: '/placeholder-bloom.svg',
+      },
+    ];
+
+    for (const sa of standardAddonsList) {
+      for (const c of sa.codes) {
+        if (!addonsMap.has(c)) {
+          addonsMap.set(c, { name: sa.name, priceInPaise: sa.priceInPaise, image: sa.image });
+        }
+      }
+    }
+
+    const resolveAddon = (item: CheckoutItemRequest) => {
+      const codeKey = (item.code || '').trim();
+      const upper = codeKey.toUpperCase();
+      const stripped = upper.replace(/^ADDON-(ADDON-)?/, '');
+
+      let meta = addonsMap.get(codeKey) ||
+        addonsMap.get(upper) ||
+        addonsMap.get(`ADDON-${stripped}`) ||
+        addonsMap.get(`ADDON-ADDON-${stripped}`) ||
+        addonsMap.get(codeKey.toLowerCase());
+
+      if (!meta && item.name) {
+        const itemClean = item.name.trim().toLowerCase();
+        for (const [_, val] of addonsMap.entries()) {
+          if (val.name.toLowerCase() === itemClean) {
+            meta = val;
+            break;
+          }
+        }
+      }
+
+      const resolvedName = meta?.name || item.name || stripped.replace(/-/g, ' ');
+      const resolvedPriceInPaise = meta
+        ? meta.priceInPaise
+        : typeof item.price === 'number' && item.price > 0
+        ? Math.round(item.price * 100)
+        : 4900;
+      const resolvedImage = meta?.image || item.image || '/placeholder-bloom.svg';
+
+      return {
+        name: resolvedName,
+        priceInPaise: resolvedPriceInPaise,
+        image: resolvedImage,
+      };
     };
 
     const catalogItems = items.filter((i) => !i.code?.startsWith('ADDON-'));
@@ -149,48 +284,91 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      const unitPriceInPaise = prod.price_in_paise;
-      const itemSubtotal = unitPriceInPaise * qty;
+      // Dynamic packaging fees from store settings
+      const bouquetLuxuryWrapUpgradeFeePaise = liveRules.bouquetLuxuryWrapUpgradeFeePaise ?? storeConfig.businessRules?.bouquetLuxuryWrapUpgradeFeePaise ?? 5900;
+      const stemBouquetWrapFeePaise = liveRules.stemBouquetWrapFeePaise ?? storeConfig.businessRules?.stemBouquetWrapFeePaise ?? 7900;
+      const luxuryGiftBoxFeePaise = liveRules.luxuryGiftBoxFeePaise ?? storeConfig.businessRules?.luxuryGiftBoxFeePaise ?? 14900;
+      const greetingCardFeePaise = liveRules.greetingCardFeePaise ?? storeConfig.businessRules?.greetingCardFeePaise ?? 4900;
+      const personalisedMessageFeePaise = liveRules.personalisedMessageFeePaise ?? storeConfig.businessRules?.personalisedMessageFeePaise ?? 3900;
+
+      // Structured packaging & extras detection (with safe fallback for legacy payload)
+      const packagingTier = item.packagingTier || (item.message?.includes('Luxury Silk Wrap') ? 'luxury_wrap' : item.message?.includes('Finished Bouquet') ? 'bouquet_wrap' : item.message?.includes('Rigid Gift Box') ? 'gift_box' : 'standard');
+      const hasGreetingCard = Boolean(item.hasGreetingCard || item.greetingCardMessage || (!item.packagingTier && item.message?.includes('Greeting Card')));
+      const hasPersonalNote = Boolean(item.hasPersonalNote || item.personalNoteMessage || (!item.packagingTier && item.message?.includes('Personal Note')));
+
+      let unitPackagingFeeInPaise = 0;
+      let flatPackagingFeeInPaise = 0;
+
+      if (packagingTier === 'luxury_wrap') {
+        // Bouquet luxury silk wrap applies per bouquet unit
+        unitPackagingFeeInPaise = bouquetLuxuryWrapUpgradeFeePaise;
+      } else if (packagingTier === 'bouquet_wrap') {
+        // Loose stems bouquet assembly applies flat once per line item
+        flatPackagingFeeInPaise = stemBouquetWrapFeePaise;
+      } else if (packagingTier === 'gift_box') {
+        // Luxury rigid gift box applies flat once per line item
+        flatPackagingFeeInPaise = luxuryGiftBoxFeePaise;
+      }
+
+      // Greeting cards and personal notes are flat once per line item
+      const cardFeeInPaise = hasGreetingCard ? greetingCardFeePaise : 0;
+      const noteFeeInPaise = hasPersonalNote ? personalisedMessageFeePaise : 0;
+      const flatExtrasInPaise = flatPackagingFeeInPaise + cardFeeInPaise + noteFeeInPaise;
+
+      const unitPriceInPaise = prod.price_in_paise + unitPackagingFeeInPaise;
+      const itemSubtotal = (unitPriceInPaise * qty) + flatExtrasInPaise;
       subtotalInPaise += itemSubtotal;
 
-      const giftWrapFee = storeConfig.businessRules?.giftWrapFeePaise ?? 7900;
-      if (item.giftWrap) {
-        giftWrapTotalInPaise += giftWrapFee * qty;
+      const isGiftWrapped = packagingTier !== 'standard' || hasGreetingCard || hasPersonalNote || Boolean(item.giftWrap);
+
+      let personalMessage = item.message?.trim() || null;
+      if (!personalMessage && (item.packagingLabel || hasGreetingCard || hasPersonalNote)) {
+        const parts: string[] = [];
+        if (item.packagingLabel) {
+          parts.push(`Packaging: ${item.packagingLabel}`);
+        }
+        if (hasGreetingCard) {
+          parts.push(item.greetingCardMessage?.trim() ? `Greeting Card Note: "${item.greetingCardMessage.trim()}"` : 'Handwritten Greeting Card');
+        }
+        if (hasPersonalNote) {
+          parts.push(item.personalNoteMessage?.trim() ? `Personal Note: "${item.personalNoteMessage.trim()}"` : 'Handwritten Personal Note');
+        }
+        personalMessage = parts.length > 0 ? parts.join(' | ') : null;
       }
 
       resolvedOrderItems.push({
         product_id: prod.id,
         product_code: prod.code,
         product_name: prod.name,
-        unit_price_in_paise: unitPriceInPaise,
+        unit_price_in_paise: Math.round(itemSubtotal / qty),
         quantity: qty,
         total_price_in_paise: itemSubtotal,
         selected_color: item.color || null,
-        gift_wrap: Boolean(item.giftWrap),
-        personal_message: item.message || null,
+        gift_wrap: isGiftWrapped,
+        personal_message: personalMessage,
         item_image: Array.isArray(prod.images) && prod.images.length > 0 ? prod.images[0] : null,
       });
     }
 
     // Process add-on items
     for (const item of addonItems) {
-      const addonMeta = KNOWN_ADDONS[item.code];
+      const resolved = resolveAddon(item);
       const qty = Math.max(1, Math.min(20, Math.floor(Number(item.quantity) || 1)));
-      const unitPriceInPaise = addonMeta ? addonMeta.priceInPaise : 4900;
+      const unitPriceInPaise = resolved.priceInPaise;
       const itemSubtotal = unitPriceInPaise * qty;
       subtotalInPaise += itemSubtotal;
 
       resolvedOrderItems.push({
         product_id: null,
         product_code: item.code,
-        product_name: addonMeta ? addonMeta.name : item.code.replace('ADDON-', ''),
+        product_name: resolved.name,
         unit_price_in_paise: unitPriceInPaise,
         quantity: qty,
         total_price_in_paise: itemSubtotal,
         selected_color: null,
         gift_wrap: false,
         personal_message: null,
-        item_image: addonMeta?.image || null,
+        item_image: resolved.image,
       });
     }
 
@@ -244,7 +422,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const evaluation = evaluateCoupon({
         coupon,
-        items: catalogItems.map((i) => ({ code: i.code, quantity: i.quantity })),
+        items: [
+          ...catalogItems.map((i) => ({ code: i.code, quantity: i.quantity })),
+          ...addonItems.map((i) => {
+            const resolved = resolveAddon(i);
+            return {
+              code: i.code,
+              quantity: i.quantity,
+              price_in_paise: resolved.priceInPaise,
+            };
+          }),
+        ],
         productsMap: productMap,
         cartSubtotalInPaise: subtotalInPaise,
       });
@@ -318,15 +506,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 5. Dynamic Shipping Calculation from Store Settings
-    const freeShippingThreshold = storeConfig.businessRules?.freeShippingThresholdPaise ?? 120000;
-    const standardShippingFee = storeConfig.businessRules?.standardShippingFeePaise ?? 6900;
-    const expressShippingFee = storeConfig.businessRules?.expressShippingFeePaise ?? 4900;
+    const freeShippingThreshold = liveRules.freeShippingThresholdPaise ?? storeConfig.businessRules?.freeShippingThresholdPaise ?? 120000;
+    const standardShippingFee = liveRules.standardShippingFeePaise ?? storeConfig.businessRules?.standardShippingFeePaise ?? 6900;
+    const expressShippingFee = liveRules.expressShippingFeePaise ?? storeConfig.businessRules?.expressShippingFeePaise ?? 4900;
     const isExpress = Boolean(req.body.isExpress);
 
     const baseShippingFee = subtotalInPaise >= freeShippingThreshold ? 0 : standardShippingFee;
     const shippingFeeInPaise = baseShippingFee + (isExpress ? expressShippingFee : 0);
 
-    const totalInPaise = Math.max(0, subtotalInPaise - discountInPaise - loyaltyDiscountInPaise + shippingFeeInPaise + giftWrapTotalInPaise);
+    const totalInPaise = Math.max(0, subtotalInPaise - discountInPaise - loyaltyDiscountInPaise + shippingFeeInPaise);
 
     // 6. Generate human-readable Order Number
     const orderNumber = `TPB-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -355,7 +543,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         discount_in_paise: discountInPaise,
         loyalty_points_redeemed: loyaltyPointsRedeemed,
         loyalty_discount_in_paise: loyaltyDiscountInPaise,
-        shipping_fee_in_paise: shippingFeeInPaise + giftWrapTotalInPaise,
+        shipping_fee_in_paise: shippingFeeInPaise,
         total_in_paise: totalInPaise,
         order_status: 'PENDING_PAYMENT',
         payment_status: 'PENDING',
