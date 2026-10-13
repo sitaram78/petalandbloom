@@ -24,8 +24,15 @@ function apiDevMiddleware(): Plugin {
           const domain = routePath.split('/')[0];
           const strippedDomain = stripped.split('/')[0];
 
+          // Domain routing aliases (matches vercel.json rewrites)
+          let aliasDomain = strippedDomain;
+          if (aliasDomain === 'finances') aliasDomain = 'materials';
+          if (aliasDomain === 'customers') aliasDomain = 'staff';
+
           let modulePath = '';
           const candidates = [
+            `./server/api/${aliasDomain}.ts`,
+            `./api/${aliasDomain}.js`,
             `./api/${routePath}.ts`,
             `./server/api/${routePath}.ts`,
             `./server/api/${stripped}.ts`,

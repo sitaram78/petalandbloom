@@ -747,10 +747,99 @@ async function handler3(req, res) {
   }
 }
 
-// server/api/staff.ts
+// src/services/loyaltyService.ts
+function resolveLoyaltyTier(lifetimePoints) {
+  const points = Math.max(0, lifetimePoints || 0);
+  if (points >= 1500) return "HEIRLOOM";
+  if (points >= 500) return "BLOSSOM";
+  return "FLORET";
+}
+
+// server/handlers/admin/customers/adjust-points.ts
 async function handler4(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ success: false, message: "Method not allowed. Use POST." });
+  }
+  const authUser = await requireAuth(req, res, {
+    requiredPermission: "customers.adjust_points"
+  });
+  if (!authUser) return;
+  try {
+    const { customerId, pointsDelta, pointsType = "ADD", reason } = req.body || {};
+    if (!customerId || pointsDelta === void 0 || pointsDelta === null) {
+      return res.status(400).json({ success: false, message: "customerId and pointsDelta are required." });
+    }
+    const rawDelta = Math.abs(Number(pointsDelta) || 0);
+    if (rawDelta === 0) {
+      return res.status(400).json({ success: false, message: "Points adjustment must be greater than zero." });
+    }
+    const delta = pointsType === "ADD" ? rawDelta : -rawDelta;
+    const noteText = reason?.trim() || `Administrative points adjustment (${pointsType}) by ${authUser.email}`;
+    const { data: acc } = await supabaseAdmin.from("loyalty_accounts").select("points_balance, lifetime_points_earned, tier").eq("customer_id", customerId).maybeSingle();
+    const oldBalance = acc?.points_balance || 0;
+    const oldLifetime = acc?.lifetime_points_earned || 0;
+    const oldTier = acc?.tier || "FLORET";
+    const newBalance = Math.max(0, oldBalance + delta);
+    const newLifetime = pointsType === "ADD" ? oldLifetime + delta : oldLifetime;
+    const newTier = resolveLoyaltyTier(newLifetime);
+    await supabaseAdmin.from("loyalty_transactions").insert({
+      customer_id: customerId,
+      type: pointsType === "ADD" ? "ADMIN_CREDIT" : "ADMIN_DEBIT",
+      points: delta,
+      description: noteText
+    });
+    if (acc) {
+      await supabaseAdmin.from("loyalty_accounts").update({
+        points_balance: newBalance,
+        lifetime_points_earned: newLifetime,
+        tier: newTier,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("customer_id", customerId);
+    } else {
+      await supabaseAdmin.from("loyalty_accounts").insert({
+        customer_id: customerId,
+        points_balance: newBalance,
+        lifetime_points_earned: newLifetime,
+        tier: newTier
+      });
+    }
+    await logAuditEvent({
+      actor_id: authUser.id,
+      actor_email: authUser.email,
+      actor_role: authUser.role,
+      action: AUDIT_ACTIONS.POINTS_ADJUSTED,
+      entity: "loyalty_accounts",
+      entity_id: customerId,
+      old_values: { points_balance: oldBalance, tier: oldTier },
+      new_values: {
+        points_balance: newBalance,
+        lifetime_points_earned: newLifetime,
+        tier: newTier,
+        delta,
+        type: pointsType
+      },
+      reason: noteText
+    });
+    return res.status(200).json({
+      success: true,
+      pointsBalance: newBalance,
+      lifetimePoints: newLifetime,
+      tier: newTier,
+      message: `Successfully adjusted points. New balance: ${newBalance} Petal Points.`
+    });
+  } catch (err) {
+    console.error("[Admin Points Adjustment Error]:", err);
+    return res.status(500).json({ success: false, message: err.message || "Failed to adjust points." });
+  }
+}
+
+// server/api/staff.ts
+async function handler5(req, res) {
   const url = req.url || "";
   const pathname = url.split("?")[0];
+  if (pathname.includes("/customers") || pathname.includes("/adjust-points")) {
+    return handler4(req, res);
+  }
   if (pathname.endsWith("/create")) {
     return handler2(req, res);
   }
@@ -760,5 +849,5 @@ async function handler4(req, res) {
   return handler(req, res);
 }
 export {
-  handler4 as default
+  handler5 as default
 };
