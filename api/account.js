@@ -345,7 +345,7 @@ async function handler(req, res) {
     if (!userData?.user) {
       return res.status(500).json({ success: false, message: "Failed to create user account." });
     }
-    const userId2 = userData.user.id;
+    const userId = userData.user.id;
     const generatedReferralCode = `BLOOM-${cleanPhone.slice(-4)}-${Math.floor(100 + Math.random() * 900)}`;
     let validReferredBy = null;
     let referrerId = null;
@@ -359,7 +359,7 @@ async function handler(req, res) {
       }
     }
     await supabaseAdmin.from("profiles").upsert({
-      id: userId2,
+      id: userId,
       email: cleanEmail,
       full_name: fullName.trim(),
       phone: cleanPhone,
@@ -372,23 +372,23 @@ async function handler(req, res) {
       try {
         await supabaseAdmin.from("referrals").insert({
           referrer_id: referrerId,
-          referee_id: userId2,
+          referee_id: userId,
           status: "PENDING"
         });
       } catch (refErr) {
         console.warn("[Referral Insert Warning]:", refErr);
       }
     }
-    const { data: existingLoyalty } = await supabaseAdmin.from("loyalty_accounts").select("id, points_balance").eq("customer_id", userId2).maybeSingle();
+    const { data: existingLoyalty } = await supabaseAdmin.from("loyalty_accounts").select("id, points_balance").eq("customer_id", userId).maybeSingle();
     if (!existingLoyalty) {
       await supabaseAdmin.from("loyalty_accounts").insert({
-        customer_id: userId2,
+        customer_id: userId,
         points_balance: 40,
         lifetime_points_earned: 40,
         tier: "FLORET"
       });
       await supabaseAdmin.from("loyalty_transactions").insert({
-        customer_id: userId2,
+        customer_id: userId,
         type: "WELCOME_BONUS",
         points: 40,
         description: "Welcome to The Petal & Bloom: 40 Petal Points gift (\u20B920 value, redeemable on orders > \u20B9299)"
@@ -397,14 +397,14 @@ async function handler(req, res) {
     try {
       const safeEmail = sanitizePostgrestFilter(cleanEmail);
       const safePhone = cleanPhone.replace(/\D/g, "").slice(-10);
-      await supabaseAdmin.from("orders").update({ customer_id: userId2 }).is("customer_id", null).or(`guest_email.ilike.${safeEmail},guest_phone.ilike.%${safePhone}%`);
+      await supabaseAdmin.from("orders").update({ customer_id: userId }).is("customer_id", null).or(`guest_email.ilike.${safeEmail},guest_phone.ilike.%${safePhone}%`);
     } catch {
     }
     return res.status(200).json({
       success: true,
       message: "Account created successfully. 40 Petal Points (\u20B920 value) have been credited to your atelier account!",
       user: {
-        id: userId2,
+        id: userId,
         email: cleanEmail
       }
     });
@@ -550,6 +550,8 @@ async function handler3(req, res) {
   }
   const authUser = await requireAuth(req, res);
   if (!authUser) return;
+  const userId = authUser.id;
+  let linkedCount = 0;
   try {
     let verifiedEmail = authUser.email ? authUser.email.trim().toLowerCase() : "";
     let verifiedPhone = authUser.phone ? authUser.phone.replace(/\D/g, "").slice(-10) : "";

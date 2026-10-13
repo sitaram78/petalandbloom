@@ -294,6 +294,13 @@ async function handler(req, res) {
     return res.status(405).json({ success: false, message: "Method not allowed. Use POST." });
   }
   try {
+    const body = typeof req.body === "string" ? (() => {
+      try {
+        return JSON.parse(req.body);
+      } catch {
+        return {};
+      }
+    })() : req.body || {};
     const {
       productCode,
       rating,
@@ -304,7 +311,7 @@ async function handler(req, res) {
       customerName,
       customerEmail,
       customerPhone
-    } = req.body || {};
+    } = body;
     if (!productCode || !rating || !reviewText) {
       return res.status(400).json({
         success: false,
@@ -377,17 +384,21 @@ async function handler(req, res) {
         error: "Reviews are exclusively reserved for verified patrons who have purchased this bespoke piece."
       });
     }
+    const cleanCustomerName = String(verifiedUser?.full_name || verifiedCustomerName || "Atelier Patron").replace(/<[^>]*>?/gm, "").trim().slice(0, 100);
+    const cleanTitle = String(reviewTitle || "").replace(/<[^>]*>?/gm, "").trim().slice(0, 200);
+    const cleanText = String(reviewText || "").replace(/<[^>]*>?/gm, "").trim().slice(0, 5e3);
+    const cleanPhoto = customerPhoto && typeof customerPhoto === "string" && (customerPhoto.startsWith("https://") || customerPhoto.startsWith("http://") || customerPhoto.startsWith("/")) ? customerPhoto.trim().slice(0, 2048) : null;
     const reviewId = `rev-${Date.now()}`;
     const newReview = {
       id: reviewId,
       product_code: productCode.trim().toLowerCase(),
       customer_id: effectiveCustomerId,
-      customer_name: (verifiedUser?.full_name || verifiedCustomerName).trim(),
+      customer_name: cleanCustomerName,
       customer_email: effectiveCustomerEmail,
       rating: numRating,
-      review_title: reviewTitle ? reviewTitle.trim() : "",
-      review_text: reviewText.trim(),
-      customer_photo: customerPhoto ? customerPhoto.trim() : null,
+      review_title: cleanTitle,
+      review_text: cleanText,
+      customer_photo: cleanPhoto,
       is_verified_purchase: isVerifiedPurchase,
       is_approved: isApproved,
       created_at: (/* @__PURE__ */ new Date()).toISOString()
@@ -551,7 +562,14 @@ async function handler3(req, res) {
   const authUser = await requireAuth(req, res, { requiredPermission: "reviews.moderate" });
   if (!authUser) return;
   try {
-    const { reviewId, action } = req.body || {};
+    const body = typeof req.body === "string" ? (() => {
+      try {
+        return JSON.parse(req.body);
+      } catch {
+        return {};
+      }
+    })() : req.body || {};
+    const { reviewId, action } = body;
     if (!reviewId || !action) {
       return res.status(400).json({ success: false, error: "reviewId and action are required." });
     }

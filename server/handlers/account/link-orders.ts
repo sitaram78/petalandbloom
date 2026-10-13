@@ -15,6 +15,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const authUser = await requireAuth(req, res);
   if (!authUser) return;
 
+  const userId = authUser.id;
+  let linkedCount = 0;
+
   try {
     // Strictly bind to the authenticated caller's verified email and phone
     let verifiedEmail = authUser.email ? authUser.email.trim().toLowerCase() : '';

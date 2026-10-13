@@ -244,6 +244,17 @@ async function requireAuth(req, res, options) {
 }
 
 // server/handlers/settings/store.ts
+function parseJsonSafe(input, defaultValue) {
+  if (typeof input === "object" && input !== null) return input;
+  if (typeof input === "string") {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
+}
 var DEFAULT_COMPANION_GIFTS = [
   {
     id: "addon-flower",
@@ -417,7 +428,7 @@ async function handler(req, res) {
   if (req.method === "POST" || req.method === "PUT") {
     const authUser = await requireAuth(req, res, { allowedRoles: ["super_admin", "admin"] });
     if (!authUser) return;
-    const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+    const payload = parseJsonSafe(req.body, {});
     serverCache = {
       ...serverCache,
       ...payload,

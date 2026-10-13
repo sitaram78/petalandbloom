@@ -71,6 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const body = typeof req.body === 'string' ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : (req.body || {});
     const {
       productCode,
       rating,
@@ -81,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       customerName,
       customerEmail,
       customerPhone,
-    } = req.body || {};
+    } = body;
 
     if (!productCode || !rating || !reviewText) {
       return res.status(400).json({
@@ -175,17 +176,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    const cleanCustomerName = String(verifiedUser?.full_name || verifiedCustomerName || 'Atelier Patron')
+      .replace(/<[^>]*>?/gm, '')
+      .trim()
+      .slice(0, 100);
+    const cleanTitle = String(reviewTitle || '')
+      .replace(/<[^>]*>?/gm, '')
+      .trim()
+      .slice(0, 200);
+    const cleanText = String(reviewText || '')
+      .replace(/<[^>]*>?/gm, '')
+      .trim()
+      .slice(0, 5000);
+    const cleanPhoto = (customerPhoto && typeof customerPhoto === 'string' && (customerPhoto.startsWith('https://') || customerPhoto.startsWith('http://') || customerPhoto.startsWith('/')))
+      ? customerPhoto.trim().slice(0, 2048)
+      : null;
+
     const reviewId = `rev-${Date.now()}`;
     const newReview = {
       id: reviewId,
       product_code: productCode.trim().toLowerCase(),
       customer_id: effectiveCustomerId,
-      customer_name: (verifiedUser?.full_name || verifiedCustomerName).trim(),
+      customer_name: cleanCustomerName,
       customer_email: effectiveCustomerEmail,
       rating: numRating,
-      review_title: reviewTitle ? reviewTitle.trim() : '',
-      review_text: reviewText.trim(),
-      customer_photo: customerPhoto ? customerPhoto.trim() : null,
+      review_title: cleanTitle,
+      review_text: cleanText,
+      customer_photo: cleanPhoto,
       is_verified_purchase: isVerifiedPurchase,
       is_approved: isApproved,
       created_at: new Date().toISOString(),

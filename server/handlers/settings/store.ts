@@ -2,6 +2,18 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { supabaseAdmin } from '../../lib/supabaseServer';
 import { requireAuth, verifyAuth } from '../../lib/authMiddleware';
 
+function parseJsonSafe<T = any>(input: any, defaultValue: T): T {
+  if (typeof input === 'object' && input !== null) return input;
+  if (typeof input === 'string') {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
+}
+
 export interface StoreFeatureFlags {
   enableLoyalty: boolean;
   enableCoupons: boolean;
@@ -261,7 +273,7 @@ export default async function handler(req: any, res: any) {
     const authUser = await requireAuth(req, res, { allowedRoles: ['super_admin', 'admin'] });
     if (!authUser) return; // Response sent by requireAuth
 
-    const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+    const payload = parseJsonSafe(req.body, {});
     
     serverCache = {
       ...serverCache,

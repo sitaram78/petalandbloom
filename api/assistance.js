@@ -251,13 +251,24 @@ function isValidUUID(val) {
   if (!val || typeof val !== "string") return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
 }
+function parseJsonSafe(input, defaultValue) {
+  if (typeof input === "object" && input !== null) return input;
+  if (typeof input === "string") {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
+}
 var conversationsCache = [
   {
     id: "demo-welcome-conv",
     customer_id: null,
     customer_name: "Studio Concierge Test",
-    customer_phone: "+919861615937",
-    customer_email: "guest@thepetalandbloom.com",
+    customer_phone: "+910000000001",
+    customer_email: "concierge.test@example.com",
     subject: "Bespoke bouquet color palette request",
     status: "OPEN",
     last_message_preview: "Could you craft these crochet roses in French Lilac and Dusty Rose?",
@@ -265,11 +276,11 @@ var conversationsCache = [
     created_at: new Date(Date.now() - 60 * 6e4).toISOString()
   },
   {
-    id: "conv-ananya-roy",
+    id: "conv-sample-1",
     customer_id: null,
-    customer_name: "Ananya Roy",
-    customer_phone: "+919876543210",
-    customer_email: "ananya.roy@example.com",
+    customer_name: "Sample Patron 1",
+    customer_phone: "+910000000002",
+    customer_email: "patron1@example.com",
     subject: "Anniversary gift dispatch timeline",
     status: "PENDING_ADMIN",
     last_message_preview: "Hi! Can I get guaranteed delivery to Bangalore by Friday?",
@@ -277,11 +288,11 @@ var conversationsCache = [
     created_at: new Date(Date.now() - 120 * 6e4).toISOString()
   },
   {
-    id: "conv-priya-sharma",
+    id: "conv-sample-2",
     customer_id: null,
-    customer_name: "Priya Sharma",
-    customer_phone: "+919811223344",
-    customer_email: "priya.sharma@example.com",
+    customer_name: "Sample Patron 2",
+    customer_phone: "+910000000003",
+    customer_email: "patron2@example.com",
     subject: "Custom palette for wedding centerpieces",
     status: "REPLIED",
     last_message_preview: "We have dispatched our seasonal shade card to your email.",
@@ -289,11 +300,11 @@ var conversationsCache = [
     created_at: new Date(Date.now() - 180 * 6e4).toISOString()
   },
   {
-    id: "conv-rohit-mehta",
+    id: "conv-sample-3",
     customer_id: null,
-    customer_name: "Rohit Mehta",
-    customer_phone: "+919922334455",
-    customer_email: "rohit.m@example.com",
+    customer_name: "Sample Patron 3",
+    customer_phone: "+910000000004",
+    customer_email: "patron3@example.com",
     subject: "Care and dusting instructions",
     status: "RESOLVED",
     last_message_preview: "Thank you so much! The bouquet looks marvelous on our mantle.",
@@ -322,17 +333,20 @@ async function handler(req, res) {
     return res.status(200).json({ success: true, conversations: conversationsCache });
   }
   if (req.method === "POST") {
-    const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+    const payload = parseJsonSafe(req.body, {});
     const convId = isValidUUID(payload.id) ? payload.id : crypto.randomUUID();
+    const cleanCustomerName = String(payload.customer_name || "Guest Visitor").replace(/<[^>]*>?/gm, "").trim().slice(0, 100);
+    const cleanSubject = String(payload.subject || "Atelier Enquiry").replace(/<[^>]*>?/gm, "").trim().slice(0, 200);
+    const cleanPreview = String(payload.last_message_preview || "").replace(/<[^>]*>?/gm, "").trim().slice(0, 500);
     const newConv = {
       id: convId,
       customer_id: payload.customer_id || null,
-      customer_name: payload.customer_name || "Guest Visitor",
-      customer_phone: payload.customer_phone || null,
-      customer_email: payload.customer_email || null,
-      subject: payload.subject || "Atelier Enquiry",
+      customer_name: cleanCustomerName,
+      customer_phone: payload.customer_phone ? String(payload.customer_phone).slice(0, 20) : null,
+      customer_email: payload.customer_email ? String(payload.customer_email).trim().slice(0, 100) : null,
+      subject: cleanSubject,
       status: payload.status || "PENDING_ADMIN",
-      last_message_preview: payload.last_message_preview || "",
+      last_message_preview: cleanPreview,
       last_message_at: (/* @__PURE__ */ new Date()).toISOString(),
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -341,6 +355,9 @@ async function handler(req, res) {
       conversationsCache[existingIdx] = {
         ...conversationsCache[existingIdx],
         ...payload,
+        customer_name: cleanCustomerName,
+        subject: cleanSubject,
+        last_message_preview: cleanPreview,
         last_message_at: (/* @__PURE__ */ new Date()).toISOString()
       };
     } else {
@@ -359,7 +376,8 @@ async function handler(req, res) {
     });
     if (!authUser) return;
     const parsedUrl = new URL(req.url, "http://localhost:5173");
-    const convId = parsedUrl.searchParams.get("id") || parsedUrl.searchParams.get("conversation_id") || req.body && (typeof req.body === "string" ? JSON.parse(req.body).id : req.body.id);
+    const bodyObj = parseJsonSafe(req.body, {});
+    const convId = parsedUrl.searchParams.get("id") || parsedUrl.searchParams.get("conversation_id") || bodyObj.id;
     if (!convId) {
       return res.status(400).json({ error: "Conversation id is required" });
     }
@@ -390,6 +408,17 @@ import crypto2 from "node:crypto";
 function isValidUUID2(val) {
   if (!val || typeof val !== "string") return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+}
+function parseJsonSafe2(input, defaultValue) {
+  if (typeof input === "object" && input !== null) return input;
+  if (typeof input === "string") {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
 }
 var messagesCache = {
   "demo-welcome-conv": [
@@ -470,7 +499,7 @@ var messagesCache = {
       conversation_id: "demo-welcome-conv",
       sender_type: "CUSTOMER",
       sender_name: "Studio Concierge Test",
-      message_text: "Superb! I have placed the order on the storefront now. My phone is +919861615937.",
+      message_text: "Superb! I have placed the order on the storefront now. My phone is +910000000001.",
       created_at: new Date(Date.now() - 8 * 6e4).toISOString()
     },
     {
@@ -510,16 +539,16 @@ async function handler2(req, res) {
     return res.status(200).json({ success: true, messages: convMessages });
   }
   if (req.method === "POST") {
-    const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+    const payload = parseJsonSafe2(req.body, {});
     const rawConvId = payload.conversation_id || conversationId;
     if (!rawConvId || !payload.message_text) {
       return res.status(400).json({ error: "conversation_id and message_text are required" });
     }
     const targetConvId = isValidUUID2(rawConvId) ? rawConvId : crypto2.randomUUID();
-    const cleanText = String(payload.message_text).trim().slice(0, 2e3);
+    const cleanText = String(payload.message_text).replace(/<[^>]*>?/gm, "").trim().slice(0, 2e3);
     const msgId = isValidUUID2(payload.id) ? payload.id : crypto2.randomUUID();
     let senderType = "CUSTOMER";
-    let senderName = payload.sender_name || "Visitor";
+    let senderName = String(payload.sender_name || "Visitor").replace(/<[^>]*>?/gm, "").trim().slice(0, 80);
     if (payload.sender_type === "ADMIN") {
       const authUser = await requireAuth(req, res, {
         requiredPermission: "messages.manage",
@@ -596,7 +625,8 @@ async function handler2(req, res) {
       allowedRoles: ["super_admin", "admin", "support"]
     });
     if (!authUser) return;
-    const rawConvId = conversationId || req.body && (typeof req.body === "string" ? JSON.parse(req.body).conversation_id : req.body.conversation_id);
+    const bodyObj = parseJsonSafe2(req.body, {});
+    const rawConvId = conversationId || bodyObj.conversation_id;
     if (!rawConvId) {
       return res.status(400).json({ error: "conversation_id is required" });
     }

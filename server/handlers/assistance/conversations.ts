@@ -20,14 +20,26 @@ export interface ServerConversation {
   created_at: string;
 }
 
-// In-memory server fallback ledger
+function parseJsonSafe<T = any>(input: any, defaultValue: T): T {
+  if (typeof input === 'object' && input !== null) return input;
+  if (typeof input === 'string') {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
+}
+
+// In-memory server fallback ledger (synthetic demo data, no real PII)
 let conversationsCache: ServerConversation[] = [
   {
     id: 'demo-welcome-conv',
     customer_id: null,
     customer_name: 'Studio Concierge Test',
-    customer_phone: '+919861615937',
-    customer_email: 'guest@thepetalandbloom.com',
+    customer_phone: '+910000000001',
+    customer_email: 'concierge.test@example.com',
     subject: 'Bespoke bouquet color palette request',
     status: 'OPEN',
     last_message_preview: 'Could you craft these crochet roses in French Lilac and Dusty Rose?',
@@ -35,11 +47,11 @@ let conversationsCache: ServerConversation[] = [
     created_at: new Date(Date.now() - 60 * 60000).toISOString(),
   },
   {
-    id: 'conv-ananya-roy',
+    id: 'conv-sample-1',
     customer_id: null,
-    customer_name: 'Ananya Roy',
-    customer_phone: '+919876543210',
-    customer_email: 'ananya.roy@example.com',
+    customer_name: 'Sample Patron 1',
+    customer_phone: '+910000000002',
+    customer_email: 'patron1@example.com',
     subject: 'Anniversary gift dispatch timeline',
     status: 'PENDING_ADMIN',
     last_message_preview: 'Hi! Can I get guaranteed delivery to Bangalore by Friday?',
@@ -47,11 +59,11 @@ let conversationsCache: ServerConversation[] = [
     created_at: new Date(Date.now() - 120 * 60000).toISOString(),
   },
   {
-    id: 'conv-priya-sharma',
+    id: 'conv-sample-2',
     customer_id: null,
-    customer_name: 'Priya Sharma',
-    customer_phone: '+919811223344',
-    customer_email: 'priya.sharma@example.com',
+    customer_name: 'Sample Patron 2',
+    customer_phone: '+910000000003',
+    customer_email: 'patron2@example.com',
     subject: 'Custom palette for wedding centerpieces',
     status: 'REPLIED',
     last_message_preview: 'We have dispatched our seasonal shade card to your email.',
@@ -59,11 +71,11 @@ let conversationsCache: ServerConversation[] = [
     created_at: new Date(Date.now() - 180 * 60000).toISOString(),
   },
   {
-    id: 'conv-rohit-mehta',
+    id: 'conv-sample-3',
     customer_id: null,
-    customer_name: 'Rohit Mehta',
-    customer_phone: '+919922334455',
-    customer_email: 'rohit.m@example.com',
+    customer_name: 'Sample Patron 3',
+    customer_phone: '+910000000004',
+    customer_email: 'patron3@example.com',
     subject: 'Care and dusting instructions',
     status: 'RESOLVED',
     last_message_preview: 'Thank you so much! The bouquet looks marvelous on our mantle.',
@@ -108,17 +120,21 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === 'POST') {
-    const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+    const payload = parseJsonSafe(req.body, {});
     const convId = isValidUUID(payload.id) ? payload.id : crypto.randomUUID();
+    const cleanCustomerName = String(payload.customer_name || 'Guest Visitor').replace(/<[^>]*>?/gm, '').trim().slice(0, 100);
+    const cleanSubject = String(payload.subject || 'Atelier Enquiry').replace(/<[^>]*>?/gm, '').trim().slice(0, 200);
+    const cleanPreview = String(payload.last_message_preview || '').replace(/<[^>]*>?/gm, '').trim().slice(0, 500);
+
     const newConv: ServerConversation = {
       id: convId,
       customer_id: payload.customer_id || null,
-      customer_name: payload.customer_name || 'Guest Visitor',
-      customer_phone: payload.customer_phone || null,
-      customer_email: payload.customer_email || null,
-      subject: payload.subject || 'Atelier Enquiry',
+      customer_name: cleanCustomerName,
+      customer_phone: payload.customer_phone ? String(payload.customer_phone).slice(0, 20) : null,
+      customer_email: payload.customer_email ? String(payload.customer_email).trim().slice(0, 100) : null,
+      subject: cleanSubject,
       status: payload.status || 'PENDING_ADMIN',
-      last_message_preview: payload.last_message_preview || '',
+      last_message_preview: cleanPreview,
       last_message_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
     };
@@ -128,6 +144,9 @@ export default async function handler(req: any, res: any) {
       conversationsCache[existingIdx] = {
         ...conversationsCache[existingIdx],
         ...payload,
+        customer_name: cleanCustomerName,
+        subject: cleanSubject,
+        last_message_preview: cleanPreview,
         last_message_at: new Date().toISOString(),
       };
     } else {
@@ -152,8 +171,8 @@ export default async function handler(req: any, res: any) {
     if (!authUser) return;
 
     const parsedUrl = new URL(req.url, 'http://localhost:5173');
-    const convId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('conversation_id') ||
-      (req.body && (typeof req.body === 'string' ? JSON.parse(req.body).id : req.body.id));
+    const bodyObj = parseJsonSafe(req.body, {});
+    const convId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('conversation_id') || bodyObj.id;
 
     if (!convId) {
       return res.status(400).json({ error: 'Conversation id is required' });

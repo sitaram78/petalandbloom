@@ -1201,7 +1201,15 @@ async function handler3(req, res) {
     const signature = req.headers["x-webhook-signature"] || "";
     const timestamp = req.headers["x-webhook-timestamp"] || "";
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-    const payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    let payload;
+    try {
+      payload = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    } catch {
+      return res.status(400).json({ message: "Malformed JSON payload." });
+    }
+    if (!payload || typeof payload !== "object") {
+      return res.status(400).json({ message: "Invalid payload structure." });
+    }
     const eventType = payload.type || payload.event_type || "PAYMENT_SUCCESS_WEBHOOK";
     const data = payload.data || payload;
     if (!signature || !timestamp) {

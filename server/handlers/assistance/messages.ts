@@ -8,6 +8,18 @@ function isValidUUID(val?: string | null): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
 }
 
+function parseJsonSafe<T = any>(input: any, defaultValue: T): T {
+  if (typeof input === 'object' && input !== null) return input;
+  if (typeof input === 'string') {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
+}
+
 export interface ServerMessage {
   id: string;
   conversation_id: string;
@@ -97,7 +109,7 @@ let messagesCache: Record<string, ServerMessage[]> = {
       conversation_id: 'demo-welcome-conv',
       sender_type: 'CUSTOMER',
       sender_name: 'Studio Concierge Test',
-      message_text: 'Superb! I have placed the order on the storefront now. My phone is +919861615937.',
+      message_text: 'Superb! I have placed the order on the storefront now. My phone is +910000000001.',
       created_at: new Date(Date.now() - 8 * 60000).toISOString(),
     },
     {
@@ -149,7 +161,7 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method === 'POST') {
-    const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+    const payload = parseJsonSafe(req.body, {});
     const rawConvId = payload.conversation_id || conversationId;
 
     if (!rawConvId || !payload.message_text) {
@@ -157,11 +169,11 @@ export default async function handler(req: any, res: any) {
     }
 
     const targetConvId = isValidUUID(rawConvId) ? rawConvId : crypto.randomUUID();
-    const cleanText = String(payload.message_text).trim().slice(0, 2000);
+    const cleanText = String(payload.message_text).replace(/<[^>]*>?/gm, '').trim().slice(0, 2000);
     const msgId = isValidUUID(payload.id) ? payload.id : crypto.randomUUID();
 
     let senderType: 'CUSTOMER' | 'ADMIN' | 'BOT' = 'CUSTOMER';
-    let senderName = payload.sender_name || 'Visitor';
+    let senderName = String(payload.sender_name || 'Visitor').replace(/<[^>]*>?/gm, '').trim().slice(0, 80);
 
     if (payload.sender_type === 'ADMIN') {
       const authUser = await requireAuth(req, res, {
@@ -253,7 +265,8 @@ export default async function handler(req: any, res: any) {
     });
     if (!authUser) return;
 
-    const rawConvId = conversationId || (req.body && (typeof req.body === 'string' ? JSON.parse(req.body).conversation_id : req.body.conversation_id));
+    const bodyObj = parseJsonSafe(req.body, {});
+    const rawConvId = conversationId || bodyObj.conversation_id;
     if (!rawConvId) {
       return res.status(400).json({ error: 'conversation_id is required' });
     }

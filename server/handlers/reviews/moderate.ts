@@ -15,7 +15,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!authUser) return;
 
   try {
-    const { reviewId, action } = req.body || {};
+    const body = typeof req.body === 'string' ? (() => { try { return JSON.parse(req.body); } catch { return {}; } })() : (req.body || {});
+    const { reviewId, action } = body;
 
     if (!reviewId || !action) {
       return res.status(400).json({ success: false, error: 'reviewId and action are required.' });
