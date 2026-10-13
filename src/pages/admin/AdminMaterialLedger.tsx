@@ -23,12 +23,14 @@ import {
   Tag,
   Palette,
   Package,
+  FileText,
 } from 'lucide-react';
 import AdminLayout from '@/components/AdminLayout';
 import { supabase } from '@/lib/supabaseClient';
 import { authFetch } from '@/lib/apiClient';
 import { useNotification } from '@/context/NotificationContext';
 import { downloadCSV } from '@/utils/csvExporter';
+import ExecutiveStatementModal from '@/components/admin/ExecutiveStatementModal';
 import {
   RawMaterialProcurement,
   MaterialType,
@@ -69,6 +71,7 @@ export default function AdminMaterialLedger() {
   const [dateRange, setDateRange] = useState<DateRangeOption>('all');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [showStatementModal, setShowStatementModal] = useState(false);
 
   // Interactive Graph States
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
@@ -605,6 +608,15 @@ export default function AdminMaterialLedger() {
             >
               <Download size={13} />
               Export CSV
+            </button>
+
+            <button
+              onClick={() => setShowStatementModal(true)}
+              className="px-3.5 py-2 bg-rose text-white hover:bg-rose-deep text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-all shadow-soft"
+              title="Generate printable Executive Statement PDF with Infographics"
+            >
+              <FileText size={13} />
+              Generate PDF Report
             </button>
 
             <button
@@ -1637,6 +1649,13 @@ export default function AdminMaterialLedger() {
         )}
 
       </main>
+
+      {/* ═══════════ EXECUTIVE PDF PERFORMANCE & P&L MODAL ═══════════ */}
+      <ExecutiveStatementModal
+        isOpen={showStatementModal}
+        onClose={() => setShowStatementModal(false)}
+        preloadedProcurements={procurements}
+      />
     </AdminLayout>
   );
 }
