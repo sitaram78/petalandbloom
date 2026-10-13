@@ -26,6 +26,7 @@ import {
   ExternalLink,
   Store,
   ShieldCheck,
+  Scissors,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import CommandPaletteModal from '@/components/admin/CommandPaletteModal';
@@ -50,7 +51,8 @@ interface AdminLayoutProps {
     | 'audit-logs'
     | 'influencers'
     | 'abandoned-carts'
-    | 'reports';
+    | 'reports'
+    | 'materials';
 }
 
 interface NavGroup {
@@ -154,6 +156,13 @@ export default function AdminLayout({ children, activePage }: AdminLayoutProps) 
           title: 'Reports & Analytics',
           path: '/admin/reports',
           icon: <BarChart3 size={17} />,
+          requiredPermission: 'analytics.read',
+        },
+        {
+          id: 'materials',
+          title: 'Material Ledger & P&L',
+          path: '/admin/materials',
+          icon: <Scissors size={17} />,
           requiredPermission: 'analytics.read',
         },
       ],

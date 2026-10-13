@@ -20,23 +20,41 @@ function apiDevMiddleware(): Plugin {
           const parsedUrl = new URL(req.url, 'http://localhost:5173');
           const pathname = parsedUrl.pathname;
           const routePath = pathname.replace(/^\/api\//, '');
-          let modulePath = `./api/${routePath}.ts`;
-          if (!fs.existsSync(modulePath)) {
-            const domain = routePath.split('/')[0];
-            const candidates = [
-              `./server/api/${routePath}.ts`,
-              `./server/api/${domain}.ts`,
-              `./server/handlers/${routePath}.ts`,
-              `./api/${routePath}.js`,
-              `./api/${domain}.js`,
-              `./api/${routePath}/index.ts`,
-            ];
-            for (const cand of candidates) {
-              if (fs.existsSync(cand)) {
+          const stripped = routePath.replace(/^admin\//, '');
+          const domain = routePath.split('/')[0];
+          const strippedDomain = stripped.split('/')[0];
+
+          let modulePath = '';
+          const candidates = [
+            `./api/${routePath}.ts`,
+            `./server/api/${routePath}.ts`,
+            `./server/api/${stripped}.ts`,
+            `./server/api/${domain}.ts`,
+            `./server/api/${strippedDomain}.ts`,
+            `./server/handlers/${routePath}/index.ts`,
+            `./server/handlers/${routePath}.ts`,
+            `./server/handlers/${stripped}/index.ts`,
+            `./server/handlers/${stripped}.ts`,
+            `./api/${routePath}.js`,
+            `./api/${stripped}.js`,
+            `./api/${domain}.js`,
+          ];
+
+          for (const cand of candidates) {
+            try {
+              if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
                 modulePath = cand;
                 break;
               }
+            } catch {
+              // continue
             }
+          }
+
+          if (!modulePath) {
+            res.statusCode = 404;
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ error: `Handler not found for ${pathname}` }));
           }
 
           let body: any = {};

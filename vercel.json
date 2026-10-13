@@ -12,6 +12,10 @@
     }
   ],
   "rewrites": [
+    { "source": "/api/admin/materials/(.*)", "destination": "/api/materials" },
+    { "source": "/api/admin/materials", "destination": "/api/materials" },
+    { "source": "/api/admin/finances/(.*)", "destination": "/api/materials" },
+    { "source": "/api/admin/finances", "destination": "/api/materials" },
     { "source": "/api/admin/staff/(.*)", "destination": "/api/staff" },
     { "source": "/api/admin/staff", "destination": "/api/staff" },
     { "source": "/api/admin/orders/(.*)", "destination": "/api/orders" },

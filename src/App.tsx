@@ -54,6 +54,7 @@ const AdminInfluencers = lazy(() => import('@/pages/admin/AdminInfluencers'));
 const AdminAbandonedCarts = lazy(() => import('@/pages/admin/AdminAbandonedCarts'));
 const AdminReports = lazy(() => import('@/pages/admin/AdminReports'));
 const AdminOccasions = lazy(() => import('@/pages/admin/AdminOccasions'));
+const AdminMaterialLedger = lazy(() => import('@/pages/admin/AdminMaterialLedger'));
 
 function PageFallback() {
   return (
@@ -107,6 +108,8 @@ function AppContent() {
             {/* Capability-Protected Operational Routes */}
             <Route element={<AdminRoute requiredPermission="analytics.read" />}>
               <Route path="/admin/reports" element={<AdminReports />} />
+              <Route path="/admin/materials" element={<AdminMaterialLedger />} />
+              <Route path="/admin/finances" element={<AdminMaterialLedger />} />
             </Route>
 
             <Route element={<AdminRoute requiredPermission="orders.read" />}>
